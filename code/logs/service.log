@@ -1,0 +1,2443 @@
+
+Lancement de 60 backtests avec optimisation sniper...
+
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI                                                |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $158,158.59                                                        |
+|  Max Drawdown: 38.79%                                                       |
+|  Win Rate: 87.10%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI_SMA      |    76,220.12 |       86,220.12 |
+|   1h    |   12 / 22    | StochRSI          |   100,052.72 |      110,052.72 |
+|   1h    |   26 / 50    | StochRSI          |    93,085.52 |      103,085.52 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |    76,094.99 |       86,094.99 |
+|   1h    |   26 / 50    | StochRSI_SMA      |    34,300.44 |       44,300.44 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    41,478.37 |       51,478.37 |
+|   1h    |   18 / 36    | StochRSI          |   135,690.88 |      145,690.88 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |    70,097.77 |       80,097.77 |
+|   1h    |   18 / 36    | StochRSI_SMA      |    51,743.28 |       61,743.28 |
+|   1h    |   26 / 50    | StochRSI_ADX      |    52,966.97 |       62,966.97 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |    95,751.06 |      105,751.06 |
+|   1h    |   20 / 40    | StochRSI          |   138,052.44 |      148,052.44 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    63,753.95 |       73,753.95 |
+|   1h    |   20 / 40    | StochRSI_SMA      |    51,432.54 |       61,432.54 |
+|   1h    |   30 / 60    | StochRSI          |    65,646.18 |       75,646.18 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   120,557.14 |      130,557.14 |
+|   1h    |   30 / 60    | StochRSI_SMA      |    22,533.71 |       32,533.71 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    37,930.80 |       47,930.80 |
+|   4h    |   22 / 44    | StochRSI          |   111,168.25 |      121,168.25 |
+|   4h    |   22 / 44    | StochRSI_SMA      |    69,467.08 |       79,467.08 |
+|   4h    |   22 / 44    | StochRSI_ADX      |   122,299.66 |      132,299.66 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |    60,520.54 |       70,520.54 |
+|   4h    |   26 / 50    | StochRSI          |   158,158.59 |      168,158.59 |
+|   1h    |   30 / 60    | StochRSI_ADX      |    57,067.32 |       67,067.32 |
+|   4h    |   26 / 50    | StochRSI_SMA      |    73,573.48 |       83,573.48 |
+|   4h    |   22 / 44    | StochRSI_TRIX     |    70,228.07 |       80,228.07 |
+|   4h    |   18 / 36    | StochRSI          |    84,296.84 |       94,296.84 |
+|   4h    |   26 / 50    | StochRSI_TRIX     |    64,491.02 |       74,491.02 |
+|   4h    |   18 / 36    | StochRSI_SMA      |    37,647.90 |       47,647.90 |
+|   4h    |   26 / 50    | StochRSI_ADX      |   140,481.72 |      150,481.72 |
+|   4h    |   20 / 40    | StochRSI          |   133,603.16 |      143,603.16 |
+|   4h    |   20 / 40    | StochRSI_SMA      |    56,010.61 |       66,010.61 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |    63,722.39 |       73,722.39 |
+|   4h    |   18 / 36    | StochRSI_ADX      |   124,715.83 |      134,715.83 |
+|   4h    |   20 / 40    | StochRSI_TRIX     |    59,303.68 |       69,303.68 |
+|   4h    |   30 / 60    | StochRSI          |    63,094.99 |       73,094.99 |
+|   4h    |   30 / 60    | StochRSI_SMA      |    63,662.23 |       73,662.23 |
+|   1d    |   44 / 176   | StochRSI          |   103,450.21 |      113,450.21 |
+|   4h    |   20 / 40    | StochRSI_ADX      |   129,948.00 |      139,948.00 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    31,250.93 |       41,250.93 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |    30,817.48 |       40,817.48 |
+|   1d    |   44 / 176   | StochRSI_ADX      |    32,860.83 |       42,860.83 |
+|   1d    |   26 / 50    | StochRSI          |    41,571.12 |       51,571.12 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    11,569.25 |       21,569.25 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |    18,514.94 |       28,514.94 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |    57,801.31 |       67,801.31 |
+|   1d    |   18 / 36    | StochRSI          |    53,654.30 |       63,654.30 |
+|   1d    |   26 / 50    | StochRSI_ADX      |    25,786.87 |       35,786.87 |
+|   4h    |   30 / 60    | StochRSI_ADX      |    68,306.57 |       78,306.57 |
+|   1d    |   20 / 40    | StochRSI          |    46,754.79 |       56,754.79 |
+|   1d    |   18 / 36    | StochRSI_ADX      |    30,372.25 |       40,372.25 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    14,443.69 |       24,443.69 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |    25,536.86 |       35,536.86 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    13,994.07 |       23,994.07 |
+|   1d    |   30 / 60    | StochRSI          |    65,488.49 |       75,488.49 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |    26,174.54 |       36,174.54 |
+|   1d    |   20 / 40    | StochRSI_ADX      |    28,430.50 |       38,430.50 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    11,275.86 |       21,275.86 |
+|   1d    |   30 / 60    | StochRSI_ADX      |    25,052.72 |       35,052.72 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |    25,514.00 |       35,514.00 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI                                            |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.460000 USDC                                 |
+|  Solde global Binance     : 131.04 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.46 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.46 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 137.129319 USDC (fixe à l'entrée)                |
+|  (Stop-loss fixe à l'ouverture)                                             |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -1.77 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 13:49:21                                 |
+|   Temps ecoule        : 0:04:27                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine exécution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+
+===============================================================================
+=========================================
+[OK] BOT ACTIF - Surveillance 24/7 demarree a 13:53:48
+[INFO] 1 tache(s) planifiee(s) - Prochaine execution: 13:55:48
+Le bot execute les verifications de trading toutes les 2 minutes 
+automatiquement
+===============================================================================
+=========================================
+
+[TIME] 13:53:48 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(13:55:48)
+[RUNNING] 13:53:48 - running en cours
+[DIAG] Python executable: C:\Users\averr\BIBOT\.venv\Scripts\python.exe
+[DIAG] Python version: 3.13.1
+[DIAG] Working directory: C:\Users\averr\BIBOT\MULTI_ASSETS_BOT\code
+[DIAG] Environment variables:
+    PATH: C:\Program Files\Common 
+Files\Oracle\Java\javapath;C:\Python313\Scripts\;C:\Python313\;C:\Python312\Scr
+ipts\;C:\Python312\;C:\Program Files\Eclipse 
+Adoptium\jdk-21.0.3.9-hotspot\bin;C:\Program Files (x86)\Common 
+Files\Intel\Shared 
+Libraries\redist\intel64\compiler;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\Sys
+tem32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\Open
+SSH\;C:\Program Files\Git\cmd;C:\Program Files\Go\bin;C:\Program 
+Files\MongoDB\Server\7.0\bin;C:\Program 
+Files\Docker\cli-plugins;C:\Users\averr\AppData\Local\Packages\PythonSoftwareFo
+undation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\Scripts;
+C:\Users\averr\AppData\Roaming\nvm;C:\Program Files\nodejs;C:\Program Files 
+(x86)\Windows Kits\10\Windows Performance 
+Toolkit\;C:\ProgramData\chocolatey\bin;C:\Users\averr\sqlite;C:\Program 
+Files\MetaTrader 5\MQL5\Python;C:\Program Files\NVIDIA GPU Computing 
+Toolkit\CUDA\v11.8\lib;C:\Program Files\dotnet\;C:\Program Files\NVIDIA GPU 
+Computing Toolkit\CUDA\v11.8\bin;C:\Program Files\NVIDIA GPU Computing 
+Toolkit\CUDA\v11.8\include;C:\Users\averr\SMMA_VALUE_FINDER\myenv\lib\python3.8
+;C:\ffmpeg\bin;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDO
+WS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\msys64\ming
+w64\bin;C:\Users\averr\market_making_hft\venv\Scripts;C:\Users\averr\scoop\shim
+s;C:\Users\averr\AppData\Local\Microsoft\WindowsApps;C:\Users\averr\AppData\Loc
+al\Programs\Microsoft VS 
+Code\bin;C:\Users\averr\AppData\Local\Microsoft\WinGet\Packages\Schniz.fnm_Micr
+osoft.Winget.Source_8wekyb3d8bbwe;C:\Users\averr\go\bin;C:\Users\averr\AppData\
+Roaming\npm;c:\Users\averr\.vscode\extensions\ms-python.debugpy-2025.10.0-win32
+-x64\bundled\scripts\noConfigScripts;C:\mingw64\bin;C:\ProgramData\chocolatey\l
+ib\mingw\tools\install\mingw64\bin;C:\mingw64\bin;C:\mingw64\bin;C:\Program 
+Files\LLVM\bin;C:\Program Files\Redis;C:\Python38\;C:\Program 
+Files\Docker\Docker\resources\bin;C:\Program Files 
+(x86)\Gpg4win\..\GnuPG\bin;C:\Program Files\NVIDIA Corporation\N;C:\Program 
+Files\NVIDIA Corporation\NVIDIA App\NvDLISR;C:\Program Files (x86)\NVIDIA 
+Corporation\PhysX\Common;C:\Program Files\MiKTeX\miktex\bin\x64\;C:\Program 
+Files\nodejs\;C:\Program Files\doxygen\bin;C:\Program Files (x86)\Google\Cloud 
+SDK\google-cloud-sdk\bin;C:\WINDOWS\system32\config\systemprofile\AppData\Local
+\Microsoft\WindowsApps
+    PATHEXT: .COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY;.PYW
+    PYTHONWARNINGS: ignore::DeprecationWarning
+    PYTHONDONTWRITEBYTECODE: 1
+[DIAG] Versions des packages critiques:
+    pandas: 2.3.3
+    numpy: 2.2.6
+    binance: 1.0.29
+    ta: (not found)
+    requests: 2.31.0
+    schedule: (not found)
+
+Lancement de 60 backtests avec optimisation sniper...
+
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,348,669.89                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI_SMA      |   284,907.04 |      294,907.04 |
+|   1h    |   12 / 22    | StochRSI          |   208,969.30 |      218,969.30 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   255,849.19 |      265,849.19 |
+|   1h    |   26 / 50    | StochRSI          |   502,968.62 |      512,968.62 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   238,196.94 |      248,196.94 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    19,850.18 |       29,850.18 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   419,046.94 |      429,046.94 |
+|   1h    |   18 / 36    | StochRSI          |   398,098.57 |      408,098.57 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   219,800.17 |      229,800.17 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   138,746.51 |      148,746.51 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   482,872.43 |      492,872.43 |
+|   1h    |   20 / 40    | StochRSI          |   391,341.60 |      401,341.60 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   186,347.17 |      196,347.17 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    77,009.60 |       87,009.60 |
+|   1h    |   30 / 60    | StochRSI          |   499,547.24 |      509,547.24 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   499,586.36 |      509,586.36 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   223,914.04 |      233,914.04 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    49,017.78 |       59,017.78 |
+|   4h    |   22 / 44    | StochRSI          |   895,581.43 |      905,581.43 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   345,486.74 |      355,486.74 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   476,859.01 |      486,859.01 |
+|   4h    |   26 / 50    | StochRSI          | 1,976,514.16 |    1,986,514.16 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,245,394.84 |    1,255,394.84 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,238,866.04 |    1,248,866.04 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   355,610.16 |      365,610.16 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   484,605.74 |      494,605.74 |
+|   4h    |   18 / 36    | StochRSI          |   681,413.81 |      691,413.81 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,565,038.21 |    1,575,038.21 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,348,669.89 |    2,358,669.89 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   200,864.91 |      210,864.91 |
+|   4h    |   20 / 40    | StochRSI          | 1,008,465.92 |    1,018,465.92 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   893,249.63 |      903,249.63 |
+|   4h    |   18 / 36    | StochRSI_ADX      |   820,992.11 |      830,992.11 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   301,239.42 |      311,239.42 |
+|   4h    |   20 / 40    | StochRSI_TRIX     |   956,740.48 |      966,740.48 |
+|   4h    |   30 / 60    | StochRSI          |   596,844.91 |      606,844.91 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,306,065.04 |    1,316,065.04 |
+|   1d    |   44 / 176   | StochRSI          |   862,379.62 |      872,379.62 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   324,334.87 |      334,334.87 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    80,443.57 |       90,443.57 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   400,326.31 |      410,326.31 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   249,917.46 |      259,917.46 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   966,156.33 |      976,156.33 |
+|   1d    |   26 / 50    | StochRSI          |   375,936.27 |      385,936.27 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   974,182.82 |      984,182.82 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    50,347.49 |       60,347.49 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   183,877.89 |      193,877.89 |
+|   1d    |   26 / 50    | StochRSI_ADX      |   146,355.46 |      156,355.46 |
+|   1d    |   18 / 36    | StochRSI          |   311,115.72 |      321,115.72 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    70,555.35 |       80,555.35 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    63,850.04 |       73,850.04 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   180,936.62 |      190,936.62 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   190,298.19 |      200,298.19 |
+|   1d    |   20 / 40    | StochRSI          |   284,243.59 |      294,243.59 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   167,057.34 |      177,057.34 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   173,086.44 |      183,086.44 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    55,928.45 |       65,928.45 |
+|   1d    |   30 / 60    | StochRSI          |   561,307.54 |      571,307.54 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   258,644.73 |      268,644.73 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   189,910.76 |      199,910.76 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.100000 USDC                                 |
+|  Solde global Binance     : 130.71 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.10 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.10 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -2.10 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 15:40:04                                 |
+|   Temps ecoule        : 0:00:32                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine exécution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+
+===============================================================================
+=========================================
+[OK] BOT ACTIF - Surveillance 24/7 demarree a 15:40:36
+[INFO] 1 tache(s) planifiee(s) - Prochaine execution: 15:42:36
+Le bot execute les verifications de trading toutes les 2 minutes 
+automatiquement
+===============================================================================
+=========================================
+
+[TIME] 15:40:36 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(15:42:36)
+[RUNNING] 15:40:36 - running en cours
+[DIAG] Python executable: C:\Users\averr\BIBOT\.venv\Scripts\python.exe
+[DIAG] Python version: 3.13.1
+[DIAG] Working directory: C:\Users\averr\BIBOT\MULTI_ASSETS_BOT\code
+[DIAG] Environment variables:
+    PATH: C:\Program Files\Common 
+Files\Oracle\Java\javapath;C:\Python313\Scripts\;C:\Python313\;C:\Python312\Scr
+ipts\;C:\Python312\;C:\Program Files\Eclipse 
+Adoptium\jdk-21.0.3.9-hotspot\bin;C:\Program Files (x86)\Common 
+Files\Intel\Shared 
+Libraries\redist\intel64\compiler;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\Sys
+tem32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\Open
+SSH\;C:\Program Files\Git\cmd;C:\Program Files\Go\bin;C:\Program 
+Files\MongoDB\Server\7.0\bin;C:\Program 
+Files\Docker\cli-plugins;C:\Users\averr\AppData\Local\Packages\PythonSoftwareFo
+undation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\Scripts;
+C:\Users\averr\AppData\Roaming\nvm;C:\Program Files\nodejs;C:\Program Files 
+(x86)\Windows Kits\10\Windows Performance 
+Toolkit\;C:\ProgramData\chocolatey\bin;C:\Users\averr\sqlite;C:\Program 
+Files\MetaTrader 5\MQL5\Python;C:\Program Files\NVIDIA GPU Computing 
+Toolkit\CUDA\v11.8\lib;C:\Program Files\dotnet\;C:\Program Files\NVIDIA GPU 
+Computing Toolkit\CUDA\v11.8\bin;C:\Program Files\NVIDIA GPU Computing 
+Toolkit\CUDA\v11.8\include;C:\Users\averr\SMMA_VALUE_FINDER\myenv\lib\python3.8
+;C:\ffmpeg\bin;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDO
+WS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\msys64\ming
+w64\bin;C:\Users\averr\market_making_hft\venv\Scripts;C:\Users\averr\scoop\shim
+s;C:\Users\averr\AppData\Local\Microsoft\WindowsApps;C:\Users\averr\AppData\Loc
+al\Programs\Microsoft VS 
+Code\bin;C:\Users\averr\AppData\Local\Microsoft\WinGet\Packages\Schniz.fnm_Micr
+osoft.Winget.Source_8wekyb3d8bbwe;C:\Users\averr\go\bin;C:\Users\averr\AppData\
+Roaming\npm;c:\Users\averr\.vscode\extensions\ms-python.debugpy-2025.10.0-win32
+-x64\bundled\scripts\noConfigScripts;C:\mingw64\bin;C:\ProgramData\chocolatey\l
+ib\mingw\tools\install\mingw64\bin;C:\mingw64\bin;C:\mingw64\bin;C:\Program 
+Files\LLVM\bin;C:\Program Files\Redis;C:\Python38\;C:\Program 
+Files\Docker\Docker\resources\bin;C:\Program Files 
+(x86)\Gpg4win\..\GnuPG\bin;C:\Program Files\NVIDIA Corporation\N;C:\Program 
+Files\NVIDIA Corporation\NVIDIA App\NvDLISR;C:\Program Files (x86)\NVIDIA 
+Corporation\PhysX\Common;C:\Program Files\MiKTeX\miktex\bin\x64\;C:\Program 
+Files\nodejs\;C:\Program Files\doxygen\bin;C:\Program Files (x86)\Google\Cloud 
+SDK\google-cloud-sdk\bin;C:\WINDOWS\system32\config\systemprofile\AppData\Local
+\Microsoft\WindowsApps
+    PATHEXT: .COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY;.PYW
+    PYTHONWARNINGS: ignore::DeprecationWarning
+    PYTHONDONTWRITEBYTECODE: 1
+[DIAG] Versions des packages critiques:
+    pandas: 2.3.3
+    numpy: 2.2.6
+    binance: 1.0.29
+    ta: (not found)
+    requests: 2.31.0
+    schedule: (not found)
+
+Lancement de 60 backtests avec optimisation sniper...
+
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,348,669.89                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   208,969.30 |      218,969.30 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   284,907.04 |      294,907.04 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   255,849.19 |      265,849.19 |
+|   1h    |   26 / 50    | StochRSI          |   502,968.62 |      512,968.62 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   238,196.94 |      248,196.94 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    19,850.18 |       29,850.18 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   419,046.94 |      429,046.94 |
+|   1h    |   18 / 36    | StochRSI          |   398,098.57 |      408,098.57 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   219,800.17 |      229,800.17 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   138,746.51 |      148,746.51 |
+|   1h    |   20 / 40    | StochRSI          |   391,341.60 |      401,341.60 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   482,872.43 |      492,872.43 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   186,347.17 |      196,347.17 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    77,009.60 |       87,009.60 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   499,586.36 |      509,586.36 |
+|   1h    |   30 / 60    | StochRSI          |   499,547.24 |      509,547.24 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   223,914.04 |      233,914.04 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    49,017.78 |       59,017.78 |
+|   4h    |   22 / 44    | StochRSI          |   895,581.43 |      905,581.43 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   345,486.74 |      355,486.74 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,245,394.84 |    1,255,394.84 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   476,859.01 |      486,859.01 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,238,866.04 |    1,248,866.04 |
+|   4h    |   26 / 50    | StochRSI          | 1,976,514.16 |    1,986,514.16 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   355,610.16 |      365,610.16 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   484,605.74 |      494,605.74 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,348,669.89 |    2,358,669.89 |
+|   4h    |   18 / 36    | StochRSI          |   681,413.81 |      691,413.81 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,565,038.21 |    1,575,038.21 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   200,864.91 |      210,864.91 |
+|   4h    |   18 / 36    | StochRSI_ADX      |   820,992.11 |      830,992.11 |
+|   4h    |   20 / 40    | StochRSI          | 1,008,465.92 |    1,018,465.92 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   893,249.63 |      903,249.63 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   301,239.42 |      311,239.42 |
+|   4h    |   20 / 40    | StochRSI_TRIX     |   956,740.48 |      966,740.48 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,306,065.04 |    1,316,065.04 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   324,334.87 |      334,334.87 |
+|   1d    |   44 / 176   | StochRSI          |   862,379.62 |      872,379.62 |
+|   4h    |   30 / 60    | StochRSI          |   596,844.91 |      606,844.91 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   249,917.46 |      259,917.46 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    80,443.57 |       90,443.57 |
+|   1d    |   26 / 50    | StochRSI          |   375,936.27 |      385,936.27 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    50,347.49 |       60,347.49 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   400,326.31 |      410,326.31 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   974,182.82 |      984,182.82 |
+|   1d    |   18 / 36    | StochRSI          |   311,115.72 |      321,115.72 |
+|   1d    |   26 / 50    | StochRSI_ADX      |   146,355.46 |      156,355.46 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   183,877.89 |      193,877.89 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    70,555.35 |       80,555.35 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   966,156.33 |      976,156.33 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   190,298.19 |      200,298.19 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   180,936.62 |      190,936.62 |
+|   1d    |   20 / 40    | StochRSI          |   284,243.59 |      294,243.59 |
+|   1d    |   30 / 60    | StochRSI          |   561,307.54 |      571,307.54 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    63,850.04 |       73,850.04 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   167,057.34 |      177,057.34 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   173,086.44 |      183,086.44 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    55,928.45 |       65,928.45 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   189,910.76 |      199,910.76 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   258,644.73 |      268,644.73 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.160000 USDC                                 |
+|  Solde global Binance     : 130.76 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.16 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.16 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -2.04 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 15:40:36                                 |
+|   Temps ecoule        : 0:00:41                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine exécution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+
+===============================================================================
+=========================================
+[OK] BOT ACTIF - Surveillance 24/7 demarree a 15:41:17
+[INFO] 1 tache(s) planifiee(s) - Prochaine execution: 15:43:17
+Le bot execute les verifications de trading toutes les 2 minutes 
+automatiquement
+===============================================================================
+=========================================
+
+[TIME] 15:41:17 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(15:43:17)
+[RUNNING] 15:41:17 - running en cours
+
+Lancement de 60 backtests avec optimisation sniper...
+
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,348,669.89                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI_SMA      |   284,907.04 |      294,907.04 |
+|   1h    |   12 / 22    | StochRSI          |   208,969.30 |      218,969.30 |
+|   1h    |   26 / 50    | StochRSI          |   502,968.62 |      512,968.62 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   255,849.19 |      265,849.19 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   238,196.94 |      248,196.94 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    19,850.18 |       29,850.18 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   419,046.94 |      429,046.94 |
+|   1h    |   18 / 36    | StochRSI          |   398,098.57 |      408,098.57 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   219,800.17 |      229,800.17 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   138,746.51 |      148,746.51 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   482,872.43 |      492,872.43 |
+|   1h    |   20 / 40    | StochRSI          |   391,341.60 |      401,341.60 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   186,347.17 |      196,347.17 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    77,009.60 |       87,009.60 |
+|   1h    |   30 / 60    | StochRSI          |   499,547.24 |      509,547.24 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   499,586.36 |      509,586.36 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   223,914.04 |      233,914.04 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    49,017.78 |       59,017.78 |
+|   4h    |   22 / 44    | StochRSI          |   895,581.43 |      905,581.43 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   345,486.74 |      355,486.74 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,238,866.04 |    1,248,866.04 |
+|   4h    |   26 / 50    | StochRSI          | 1,976,514.16 |    1,986,514.16 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,245,394.84 |    1,255,394.84 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   476,859.01 |      486,859.01 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   484,605.74 |      494,605.74 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   355,610.16 |      365,610.16 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,565,038.21 |    1,575,038.21 |
+|   4h    |   18 / 36    | StochRSI          |   681,413.81 |      691,413.81 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   200,864.91 |      210,864.91 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,348,669.89 |    2,358,669.89 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   893,249.63 |      903,249.63 |
+|   4h    |   20 / 40    | StochRSI          | 1,008,465.92 |    1,018,465.92 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   301,239.42 |      311,239.42 |
+|   4h    |   18 / 36    | StochRSI_ADX      |   820,992.11 |      830,992.11 |
+|   4h    |   30 / 60    | StochRSI          |   596,844.91 |      606,844.91 |
+|   4h    |   20 / 40    | StochRSI_TRIX     |   956,740.48 |      966,740.48 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   324,334.87 |      334,334.87 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,306,065.04 |    1,316,065.04 |
+|   1d    |   44 / 176   | StochRSI          |   862,379.62 |      872,379.62 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    80,443.57 |       90,443.57 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   249,917.46 |      259,917.46 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   400,326.31 |      410,326.31 |
+|   1d    |   26 / 50    | StochRSI          |   375,936.27 |      385,936.27 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   966,156.33 |      976,156.33 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    50,347.49 |       60,347.49 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   974,182.82 |      984,182.82 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   183,877.89 |      193,877.89 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    70,555.35 |       80,555.35 |
+|   1d    |   18 / 36    | StochRSI          |   311,115.72 |      321,115.72 |
+|   1d    |   26 / 50    | StochRSI_ADX      |   146,355.46 |      156,355.46 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   190,298.19 |      200,298.19 |
+|   1d    |   20 / 40    | StochRSI          |   284,243.59 |      294,243.59 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   180,936.62 |      190,936.62 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   167,057.34 |      177,057.34 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    63,850.04 |       73,850.04 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    55,928.45 |       65,928.45 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   173,086.44 |      183,086.44 |
+|   1d    |   30 / 60    | StochRSI          |   561,307.54 |      571,307.54 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   258,644.73 |      268,644.73 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   189,910.76 |      199,910.76 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.120000 USDC                                 |
+|  Solde global Binance     : 130.73 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.12 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.12 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -2.08 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 15:41:17                                 |
+|   Temps ecoule        : 0:02:27                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine exécution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+
+===============================================================================
+=========================================
+[OK] BOT ACTIF - Surveillance 24/7 demarree a 15:43:44
+[INFO] 1 tache(s) planifiee(s) - Prochaine execution: 15:45:44
+Le bot execute les verifications de trading toutes les 2 minutes 
+automatiquement
+===============================================================================
+=========================================
+
+[TIME] 15:43:44 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(15:45:44)
+[RUNNING] 15:43:44 - running en cours
+
+===============================================================================
+=========================================
+[RUN] EXECUTION PLANIFIEE - 2026-01-16 15:45:44
+Paire: SOLUSDT -> SOLUSDC | Timeframe: 4h
+===============================================================================
+=========================================
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,348,669.89                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   208,969.30 |      218,969.30 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   284,907.04 |      294,907.04 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   255,849.19 |      265,849.19 |
+|   1h    |   26 / 50    | StochRSI          |   502,968.62 |      512,968.62 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   238,196.94 |      248,196.94 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    19,850.18 |       29,850.18 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   419,046.94 |      429,046.94 |
+|   1h    |   18 / 36    | StochRSI          |   398,098.57 |      408,098.57 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   219,800.17 |      229,800.17 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   138,746.51 |      148,746.51 |
+|   1h    |   20 / 40    | StochRSI          |   391,341.60 |      401,341.60 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    77,009.60 |       87,009.60 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   186,347.17 |      196,347.17 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   482,872.43 |      492,872.43 |
+|   1h    |   30 / 60    | StochRSI          |   499,547.24 |      509,547.24 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   499,586.36 |      509,586.36 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   223,914.04 |      233,914.04 |
+|   4h    |   22 / 44    | StochRSI          |   895,581.43 |      905,581.43 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    49,017.78 |       59,017.78 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   476,859.01 |      486,859.01 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   345,486.74 |      355,486.74 |
+|   4h    |   26 / 50    | StochRSI          | 1,976,514.16 |    1,986,514.16 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,245,394.84 |    1,255,394.84 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,238,866.04 |    1,248,866.04 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   484,605.74 |      494,605.74 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   355,610.16 |      365,610.16 |
+|   4h    |   18 / 36    | StochRSI          |   681,413.81 |      691,413.81 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,348,669.89 |    2,358,669.89 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   200,864.91 |      210,864.91 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,565,038.21 |    1,575,038.21 |
+|   4h    |   20 / 40    | StochRSI          | 1,008,465.92 |    1,018,465.92 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   893,249.63 |      903,249.63 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   301,239.42 |      311,239.42 |
+|   4h    |   18 / 36    | StochRSI_ADX      |   820,992.11 |      830,992.11 |
+|   4h    |   20 / 40    | StochRSI_TRIX     |   956,740.48 |      966,740.48 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,306,065.04 |    1,316,065.04 |
+|   4h    |   30 / 60    | StochRSI          |   596,844.91 |      606,844.91 |
+|   1d    |   44 / 176   | StochRSI          |   862,379.62 |      872,379.62 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   324,334.87 |      334,334.87 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    80,443.57 |       90,443.57 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   249,917.46 |      259,917.46 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   400,326.31 |      410,326.31 |
+|   1d    |   26 / 50    | StochRSI          |   375,936.27 |      385,936.27 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   966,156.33 |      976,156.33 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    50,347.49 |       60,347.49 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   974,182.82 |      984,182.82 |
+|   1d    |   26 / 50    | StochRSI_ADX      |   146,355.46 |      156,355.46 |
+|   1d    |   18 / 36    | StochRSI          |   311,115.72 |      321,115.72 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    70,555.35 |       80,555.35 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   180,936.62 |      190,936.62 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   190,298.19 |      200,298.19 |
+|   1d    |   20 / 40    | StochRSI          |   284,243.59 |      294,243.59 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   183,877.89 |      193,877.89 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   173,086.44 |      183,086.44 |
+|   1d    |   30 / 60    | StochRSI          |   561,307.54 |      571,307.54 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    63,850.04 |       73,850.04 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   167,057.34 |      177,057.34 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    55,928.45 |       65,928.45 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   189,910.76 |      199,910.76 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   258,644.73 |      268,644.73 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.530000 USDC                                 |
+|  Solde global Binance     : 131.07 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.53 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.53 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -1.71 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 15:43:44                                 |
+|   Temps ecoule        : 0:02:13                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine execution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+[TIME] 15:45:57 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(15:47:57)
+[RUNNING] 15:45:57 - running en cours
+
+===============================================================================
+=========================================
+[RUN] EXECUTION PLANIFIEE - 2026-01-16 15:47:57
+Paire: SOLUSDT -> SOLUSDC | Timeframe: 4h
+===============================================================================
+=========================================
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,348,669.89                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   208,969.30 |      218,969.30 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   284,907.04 |      294,907.04 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   255,849.19 |      265,849.19 |
+|   1h    |   26 / 50    | StochRSI          |   502,968.62 |      512,968.62 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   238,196.94 |      248,196.94 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    19,850.18 |       29,850.18 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   419,046.94 |      429,046.94 |
+|   1h    |   18 / 36    | StochRSI          |   398,098.57 |      408,098.57 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   219,800.17 |      229,800.17 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   138,746.51 |      148,746.51 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   482,872.43 |      492,872.43 |
+|   1h    |   20 / 40    | StochRSI          |   391,341.60 |      401,341.60 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   186,347.17 |      196,347.17 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    77,009.60 |       87,009.60 |
+|   1h    |   30 / 60    | StochRSI          |   499,547.24 |      509,547.24 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   499,586.36 |      509,586.36 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   223,914.04 |      233,914.04 |
+|   4h    |   22 / 44    | StochRSI          |   895,581.43 |      905,581.43 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    49,017.78 |       59,017.78 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   345,486.74 |      355,486.74 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,238,866.04 |    1,248,866.04 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   476,859.01 |      486,859.01 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,245,394.84 |    1,255,394.84 |
+|   4h    |   26 / 50    | StochRSI          | 1,976,514.16 |    1,986,514.16 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   484,605.74 |      494,605.74 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   355,610.16 |      365,610.16 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,565,038.21 |    1,575,038.21 |
+|   4h    |   18 / 36    | StochRSI          |   681,413.81 |      691,413.81 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,348,669.89 |    2,358,669.89 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   200,864.91 |      210,864.91 |
+|   4h    |   18 / 36    | StochRSI_ADX      |   820,992.11 |      830,992.11 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   893,249.63 |      903,249.63 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   301,239.42 |      311,239.42 |
+|   4h    |   20 / 40    | StochRSI          | 1,008,465.92 |    1,018,465.92 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,306,065.04 |    1,316,065.04 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   324,334.87 |      334,334.87 |
+|   4h    |   20 / 40    | StochRSI_TRIX     |   956,740.48 |      966,740.48 |
+|   4h    |   30 / 60    | StochRSI          |   596,844.91 |      606,844.91 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   966,156.33 |      976,156.33 |
+|   1d    |   44 / 176   | StochRSI          |   862,379.62 |      872,379.62 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    80,443.57 |       90,443.57 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   249,917.46 |      259,917.46 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    50,347.49 |       60,347.49 |
+|   1d    |   26 / 50    | StochRSI          |   375,936.27 |      385,936.27 |
+|   1d    |   26 / 50    | StochRSI_ADX      |   146,355.46 |      156,355.46 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   400,326.31 |      410,326.31 |
+|   1d    |   18 / 36    | StochRSI          |   311,115.72 |      321,115.72 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   183,877.89 |      193,877.89 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   974,182.82 |      984,182.82 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    70,555.35 |       80,555.35 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   180,936.62 |      190,936.62 |
+|   1d    |   20 / 40    | StochRSI          |   284,243.59 |      294,243.59 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    63,850.04 |       73,850.04 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   190,298.19 |      200,298.19 |
+|   1d    |   30 / 60    | StochRSI          |   561,307.54 |      571,307.54 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    55,928.45 |       65,928.45 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   167,057.34 |      177,057.34 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   189,910.76 |      199,910.76 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   173,086.44 |      183,086.44 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   258,644.73 |      268,644.73 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.260000 USDC                                 |
+|  Solde global Binance     : 130.85 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.26 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.26 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -1.95 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 15:45:57                                 |
+|   Temps ecoule        : 0:02:13                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine execution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+[TIME] 15:48:10 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(15:50:10)
+[RUNNING] 15:48:10 - running en cours
+
+===============================================================================
+=========================================
+[RUN] EXECUTION PLANIFIEE - 2026-01-16 15:50:10
+Paire: SOLUSDT -> SOLUSDC | Timeframe: 4h
+===============================================================================
+=========================================
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,348,669.89                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   208,969.30 |      218,969.30 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   284,907.04 |      294,907.04 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   255,849.19 |      265,849.19 |
+|   1h    |   26 / 50    | StochRSI          |   502,968.62 |      512,968.62 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   238,196.94 |      248,196.94 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    19,850.18 |       29,850.18 |
+|   1h    |   18 / 36    | StochRSI          |   398,098.57 |      408,098.57 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   419,046.94 |      429,046.94 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   219,800.17 |      229,800.17 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   138,746.51 |      148,746.51 |
+|   1h    |   20 / 40    | StochRSI          |   391,341.60 |      401,341.60 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   482,872.43 |      492,872.43 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   186,347.17 |      196,347.17 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    77,009.60 |       87,009.60 |
+|   1h    |   30 / 60    | StochRSI          |   499,547.24 |      509,547.24 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   499,586.36 |      509,586.36 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   223,914.04 |      233,914.04 |
+|   4h    |   22 / 44    | StochRSI          |   895,581.43 |      905,581.43 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    49,017.78 |       59,017.78 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   345,486.74 |      355,486.74 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   476,859.01 |      486,859.01 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,238,866.04 |    1,248,866.04 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,245,394.84 |    1,255,394.84 |
+|   4h    |   26 / 50    | StochRSI          | 1,976,514.16 |    1,986,514.16 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   355,610.16 |      365,610.16 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   484,605.74 |      494,605.74 |
+|   4h    |   18 / 36    | StochRSI          |   681,413.81 |      691,413.81 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,565,038.21 |    1,575,038.21 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   200,864.91 |      210,864.91 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,348,669.89 |    2,358,669.89 |
+|   4h    |   20 / 40    | StochRSI          | 1,008,465.92 |    1,018,465.92 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   893,249.63 |      903,249.63 |
+|   4h    |   18 / 36    | StochRSI_ADX      |   820,992.11 |      830,992.11 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   301,239.42 |      311,239.42 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,306,065.04 |    1,316,065.04 |
+|   4h    |   20 / 40    | StochRSI_TRIX     |   956,740.48 |      966,740.48 |
+|   4h    |   30 / 60    | StochRSI          |   596,844.91 |      606,844.91 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   324,334.87 |      334,334.87 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    80,443.57 |       90,443.57 |
+|   1d    |   44 / 176   | StochRSI          |   862,379.62 |      872,379.62 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   400,326.31 |      410,326.31 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   249,917.46 |      259,917.46 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    50,347.49 |       60,347.49 |
+|   1d    |   26 / 50    | StochRSI          |   375,936.27 |      385,936.27 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   974,182.82 |      984,182.82 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   183,877.89 |      193,877.89 |
+|   1d    |   26 / 50    | StochRSI_ADX      |   146,355.46 |      156,355.46 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    70,555.35 |       80,555.35 |
+|   1d    |   18 / 36    | StochRSI          |   311,115.72 |      321,115.72 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   180,936.62 |      190,936.62 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   966,156.33 |      976,156.33 |
+|   1d    |   20 / 40    | StochRSI          |   284,243.59 |      294,243.59 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   190,298.19 |      200,298.19 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    63,850.04 |       73,850.04 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   167,057.34 |      177,057.34 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   173,086.44 |      183,086.44 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    55,928.45 |       65,928.45 |
+|   1d    |   30 / 60    | StochRSI          |   561,307.54 |      571,307.54 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   189,910.76 |      199,910.76 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   258,644.73 |      268,644.73 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.010000 USDC                                 |
+|  Solde global Binance     : 130.63 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.01 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.01 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -2.18 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 15:48:10                                 |
+|   Temps ecoule        : 0:02:12                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine execution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+[TIME] 15:50:22 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(15:52:22)
+[RUNNING] 15:50:22 - running en cours
+
+===============================================================================
+=========================================
+[RUN] EXECUTION PLANIFIEE - 2026-01-16 15:52:22
+Paire: SOLUSDT -> SOLUSDC | Timeframe: 4h
+===============================================================================
+=========================================
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,348,669.89                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   208,969.30 |      218,969.30 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   284,907.04 |      294,907.04 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   255,849.19 |      265,849.19 |
+|   1h    |   26 / 50    | StochRSI          |   502,968.62 |      512,968.62 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   238,196.94 |      248,196.94 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    19,850.18 |       29,850.18 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   419,046.94 |      429,046.94 |
+|   1h    |   18 / 36    | StochRSI          |   398,098.57 |      408,098.57 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   219,800.17 |      229,800.17 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   138,746.51 |      148,746.51 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   482,872.43 |      492,872.43 |
+|   1h    |   20 / 40    | StochRSI          |   391,341.60 |      401,341.60 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    77,009.60 |       87,009.60 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   186,347.17 |      196,347.17 |
+|   1h    |   30 / 60    | StochRSI          |   499,547.24 |      509,547.24 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   223,914.04 |      233,914.04 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   499,586.36 |      509,586.36 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    49,017.78 |       59,017.78 |
+|   4h    |   22 / 44    | StochRSI          |   895,581.43 |      905,581.43 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   345,486.74 |      355,486.74 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   476,859.01 |      486,859.01 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,245,394.84 |    1,255,394.84 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,238,866.04 |    1,248,866.04 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   355,610.16 |      365,610.16 |
+|   4h    |   26 / 50    | StochRSI          | 1,976,514.16 |    1,986,514.16 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   484,605.74 |      494,605.74 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,348,669.89 |    2,358,669.89 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,565,038.21 |    1,575,038.21 |
+|   4h    |   18 / 36    | StochRSI          |   681,413.81 |      691,413.81 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   200,864.91 |      210,864.91 |
+|   4h    |   18 / 36    | StochRSI_ADX      |   820,992.11 |      830,992.11 |
+|   4h    |   20 / 40    | StochRSI          | 1,008,465.92 |    1,018,465.92 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   893,249.63 |      903,249.63 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   301,239.42 |      311,239.42 |
+|   4h    |   20 / 40    | StochRSI_TRIX     |   956,740.48 |      966,740.48 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,306,065.04 |    1,316,065.04 |
+|   4h    |   30 / 60    | StochRSI          |   596,844.91 |      606,844.91 |
+|   1d    |   44 / 176   | StochRSI          |   862,379.62 |      872,379.62 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   324,334.87 |      334,334.87 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    80,443.57 |       90,443.57 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   400,326.31 |      410,326.31 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   249,917.46 |      259,917.46 |
+|   1d    |   26 / 50    | StochRSI          |   375,936.27 |      385,936.27 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   966,156.33 |      976,156.33 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   974,182.82 |      984,182.82 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    50,347.49 |       60,347.49 |
+|   1d    |   26 / 50    | StochRSI_ADX      |   146,355.46 |      156,355.46 |
+|   1d    |   18 / 36    | StochRSI          |   311,115.72 |      321,115.72 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   183,877.89 |      193,877.89 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   180,936.62 |      190,936.62 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   190,298.19 |      200,298.19 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    70,555.35 |       80,555.35 |
+|   1d    |   20 / 40    | StochRSI          |   284,243.59 |      294,243.59 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    63,850.04 |       73,850.04 |
+|   1d    |   30 / 60    | StochRSI          |   561,307.54 |      571,307.54 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    55,928.45 |       65,928.45 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   173,086.44 |      183,086.44 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   167,057.34 |      177,057.34 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   258,644.73 |      268,644.73 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   189,910.76 |      199,910.76 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.090000 USDC                                 |
+|  Solde global Binance     : 130.70 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.09 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.09 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -2.11 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 15:50:22                                 |
+|   Temps ecoule        : 0:02:13                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine execution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+[TIME] 15:52:35 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(15:54:35)
+[RUNNING] 15:52:35 - running en cours
+
+===============================================================================
+=========================================
+[RUN] EXECUTION PLANIFIEE - 2026-01-16 15:54:35
+Paire: SOLUSDT -> SOLUSDC | Timeframe: 4h
+===============================================================================
+=========================================
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,348,669.89                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   208,969.30 |      218,969.30 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   284,907.04 |      294,907.04 |
+|   1h    |   26 / 50    | StochRSI          |   502,968.62 |      512,968.62 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   255,849.19 |      265,849.19 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   238,196.94 |      248,196.94 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    19,850.18 |       29,850.18 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   419,046.94 |      429,046.94 |
+|   1h    |   18 / 36    | StochRSI          |   398,098.57 |      408,098.57 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   219,800.17 |      229,800.17 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   138,746.51 |      148,746.51 |
+|   1h    |   20 / 40    | StochRSI          |   391,341.60 |      401,341.60 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   482,872.43 |      492,872.43 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   186,347.17 |      196,347.17 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    77,009.60 |       87,009.60 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   499,586.36 |      509,586.36 |
+|   1h    |   30 / 60    | StochRSI          |   499,547.24 |      509,547.24 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   223,914.04 |      233,914.04 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    49,017.78 |       59,017.78 |
+|   4h    |   22 / 44    | StochRSI          |   895,581.43 |      905,581.43 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   345,486.74 |      355,486.74 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   476,859.01 |      486,859.01 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,238,866.04 |    1,248,866.04 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,245,394.84 |    1,255,394.84 |
+|   4h    |   26 / 50    | StochRSI          | 1,976,514.16 |    1,986,514.16 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   355,610.16 |      365,610.16 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   484,605.74 |      494,605.74 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,565,038.21 |    1,575,038.21 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,348,669.89 |    2,358,669.89 |
+|   4h    |   18 / 36    | StochRSI          |   681,413.81 |      691,413.81 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   200,864.91 |      210,864.91 |
+|   4h    |   20 / 40    | StochRSI          | 1,008,465.92 |    1,018,465.92 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   893,249.63 |      903,249.63 |
+|   4h    |   18 / 36    | StochRSI_ADX      |   820,992.11 |      830,992.11 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   301,239.42 |      311,239.42 |
+|   4h    |   30 / 60    | StochRSI          |   596,844.91 |      606,844.91 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   324,334.87 |      334,334.87 |
+|   4h    |   20 / 40    | StochRSI_TRIX     |   956,740.48 |      966,740.48 |
+|   1d    |   44 / 176   | StochRSI          |   862,379.62 |      872,379.62 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,306,065.04 |    1,316,065.04 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    80,443.57 |       90,443.57 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   249,917.46 |      259,917.46 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   400,326.31 |      410,326.31 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   974,182.82 |      984,182.82 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    50,347.49 |       60,347.49 |
+|   1d    |   26 / 50    | StochRSI          |   375,936.27 |      385,936.27 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   966,156.33 |      976,156.33 |
+|   1d    |   18 / 36    | StochRSI          |   311,115.72 |      321,115.72 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   183,877.89 |      193,877.89 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    70,555.35 |       80,555.35 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   180,936.62 |      190,936.62 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   190,298.19 |      200,298.19 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    63,850.04 |       73,850.04 |
+|   1d    |   26 / 50    | StochRSI_ADX      |   146,355.46 |      156,355.46 |
+|   1d    |   20 / 40    | StochRSI          |   284,243.59 |      294,243.59 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    55,928.45 |       65,928.45 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   173,086.44 |      183,086.44 |
+|   1d    |   30 / 60    | StochRSI          |   561,307.54 |      571,307.54 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   167,057.34 |      177,057.34 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   189,910.76 |      199,910.76 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   258,644.73 |      268,644.73 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.09 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.09 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -2.11 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 15:52:35                                 |
+|   Temps ecoule        : 0:02:15                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine execution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+[TIME] 15:54:50 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(15:56:50)
+[RUNNING] 15:54:50 - running en cours
+
+===============================================================================
+=========================================
+[RUN] EXECUTION PLANIFIEE - 2026-01-16 15:56:50
+Paire: SOLUSDT -> SOLUSDC | Timeframe: 4h
+===============================================================================
+=========================================
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,348,669.89                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   208,969.30 |      218,969.30 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   284,907.04 |      294,907.04 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   255,849.19 |      265,849.19 |
+|   1h    |   26 / 50    | StochRSI          |   502,968.62 |      512,968.62 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   238,196.94 |      248,196.94 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    19,850.18 |       29,850.18 |
+|   1h    |   18 / 36    | StochRSI          |   398,098.57 |      408,098.57 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   419,046.94 |      429,046.94 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   219,800.17 |      229,800.17 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   138,746.51 |      148,746.51 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   482,872.43 |      492,872.43 |
+|   1h    |   20 / 40    | StochRSI          |   391,341.60 |      401,341.60 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   186,347.17 |      196,347.17 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    77,009.60 |       87,009.60 |
+|   1h    |   30 / 60    | StochRSI          |   499,547.24 |      509,547.24 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   499,586.36 |      509,586.36 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   223,914.04 |      233,914.04 |
+|   4h    |   22 / 44    | StochRSI          |   895,581.43 |      905,581.43 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    49,017.78 |       59,017.78 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   345,486.74 |      355,486.74 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   476,859.01 |      486,859.01 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,245,394.84 |    1,255,394.84 |
+|   4h    |   26 / 50    | StochRSI          | 1,976,514.16 |    1,986,514.16 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,238,866.04 |    1,248,866.04 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   355,610.16 |      365,610.16 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   484,605.74 |      494,605.74 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,565,038.21 |    1,575,038.21 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   200,864.91 |      210,864.91 |
+|   4h    |   18 / 36    | StochRSI          |   681,413.81 |      691,413.81 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,348,669.89 |    2,358,669.89 |
+|   4h    |   20 / 40    | StochRSI          | 1,008,465.92 |    1,018,465.92 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   893,249.63 |      903,249.63 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   301,239.42 |      311,239.42 |
+|   4h    |   18 / 36    | StochRSI_ADX      |   820,992.11 |      830,992.11 |
+|   4h    |   20 / 40    | StochRSI_TRIX     |   956,740.48 |      966,740.48 |
+|   4h    |   30 / 60    | StochRSI          |   596,844.91 |      606,844.91 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   324,334.87 |      334,334.87 |
+|   1d    |   44 / 176   | StochRSI          |   862,379.62 |      872,379.62 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,306,065.04 |    1,316,065.04 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    80,443.57 |       90,443.57 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   400,326.31 |      410,326.31 |
+|   1d    |   26 / 50    | StochRSI          |   375,936.27 |      385,936.27 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   249,917.46 |      259,917.46 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    50,347.49 |       60,347.49 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   974,182.82 |      984,182.82 |
+|   1d    |   26 / 50    | StochRSI_ADX      |   146,355.46 |      156,355.46 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   183,877.89 |      193,877.89 |
+|   1d    |   18 / 36    | StochRSI          |   311,115.72 |      321,115.72 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    70,555.35 |       80,555.35 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   966,156.33 |      976,156.33 |
+|   1d    |   20 / 40    | StochRSI          |   284,243.59 |      294,243.59 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   190,298.19 |      200,298.19 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   180,936.62 |      190,936.62 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    63,850.04 |       73,850.04 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   173,086.44 |      183,086.44 |
+|   1d    |   30 / 60    | StochRSI          |   561,307.54 |      571,307.54 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   167,057.34 |      177,057.34 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    55,928.45 |       65,928.45 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   189,910.76 |      199,910.76 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   258,644.73 |      268,644.73 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.200000 USDC                                 |
+|  Solde global Binance     : 130.80 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.20 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.20 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -2.01 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 15:54:50                                 |
+|   Temps ecoule        : 0:02:13                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine execution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+[TIME] 15:57:03 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(15:59:03)
+[RUNNING] 15:57:03 - running en cours
+
+===============================================================================
+=========================================
+[RUN] EXECUTION PLANIFIEE - 2026-01-16 15:59:03
+Paire: SOLUSDT -> SOLUSDC | Timeframe: 4h
+===============================================================================
+=========================================
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,348,669.89                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   208,969.30 |      218,969.30 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   284,907.04 |      294,907.04 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   255,849.19 |      265,849.19 |
+|   1h    |   26 / 50    | StochRSI          |   502,968.62 |      512,968.62 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   238,196.94 |      248,196.94 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    19,850.18 |       29,850.18 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   419,046.94 |      429,046.94 |
+|   1h    |   18 / 36    | StochRSI          |   398,098.57 |      408,098.57 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   219,800.17 |      229,800.17 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   138,746.51 |      148,746.51 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   482,872.43 |      492,872.43 |
+|   1h    |   20 / 40    | StochRSI          |   391,341.60 |      401,341.60 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    77,009.60 |       87,009.60 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   186,347.17 |      196,347.17 |
+|   1h    |   30 / 60    | StochRSI          |   499,547.24 |      509,547.24 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   499,586.36 |      509,586.36 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   223,914.04 |      233,914.04 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    49,017.78 |       59,017.78 |
+|   4h    |   22 / 44    | StochRSI          |   895,581.43 |      905,581.43 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   345,486.74 |      355,486.74 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   476,859.01 |      486,859.01 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,245,394.84 |    1,255,394.84 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   355,610.16 |      365,610.16 |
+|   4h    |   26 / 50    | StochRSI          | 1,976,514.16 |    1,986,514.16 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,238,866.04 |    1,248,866.04 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   484,605.74 |      494,605.74 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,565,038.21 |    1,575,038.21 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,348,669.89 |    2,358,669.89 |
+|   4h    |   18 / 36    | StochRSI          |   681,413.81 |      691,413.81 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   200,864.91 |      210,864.91 |
+|   4h    |   18 / 36    | StochRSI_ADX      |   820,992.11 |      830,992.11 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   893,249.63 |      903,249.63 |
+|   4h    |   20 / 40    | StochRSI          | 1,008,465.92 |    1,018,465.92 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   301,239.42 |      311,239.42 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,306,065.04 |    1,316,065.04 |
+|   4h    |   20 / 40    | StochRSI_TRIX     |   956,740.48 |      966,740.48 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   324,334.87 |      334,334.87 |
+|   1d    |   44 / 176   | StochRSI          |   862,379.62 |      872,379.62 |
+|   4h    |   30 / 60    | StochRSI          |   596,844.91 |      606,844.91 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    80,443.57 |       90,443.57 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   249,917.46 |      259,917.46 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   400,326.31 |      410,326.31 |
+|   1d    |   26 / 50    | StochRSI          |   375,936.27 |      385,936.27 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    50,347.49 |       60,347.49 |
+|   1d    |   26 / 50    | StochRSI_ADX      |   146,355.46 |      156,355.46 |
+|   1d    |   18 / 36    | StochRSI          |   311,115.72 |      321,115.72 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   183,877.89 |      193,877.89 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   966,156.33 |      976,156.33 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   974,182.82 |      984,182.82 |
+|   1d    |   20 / 40    | StochRSI          |   284,243.59 |      294,243.59 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   180,936.62 |      190,936.62 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    70,555.35 |       80,555.35 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   190,298.19 |      200,298.19 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   167,057.34 |      177,057.34 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    63,850.04 |       73,850.04 |
+|   1d    |   30 / 60    | StochRSI          |   561,307.54 |      571,307.54 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   189,910.76 |      199,910.76 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   258,644.73 |      268,644.73 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    55,928.45 |       65,928.45 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   173,086.44 |      183,086.44 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.040000 USDC                                 |
+|  Solde global Binance     : 130.65 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.04 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.04 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -2.15 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 15:57:03                                 |
+|   Temps ecoule        : 0:02:13                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine execution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+[TIME] 15:59:16 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(16:01:16)
+[RUNNING] 15:59:16 - running en cours
+
+===============================================================================
+=========================================
+[RUN] EXECUTION PLANIFIEE - 2026-01-16 16:01:16
+Paire: SOLUSDT -> SOLUSDC | Timeframe: 4h
+===============================================================================
+=========================================
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,348,669.89                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   208,969.30 |      218,969.30 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   284,907.04 |      294,907.04 |
+|   1h    |   26 / 50    | StochRSI          |   502,145.29 |      512,145.29 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   255,849.19 |      265,849.19 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   237,798.58 |      247,798.58 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    19,850.18 |       29,850.18 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   418,358.31 |      428,358.31 |
+|   1h    |   18 / 36    | StochRSI          |   398,098.57 |      408,098.57 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   138,746.51 |      148,746.51 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   219,800.17 |      229,800.17 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   482,872.43 |      492,872.43 |
+|   1h    |   20 / 40    | StochRSI          |   391,341.60 |      401,341.60 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   186,347.17 |      196,347.17 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    77,009.60 |       87,009.60 |
+|   1h    |   30 / 60    | StochRSI          |   498,729.40 |      508,729.40 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   499,586.36 |      509,586.36 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    49,017.78 |       59,017.78 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   223,538.61 |      233,538.61 |
+|   4h    |   22 / 44    | StochRSI          |   895,581.43 |      905,581.43 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   345,486.74 |      355,486.74 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,245,394.84 |    1,255,394.84 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,238,866.04 |    1,248,866.04 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   476,077.59 |      486,077.59 |
+|   4h    |   26 / 50    | StochRSI          | 1,976,514.16 |    1,986,514.16 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   484,605.74 |      494,605.74 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   355,610.16 |      365,610.16 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,565,038.21 |    1,575,038.21 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,348,669.89 |    2,358,669.89 |
+|   4h    |   18 / 36    | StochRSI          |   681,413.81 |      691,413.81 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   200,864.91 |      210,864.91 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   893,249.63 |      903,249.63 |
+|   4h    |   20 / 40    | StochRSI          | 1,008,465.92 |    1,018,465.92 |
+|   4h    |   18 / 36    | StochRSI_ADX      |   820,992.11 |      830,992.11 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   301,239.42 |      311,239.42 |
+|   4h    |   30 / 60    | StochRSI          |   596,844.91 |      606,844.91 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,306,065.04 |    1,316,065.04 |
+|   4h    |   20 / 40    | StochRSI_TRIX     |   956,740.48 |      966,740.48 |
+|   1d    |   44 / 176   | StochRSI          |   862,379.62 |      872,379.62 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    80,443.57 |       90,443.57 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   324,334.87 |      334,334.87 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   400,326.31 |      410,326.31 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   249,917.46 |      259,917.46 |
+|   1d    |   26 / 50    | StochRSI          |   375,936.27 |      385,936.27 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   974,182.82 |      984,182.82 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   966,156.33 |      976,156.33 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    50,347.49 |       60,347.49 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   183,877.89 |      193,877.89 |
+|   1d    |   26 / 50    | StochRSI_ADX      |   146,355.46 |      156,355.46 |
+|   1d    |   18 / 36    | StochRSI          |   311,115.72 |      321,115.72 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    70,555.35 |       80,555.35 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   190,298.19 |      200,298.19 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   180,936.62 |      190,936.62 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    63,850.04 |       73,850.04 |
+|   1d    |   20 / 40    | StochRSI          |   284,243.59 |      294,243.59 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   167,057.34 |      177,057.34 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   173,086.44 |      183,086.44 |
+|   1d    |   30 / 60    | StochRSI          |   561,307.54 |      571,307.54 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   189,910.76 |      199,910.76 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    55,928.45 |       65,928.45 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   258,644.73 |      268,644.73 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 142.990000 USDC                                 |
+|  Solde global Binance     : 130.61 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (142.99 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (142.99 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -2.20 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 15:59:16                                 |
+|   Temps ecoule        : 0:02:13                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine execution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+[TIME] 16:01:29 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(16:03:29)
+[RUNNING] 16:01:29 - running en cours
+[TIME] 16:03:29 - Bot actif (RUNNING) | Prochaine execution dans 0 min 
+(16:03:29)
+[RUNNING] 16:03:29 - running en cours
+
+===============================================================================
+=========================================
+[RUN] EXECUTION PLANIFIEE - 2026-01-16 16:05:29
+Paire: SOLUSDT -> SOLUSDC | Timeframe: 4h
+===============================================================================
+=========================================
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,207,332.90                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   121,396.63 |      131,396.63 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   282,387.62 |      292,387.62 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   135,941.55 |      145,941.55 |
+|   1h    |   26 / 50    | StochRSI          |   361,120.65 |      371,120.65 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   217,336.91 |      227,336.91 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    11,182.47 |       21,182.47 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   275,116.43 |      285,116.43 |
+|   1h    |   18 / 36    | StochRSI          |   274,944.45 |      284,944.45 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   214,260.98 |      224,260.98 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   118,052.63 |      128,052.63 |
+|   1h    |   20 / 40    | StochRSI          |   274,728.90 |      284,728.90 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   310,784.38 |      320,784.38 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   170,979.73 |      180,979.73 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    61,390.15 |       71,390.15 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   326,991.32 |      336,991.32 |
+|   1h    |   30 / 60    | StochRSI          |   390,990.50 |      400,990.50 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   209,430.97 |      219,430.97 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    38,419.69 |       48,419.69 |
+|   4h    |   22 / 44    | StochRSI          |   772,451.22 |      782,451.22 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   262,897.20 |      272,897.20 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   276,041.13 |      286,041.13 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,802,538.19 |    1,812,538.19 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,338,020.10 |    1,348,020.10 |
+|   4h    |   26 / 50    | StochRSI          | 1,159,059.70 |    1,169,059.70 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   304,956.14 |      314,956.14 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   369,694.95 |      379,694.95 |
+|   4h    |   18 / 36    | StochRSI          |   587,403.56 |      597,403.56 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,470,658.26 |    1,480,658.26 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,207,332.90 |    2,217,332.90 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   167,052.42 |      177,052.42 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   964,963.38 |      974,963.38 |
+|   4h    |   18 / 36    | StochRSI_ADX      | 1,189,785.83 |    1,199,785.83 |
+|   4h    |   20 / 40    | StochRSI          |   869,987.01 |      879,987.01 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   228,929.77 |      238,929.77 |
+|   4h    |   30 / 60    | StochRSI          |   439,979.29 |      449,979.29 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   246,659.50 |      256,659.50 |
+|   4h    |   20 / 40    | StochRSI_TRIX     | 1,033,495.10 |    1,043,495.10 |
+|   1d    |   44 / 176   | StochRSI          |   752,442.35 |      762,442.35 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    36,140.30 |       46,140.30 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,890,133.79 |    1,900,133.79 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   278,237.78 |      288,237.78 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   159,215.32 |      169,215.32 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    20,786.61 |       30,786.61 |
+|   1d    |   26 / 50    | StochRSI          |   319,323.21 |      329,323.21 |
+|   1d    |   26 / 50    | StochRSI_ADX      |    91,792.85 |      101,792.85 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   126,191.44 |      136,191.44 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   901,677.72 |      911,677.72 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    31,095.77 |       41,095.77 |
+|   1d    |   18 / 36    | StochRSI          |   271,047.11 |      281,047.11 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   894,242.54 |      904,242.54 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    27,675.02 |       37,675.02 |
+|   1d    |   20 / 40    | StochRSI          |   248,589.70 |      258,589.70 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   130,901.18 |      140,901.18 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   114,482.85 |      124,482.85 |
+|   1d    |   30 / 60    | StochRSI          |   489,311.37 |      499,311.37 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   119,324.38 |      129,324.38 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    23,633.77 |       33,633.77 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   105,909.99 |      115,909.99 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   120,148.87 |      130,148.87 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   178,712.15 |      188,712.15 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.200000 USDC                                 |
+|  Solde global Binance     : 130.80 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.20 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.20 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -2.01 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 16:01:29                                 |
+|   Temps ecoule        : 0:04:49                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine execution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+[TIME] 16:06:18 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(16:08:18)
+[RUNNING] 16:06:18 - running en cours
+[TIME] 16:08:18 - Bot actif (RUNNING) | Prochaine execution dans 0 min 
+(16:08:18)
+[RUNNING] 16:08:18 - running en cours
+
+===============================================================================
+=========================================
+[RUN] EXECUTION PLANIFIEE - 2026-01-16 16:10:18
+Paire: SOLUSDT -> SOLUSDC | Timeframe: 4h
+===============================================================================
+=========================================
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,214,305.16                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   121,396.63 |      131,396.63 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   282,387.62 |      292,387.62 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   135,941.55 |      145,941.55 |
+|   1h    |   26 / 50    | StochRSI          |   361,120.65 |      371,120.65 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   217,336.91 |      227,336.91 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    11,182.47 |       21,182.47 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   275,116.43 |      285,116.43 |
+|   1h    |   18 / 36    | StochRSI          |   274,944.45 |      284,944.45 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   214,260.98 |      224,260.98 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   118,052.63 |      128,052.63 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   310,784.38 |      320,784.38 |
+|   1h    |   20 / 40    | StochRSI          |   274,728.90 |      284,728.90 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   170,979.73 |      180,979.73 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    61,390.15 |       71,390.15 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   326,991.32 |      336,991.32 |
+|   1h    |   30 / 60    | StochRSI          |   390,990.50 |      400,990.50 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   209,430.97 |      219,430.97 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    38,419.69 |       48,419.69 |
+|   4h    |   22 / 44    | StochRSI          |   774,911.58 |      784,911.58 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   263,755.31 |      273,755.31 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   276,041.13 |      286,041.13 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,808,237.60 |    1,818,237.60 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,342,258.86 |    1,352,258.86 |
+|   4h    |   26 / 50    | StochRSI          | 1,162,735.73 |    1,172,735.73 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   304,956.14 |      314,956.14 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   370,888.88 |      380,888.88 |
+|   4h    |   18 / 36    | StochRSI          |   589,282.06 |      599,282.06 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,475,314.09 |    1,485,314.09 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   167,609.15 |      177,609.15 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,214,305.16 |    2,224,305.16 |
+|   4h    |   20 / 40    | StochRSI          |   872,754.07 |      882,754.07 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   968,029.08 |      978,029.08 |
+|   4h    |   18 / 36    | StochRSI_ADX      | 1,193,558.48 |    1,203,558.48 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   229,681.07 |      239,681.07 |
+|   4h    |   20 / 40    | StochRSI_TRIX     | 1,036,776.30 |    1,046,776.30 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,896,108.63 |    1,906,108.63 |
+|   4h    |   30 / 60    | StochRSI          |   441,394.22 |      451,394.22 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   247,466.55 |      257,466.55 |
+|   1d    |   44 / 176   | StochRSI          |   752,442.35 |      762,442.35 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    36,140.30 |       46,140.30 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   278,237.78 |      288,237.78 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   159,215.32 |      169,215.32 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   904,544.43 |      914,544.43 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    20,786.61 |       30,786.61 |
+|   1d    |   26 / 50    | StochRSI          |   319,323.21 |      329,323.21 |
+|   1d    |   26 / 50    | StochRSI_ADX      |    91,792.85 |      101,792.85 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   897,085.87 |      907,085.87 |
+|   1d    |   18 / 36    | StochRSI          |   271,773.33 |      281,773.33 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   126,191.44 |      136,191.44 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    31,095.77 |       41,095.77 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   114,804.51 |      124,804.51 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   131,265.26 |      141,265.26 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    27,675.02 |       37,675.02 |
+|   1d    |   20 / 40    | StochRSI          |   249,257.89 |      259,257.89 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   119,658.55 |      129,658.55 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    23,633.77 |       33,633.77 |
+|   1d    |   30 / 60    | StochRSI          |   489,311.37 |      499,311.37 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   106,209.50 |      116,209.50 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   120,148.87 |      130,148.87 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   178,712.15 |      188,712.15 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.520000 USDC                                 |
+|  Solde global Binance     : 131.09 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.52 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.52 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -1.72 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 16:06:18                                 |
+|   Temps ecoule        : 0:04:47                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine execution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+[TIME] 16:11:05 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(16:13:05)
+[RUNNING] 16:11:05 - running en cours
+[TIME] 16:13:05 - Bot actif (RUNNING) | Prochaine execution dans 0 min 
+(16:13:05)
+[RUNNING] 16:13:05 - running en cours
+
+===============================================================================
+=========================================
+[RUN] EXECUTION PLANIFIEE - 2026-01-16 16:15:05
+Paire: SOLUSDT -> SOLUSDC | Timeframe: 4h
+===============================================================================
+=========================================
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,211,981.07                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   121,396.63 |      131,396.63 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   282,387.62 |      292,387.62 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   135,941.55 |      145,941.55 |
+|   1h    |   26 / 50    | StochRSI          |   361,120.65 |      371,120.65 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   217,336.91 |      227,336.91 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    11,182.47 |       21,182.47 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   275,116.43 |      285,116.43 |
+|   1h    |   18 / 36    | StochRSI          |   274,944.45 |      284,944.45 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   214,260.98 |      224,260.98 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   118,052.63 |      128,052.63 |
+|   1h    |   20 / 40    | StochRSI          |   274,728.90 |      284,728.90 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   170,979.73 |      180,979.73 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   310,784.38 |      320,784.38 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    61,390.15 |       71,390.15 |
+|   1h    |   30 / 60    | StochRSI          |   390,990.50 |      400,990.50 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   326,991.32 |      336,991.32 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    38,419.69 |       48,419.69 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   209,430.97 |      219,430.97 |
+|   4h    |   22 / 44    | StochRSI          |   774,091.46 |      784,091.46 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   263,469.27 |      273,469.27 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,806,337.80 |    1,816,337.80 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   276,041.13 |      286,041.13 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,340,845.94 |    1,350,845.94 |
+|   4h    |   26 / 50    | StochRSI          | 1,161,510.39 |    1,171,510.39 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   304,956.14 |      314,956.14 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   370,490.90 |      380,490.90 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,211,981.07 |    2,221,981.07 |
+|   4h    |   18 / 36    | StochRSI          |   588,655.89 |      598,655.89 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,473,762.14 |    1,483,762.14 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   167,423.58 |      177,423.58 |
+|   4h    |   20 / 40    | StochRSI          |   871,831.72 |      881,831.72 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   967,007.18 |      977,007.18 |
+|   4h    |   18 / 36    | StochRSI_ADX      | 1,192,300.93 |    1,202,300.93 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   229,430.64 |      239,430.64 |
+|   4h    |   30 / 60    | StochRSI          |   440,922.57 |      450,922.57 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,894,117.02 |    1,904,117.02 |
+|   4h    |   20 / 40    | StochRSI_TRIX     | 1,035,682.57 |    1,045,682.57 |
+|   1d    |   44 / 176   | StochRSI          |   752,442.35 |      762,442.35 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   247,197.53 |      257,197.53 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    36,140.30 |       46,140.30 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   278,237.78 |      288,237.78 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   903,588.86 |      913,588.86 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   159,215.32 |      169,215.32 |
+|   1d    |   26 / 50    | StochRSI          |   319,323.21 |      329,323.21 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    20,786.61 |       30,786.61 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   896,138.10 |      906,138.10 |
+|   1d    |   26 / 50    | StochRSI_ADX      |    91,792.85 |      101,792.85 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   126,191.44 |      136,191.44 |
+|   1d    |   18 / 36    | StochRSI          |   271,478.92 |      281,478.92 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    31,095.77 |       41,095.77 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   114,674.11 |      124,674.11 |
+|   1d    |   20 / 40    | StochRSI          |   248,987.00 |      258,987.00 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   131,117.66 |      141,117.66 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    27,675.02 |       37,675.02 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   106,088.07 |      116,088.07 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   119,523.08 |      129,523.08 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    23,633.77 |       33,633.77 |
+|   1d    |   30 / 60    | StochRSI          |   489,311.37 |      499,311.37 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   120,148.87 |      130,148.87 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   178,712.15 |      188,712.15 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 143.380000 USDC                                 |
+|  Solde global Binance     : 130.96 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (143.38 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (143.38 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -1.84 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 16:11:05                                 |
+|   Temps ecoule        : 0:04:46                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine execution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+[TIME] 16:15:51 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(16:17:51)
+[RUNNING] 16:15:51 - running en cours
+
+===============================================================================
+=========================================
+[RUN] EXECUTION PLANIFIEE - 2026-01-16 16:17:51
+Paire: SOLUSDT -> SOLUSDC | Timeframe: 4h
+===============================================================================
+=========================================
+
++-------------------- *** MEILLEUR RESULTAT — SOLUSDT *** --------------------+
+|                                                                             |
+|  Backtest Period: 5 years (17 Jan 2021 - 16 Jan 2026)                       |
+|  Meilleur scénario: StochRSI_ADX                                            |
+|  Timeframe: 4h                                                              |
+|  EMA: 26 / 50                                                               |
+|  Profit: $2,206,403.27                                                      |
+|  Max Drawdown: 71.10%                                                       |
+|  Win Rate: 38.36%                                                           |
+|                                                                             |
++-----------------------------------------------------------------------------+
+                                            Résultats du Backtest — SOLUSDT    
++------------------------------------------------------------------------------
+|         |              |                   |              |    Final Wallet |
+| Timefr… |     EMA      | Scénario          |   Profit ($) |             ($) |
+|---------+--------------+-------------------+--------------+-----------------+
+|   1h    |   12 / 22    | StochRSI          |   121,396.63 |      131,396.63 |
+|   1h    |   12 / 22    | StochRSI_SMA      |   282,387.62 |      292,387.62 |
+|   1h    |   12 / 22    | StochRSI_TRIX     |   135,941.55 |      145,941.55 |
+|   1h    |   26 / 50    | StochRSI          |   361,120.65 |      371,120.65 |
+|   1h    |   12 / 22    | StochRSI_ADX      |    11,182.47 |       21,182.47 |
+|   1h    |   26 / 50    | StochRSI_SMA      |   217,336.91 |      227,336.91 |
+|   1h    |   26 / 50    | StochRSI_TRIX     |   275,116.43 |      285,116.43 |
+|   1h    |   18 / 36    | StochRSI          |   274,944.45 |      284,944.45 |
+|   1h    |   26 / 50    | StochRSI_ADX      |   118,052.63 |      128,052.63 |
+|   1h    |   18 / 36    | StochRSI_SMA      |   214,260.98 |      224,260.98 |
+|   1h    |   20 / 40    | StochRSI          |   274,728.90 |      284,728.90 |
+|   1h    |   18 / 36    | StochRSI_TRIX     |   310,784.38 |      320,784.38 |
+|   1h    |   20 / 40    | StochRSI_SMA      |   170,979.73 |      180,979.73 |
+|   1h    |   18 / 36    | StochRSI_ADX      |    61,390.15 |       71,390.15 |
+|   1h    |   30 / 60    | StochRSI          |   390,990.50 |      400,990.50 |
+|   1h    |   20 / 40    | StochRSI_TRIX     |   326,991.32 |      336,991.32 |
+|   1h    |   30 / 60    | StochRSI_SMA      |   209,430.97 |      219,430.97 |
+|   1h    |   20 / 40    | StochRSI_ADX      |    38,419.69 |       48,419.69 |
+|   4h    |   22 / 44    | StochRSI          |   772,123.17 |      782,123.17 |
+|   4h    |   22 / 44    | StochRSI_SMA      |   262,782.79 |      272,782.79 |
+|   1h    |   30 / 60    | StochRSI_TRIX     |   276,041.13 |      286,041.13 |
+|   4h    |   22 / 44    | StochRSI_ADX      | 1,801,778.27 |    1,811,778.27 |
+|   4h    |   22 / 44    | StochRSI_TRIX     | 1,337,454.93 |    1,347,454.93 |
+|   4h    |   26 / 50    | StochRSI          | 1,158,569.56 |    1,168,569.56 |
+|   1h    |   30 / 60    | StochRSI_ADX      |   304,956.14 |      314,956.14 |
+|   4h    |   26 / 50    | StochRSI_SMA      |   369,535.76 |      379,535.76 |
+|   4h    |   26 / 50    | StochRSI_ADX      | 2,206,403.27 |    2,216,403.27 |
+|   4h    |   18 / 36    | StochRSI          |   587,153.10 |      597,153.10 |
+|   4h    |   26 / 50    | StochRSI_TRIX     | 1,470,037.48 |    1,480,037.48 |
+|   4h    |   18 / 36    | StochRSI_SMA      |   166,978.19 |      176,978.19 |
+|   4h    |   18 / 36    | StochRSI_TRIX     |   964,554.61 |      974,554.61 |
+|   4h    |   18 / 36    | StochRSI_ADX      | 1,189,282.81 |    1,199,282.81 |
+|   4h    |   20 / 40    | StochRSI          |   869,618.07 |      879,618.07 |
+|   4h    |   20 / 40    | StochRSI_SMA      |   228,829.60 |      238,829.60 |
+|   4h    |   30 / 60    | StochRSI          |   439,790.63 |      449,790.63 |
+|   4h    |   20 / 40    | StochRSI_TRIX     | 1,033,057.60 |    1,043,057.60 |
+|   4h    |   20 / 40    | StochRSI_ADX      | 1,889,337.14 |    1,899,337.14 |
+|   4h    |   30 / 60    | StochRSI_SMA      |   246,551.89 |      256,551.89 |
+|   1d    |   44 / 176   | StochRSI          |   752,442.35 |      762,442.35 |
+|   1d    |   44 / 176   | StochRSI_SMA      |    36,140.30 |       46,140.30 |
+|   4h    |   30 / 60    | StochRSI_TRIX     |   901,295.49 |      911,295.49 |
+|   1d    |   44 / 176   | StochRSI_TRIX     |   278,237.78 |      288,237.78 |
+|   1d    |   44 / 176   | StochRSI_ADX      |   159,215.32 |      169,215.32 |
+|   4h    |   30 / 60    | StochRSI_ADX      |   893,863.43 |      903,863.43 |
+|   1d    |   26 / 50    | StochRSI_SMA      |    20,786.61 |       30,786.61 |
+|   1d    |   26 / 50    | StochRSI          |   319,323.21 |      329,323.21 |
+|   1d    |   26 / 50    | StochRSI_ADX      |    91,792.85 |      101,792.85 |
+|   1d    |   18 / 36    | StochRSI          |   270,733.07 |      280,733.07 |
+|   1d    |   26 / 50    | StochRSI_TRIX     |   126,191.44 |      136,191.44 |
+|   1d    |   18 / 36    | StochRSI_ADX      |   114,343.76 |      124,343.76 |
+|   1d    |   18 / 36    | StochRSI_TRIX     |   130,743.74 |      140,743.74 |
+|   1d    |   20 / 40    | StochRSI          |   248,300.75 |      258,300.75 |
+|   1d    |   18 / 36    | StochRSI_SMA      |    31,095.77 |       41,095.77 |
+|   1d    |   20 / 40    | StochRSI_SMA      |    27,675.02 |       37,675.02 |
+|   1d    |   30 / 60    | StochRSI          |   489,311.37 |      499,311.37 |
+|   1d    |   20 / 40    | StochRSI_TRIX     |   119,179.88 |      129,179.88 |
+|   1d    |   30 / 60    | StochRSI_SMA      |    23,633.77 |       33,633.77 |
+|   1d    |   20 / 40    | StochRSI_ADX      |   105,780.47 |      115,780.47 |
+|   1d    |   30 / 60    | StochRSI_ADX      |   120,148.87 |      130,148.87 |
+|   1d    |   30 / 60    | StochRSI_TRIX     |   178,712.15 |      188,712.15 |
++------------------------------------------------------------------------------
+
+===============================================================================
+=========================================
+
++-------------------- TRADING ALGORITHMIQUE EN TEMPS REEL --------------------+
+|                                                                             |
+|   Execution automatisee des ordres de trading                               |
+|                                                                             |
+|   Paire de trading    : SOLUSDC                                             |
+|   Intervalle temporel : 4h                                                  |
+|   Configuration EMA   : 26 / 50                                             |
+|   Indicateur principal: StochRSI_ADX                                        |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------------------- SOLDES DE TRADING -----------------------------+
+|                                                                             |
+|  Crypto extraite       : SOL                                                |
+|  Monnaie de cotation   : USDC                                               |
+|                                                                             |
+|  Solde USDC disponible : 0.14 USDC                                          |
+|  Solde SOL disponible   : 0.91240165 SOL                                    |
+|  Prix d'achat à l'entrée   : 145.40 USDC                                    |
+|  ATR utilisé à l'achat    : 2.7569 USDC                                     |
+|  Prix SOL/USDC actuel     : 142.950000 USDC                                 |
+|  Solde global Binance     : 130.57 USDC                                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
++----------------- SIGNAL DE VENTE - CONDITIONS NON REMPLIES -----------------+
+|                                                                             |
+|  Analyse des conditions de vente :                                          |
+|                                                                             |
+|                                                                             |
+|  EMA2 > EMA1          : NOK                                                 |
+|  StochRSI > 20%       : OK                                                  |
+|  Solde SOL > 0        : OK                                                  |
+|                                                                             |
+|  Prix >= 148.31 (PARTIAL-1 +2%): NOK (142.95 < 148.31)                      |
+|  Statut PARTIAL-1       : En attente                                        |
+|  Prix >= 151.22 (PARTIAL-2 +4%): NOK (142.95 < 151.22)                      |
+|  Statut PARTIAL-2       : En attente                                        |
+|  Stop-Loss affiché       : 131.557084 USDC (dynamique)                      |
+|  (Stop-loss dynamique : trailing)                                           |
+|  Prix activation trailing:  160.562916 USDC                                 |
+|  PnL en cours            : -2.24 USDC                                       |
+|                                                                             |
++-----------------------------------------------------------------------------+
++--------------- SUIVI D'EXECUTION & PLANIFICATION AUTOMATIQUE ---------------+
+|                                                                             |
+|   Derniere execution  : 2026-01-16 16:15:51                                 |
+|   Temps ecoule        : 0:02:44                                             |
+|                                                                             |
+|   Mode de planification: Homogène et réactif - 2 minutes                    |
+|   Prochaine execution : toutes les 2 minutes (720 exécutions/jour)          |
+|                                                                             |
++-----------------------------------------------------------------------------+
+
+
+[TIME] 16:18:35 - Bot actif (RUNNING) | Prochaine execution dans 1 min 
+(16:20:35)
+[RUNNING] 16:18:35 - running en cours
+[TIME] 16:20:35 - Bot actif (RUNNING) | Prochaine execution dans 0 min 
+(16:20:35)
+[RUNNING] 16:20:35 - running en cours

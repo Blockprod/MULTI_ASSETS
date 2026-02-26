@@ -1,0 +1,47 @@
+{
+  "alerts": {
+    "opportunity_ETH/HBAR_LOW_RISK_EXPANSION": {
+      "timestamp": 1768478154.9177606,
+      "data": {
+        "type": "LOW_RISK_EXPANSION",
+        "pair": "ETH/HBAR",
+        "ltv": 0,
+        "apr": 0,
+        "volatility": 0.01856,
+        "net_daily": 0,
+        "additional_hbar": 2122.176004088557,
+        "priority": "OPPORTUNITY"
+      },
+      "count": 1
+    },
+    "opportunity_XRP/HBAR_LOW_RISK_EXPANSION": {
+      "timestamp": 1768478155.2372847,
+      "data": {
+        "type": "LOW_RISK_EXPANSION",
+        "pair": "XRP/HBAR",
+        "ltv": 0,
+        "apr": 0,
+        "volatility": 0.00194,
+        "net_daily": 0,
+        "additional_hbar": 2083.855292617231,
+        "priority": "OPPORTUNITY"
+      },
+      "count": 1
+    },
+    "opportunity_ALL_LOW_VOLATILITY_WINDOW": {
+      "timestamp": 1768478155.4594164,
+      "data": {
+        "type": "LOW_VOLATILITY_WINDOW",
+        "pair": "ALL",
+        "ltv": 0,
+        "apr": 0,
+        "volatility": 0,
+        "net_daily": 0,
+        "additional_hbar": 0,
+        "priority": "OPPORTUNITY"
+      },
+      "count": 1
+    }
+  },
+  "last_summary": 0
+}

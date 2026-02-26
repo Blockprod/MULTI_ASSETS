@@ -1,0 +1,19 @@
+{
+  "timestamp": "2025-10-01T17:03:24.747451",
+  "price_eth": 4329.76,
+  "price_xrp": 2.9441,
+  "price_hbar": 0.22272,
+  "eth_ltv_current": 0.22000000000000003,
+  "eth_ltv_max": 0.22,
+  "xrp_ltv_current": 0.2,
+  "xrp_ltv_max": 0.2,
+  "collateral_eth_usd": 1177.6947200000002,
+  "collateral_xrp_usd": 1172.6350300000001,
+  "borrow_eth_hbar": 1163.3119540229889,
+  "borrow_xrp_hbar": 1053.012778376437,
+  "total_borrow_hbar": 2216.3247323994256,
+  "total_earn_usd": 0.08652643093161645,
+  "apr_eth": 0.0137,
+  "apr_xrp": 0.0125,
+  "apr_hbar": 0.0016
+}

@@ -1,0 +1,491 @@
+2026-01-16 13:53:27,935 - __main__ - INFO - Client Binance ULTRA ROBUSTE initialisé
+2026-01-16 13:53:28,170 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 13:53:28,175 - __main__ - INFO - Synchronisation Windows silencieuse en cours...
+2026-01-16 13:53:31,836 - __main__ - INFO - Synchronisation Windows silencieuse: REUSSIE
+2026-01-16 13:53:33,064 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 13:53:33,064 - __main__ - INFO - Synchronisation complète (Windows + Binance) effectuée avant envoi d’ordre.
+2026-01-16 13:53:33,064 - __main__ - INFO - Synchronisation complète exécutée au démarrage.
+2026-01-16 13:53:33,065 - __main__ - INFO - Bot crypto H24/7 - Mode ultra-robuste avec privileges admin
+2026-01-16 13:53:33,065 - __main__ - INFO - === INITIALISATION TIMESTAMP ULTRA-ROBUSTE ===
+2026-01-16 13:53:33,065 - __main__ - INFO - === INITIALISATION SYNCHRO ULTRA ROBUSTE ===
+2026-01-16 13:53:33,294 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 13:53:33,752 - __main__ - INFO - VALIDATION: diff=-5083ms
+2026-01-16 13:53:33,753 - __main__ - INFO - SYNCHRONISATION STABLE: -5083ms
+2026-01-16 13:53:33,981 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 13:53:33,981 - __main__ - INFO - Synchronisation timestamp pre-trading terminee
+2026-01-16 13:53:34,213 - __main__ - INFO - Connexion API validée
+2026-01-16 13:53:34,214 - __main__ - INFO - etat du bot charge
+2026-01-16 13:53:34,214 - __main__ - INFO - Script demarre. Planification initiale en cours...
+2026-01-16 13:53:34,214 - __main__ - INFO - Planification nettoyee au demarrage (schedule.clear())
+2026-01-16 13:53:34,214 - __main__ - INFO - Nettoyage automatique du cache planifié: tous les 30 jours
+2026-01-16 13:53:34,735 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1h (44042 candles)
+2026-01-16 13:53:35,462 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 4h (11017 candles)
+2026-01-16 13:53:36,002 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1d (1837 candles)
+2026-01-16 13:53:36,610 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0168)
+2026-01-16 13:53:36,700 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0346)
+2026-01-16 13:53:36,712 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0856)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   8%|\u2588[32m##5                           [0m\u2588| 5/60 [00:00<00:02, 24.37it/s][BACKTESTS]:  13%|\u2588[32m####                          [0m\u2588| 8/60 [00:00<00:05,  9.00it/s][BACKTESTS]:  17%|\u2588[32m#####                         [0m\u2588| 10/60 [00:01<00:06,  7.77it/s][BACKTESTS]:  18%|\u2588[32m#####5                        [0m\u2588| 11/60 [00:01<00:08,  5.68it/s][BACKTESTS]:  22%|\u2588[32m######5                       [0m\u2588| 13/60 [00:01<00:06,  7.07it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:05,  8.51it/s][BACKTESTS]:  28%|\u2588[32m########5                     [0m\u2588| 17/60 [00:01<00:04,  9.49it/s][BACKTESTS]:  32%|\u2588[32m#########5                    [0m\u2588| 19/60 [00:02<00:04,  9.15it/s][BACKTESTS]:  35%|\u2588[32m##########5                   [0m\u2588| 21/60 [00:02<00:05,  7.60it/s][BACKTESTS]:  38%|\u2588[32m###########5                  [0m\u2588| 23/60 [00:02<00:04,  7.56it/s][BACKTESTS]:  45%|\u2588[32m#############5                [0m\u2588| 27/60 [00:03<00:03, 10.69it/s][BACKTESTS]:  52%|\u2588[32m###############5              [0m\u2588| 31/60 [00:03<00:02, 14.45it/s][BACKTESTS]:  57%|\u2588[32m#################             [0m\u2588| 34/60 [00:03<00:01, 16.76it/s][BACKTESTS]:  62%|\u2588[32m##################5           [0m\u2588| 37/60 [00:03<00:01, 18.30it/s][BACKTESTS]:  70%|\u2588[32m#####################         [0m\u2588| 42/60 [00:03<00:00, 24.37it/s][BACKTESTS]:  78%|\u2588[32m#######################5      [0m\u2588| 47/60 [00:03<00:00, 27.44it/s][BACKTESTS]:  98%|\u2588[32m#############################5[0m\u2588| 59/60 [00:03<00:00, 47.83it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 15.99it/s]
+2026-01-16 13:53:42,048 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 13:53:46,770 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 13:53:48,297 - __main__ - INFO - Planification homogène 30-min activée pour SOLUSDT - Réactivité optimale
+2026-01-16 13:53:48,304 - __main__ - INFO - Tâches planifiées actives: 1
+2026-01-16 13:53:48,308 - __main__ - INFO - Bot actif - Surveillance des signaux de trading...
+2026-01-16 13:53:48,308 - __main__ - INFO - Initialisation du gestionnaire d'erreurs...
+2026-01-16 13:53:48,308 - __main__ - INFO - Gestionnaire d'erreurs actif - Mode: default
+2026-01-16 13:53:57,027 - __main__ - INFO - Execution interrompue par l'utilisateur. Arret du script.
+2026-01-16 15:40:17,500 - __main__ - INFO - Client Binance ULTRA ROBUSTE initialisé
+2026-01-16 15:40:17,730 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 15:40:17,746 - __main__ - INFO - [DIAG] Versions des packages critiques:
+2026-01-16 15:40:17,746 - __main__ - INFO -     pandas: 2.3.3
+2026-01-16 15:40:17,747 - __main__ - INFO -     numpy: 2.2.6
+2026-01-16 15:40:17,747 - __main__ - INFO -     binance: 1.0.29
+2026-01-16 15:40:17,748 - __main__ - INFO -     ta: (not found)
+2026-01-16 15:40:17,748 - __main__ - INFO -     requests: 2.31.0
+2026-01-16 15:40:17,749 - __main__ - INFO -     schedule: (not found)
+2026-01-16 15:40:17,752 - __main__ - INFO - Synchronisation Windows silencieuse en cours...
+2026-01-16 15:40:21,345 - __main__ - INFO - Synchronisation Windows silencieuse: REUSSIE
+2026-01-16 15:40:22,576 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 15:40:22,577 - __main__ - INFO - Synchronisation complète (Windows + Binance) effectuée avant envoi d’ordre.
+2026-01-16 15:40:22,577 - __main__ - INFO - Synchronisation complète exécutée au démarrage.
+2026-01-16 15:40:22,578 - __main__ - INFO - Bot crypto H24/7 - Mode ultra-robuste avec privileges admin
+2026-01-16 15:40:22,578 - __main__ - INFO - === INITIALISATION TIMESTAMP ULTRA-ROBUSTE ===
+2026-01-16 15:40:22,578 - __main__ - INFO - === INITIALISATION SYNCHRO ULTRA ROBUSTE ===
+2026-01-16 15:40:22,811 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 15:40:23,270 - __main__ - INFO - VALIDATION: diff=-5193ms
+2026-01-16 15:40:23,270 - __main__ - INFO - SYNCHRONISATION STABLE: -5193ms
+2026-01-16 15:40:23,496 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 15:40:23,496 - __main__ - INFO - Synchronisation timestamp pre-trading terminee
+2026-01-16 15:40:23,721 - __main__ - INFO - Connexion API validée
+2026-01-16 15:40:23,721 - __main__ - INFO - etat du bot charge
+2026-01-16 15:40:23,722 - __main__ - INFO - Script demarre. Planification initiale en cours...
+2026-01-16 15:40:23,722 - __main__ - INFO - Planification nettoyee au demarrage (schedule.clear())
+2026-01-16 15:40:23,722 - __main__ - INFO - Nettoyage automatique du cache planifié: tous les 30 jours
+2026-01-16 15:40:24,244 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1h (44028 candles)
+2026-01-16 15:40:24,955 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 4h (11015 candles)
+2026-01-16 15:40:25,492 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1d (1837 candles)
+2026-01-16 15:40:25,743 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0169)
+2026-01-16 15:40:25,804 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0346)
+2026-01-16 15:40:25,816 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0856)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   7%|\u2588[32m##                            [0m\u2588| 4/60 [00:00<00:02, 27.80it/s][BACKTESTS]:  12%|\u2588[32m###5                          [0m\u2588| 7/60 [00:00<00:05,  9.60it/s][BACKTESTS]:  15%|\u2588[32m####5                         [0m\u2588| 9/60 [00:00<00:04, 10.57it/s][BACKTESTS]:  18%|\u2588[32m#####5                        [0m\u2588| 11/60 [00:01<00:05,  8.38it/s][BACKTESTS]:  23%|\u2588[32m#######                       [0m\u2588| 14/60 [00:01<00:04,  9.45it/s][BACKTESTS]:  27%|\u2588[32m########                      [0m\u2588| 16/60 [00:01<00:04, 10.80it/s][BACKTESTS]:  30%|\u2588[32m#########                     [0m\u2588| 18/60 [00:01<00:05,  7.83it/s][BACKTESTS]:  33%|\u2588[32m##########                    [0m\u2588| 20/60 [00:02<00:05,  7.12it/s][BACKTESTS]:  37%|\u2588[32m###########                   [0m\u2588| 22/60 [00:02<00:06,  5.71it/s][BACKTESTS]:  43%|\u2588[32m#############                 [0m\u2588| 26/60 [00:02<00:03,  9.11it/s][BACKTESTS]:  50%|\u2588[32m###############               [0m\u2588| 30/60 [00:03<00:02, 12.97it/s][BACKTESTS]:  55%|\u2588[32m################5             [0m\u2588| 33/60 [00:03<00:01, 15.04it/s][BACKTESTS]:  60%|\u2588[32m##################            [0m\u2588| 36/60 [00:03<00:01, 16.54it/s][BACKTESTS]:  68%|\u2588[32m####################5         [0m\u2588| 41/60 [00:03<00:00, 20.48it/s][BACKTESTS]:  92%|\u2588[32m###########################5  [0m\u2588| 55/60 [00:03<00:00, 43.51it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 16.67it/s]
+2026-01-16 15:40:30,952 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 15:40:34,968 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 15:40:36,560 - __main__ - INFO - Planification homogène 30-min activée pour SOLUSDT - Réactivité optimale
+2026-01-16 15:40:36,565 - __main__ - INFO - Tâches planifiées actives: 1
+2026-01-16 15:40:36,568 - __main__ - INFO - Bot actif - Surveillance des signaux de trading...
+2026-01-16 15:40:36,568 - __main__ - INFO - Initialisation du gestionnaire d'erreurs...
+2026-01-16 15:40:36,569 - __main__ - INFO - Gestionnaire d'erreurs actif - Mode: default
+2026-01-16 15:40:51,945 - __main__ - INFO - Execution interrompue par l'utilisateur. Arret du script.
+2026-01-16 15:40:57,485 - __main__ - INFO - Client Binance ULTRA ROBUSTE initialisé
+2026-01-16 15:40:57,718 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 15:40:57,734 - __main__ - INFO - [DIAG] Versions des packages critiques:
+2026-01-16 15:40:57,735 - __main__ - INFO -     pandas: 2.3.3
+2026-01-16 15:40:57,735 - __main__ - INFO -     numpy: 2.2.6
+2026-01-16 15:40:57,736 - __main__ - INFO -     binance: 1.0.29
+2026-01-16 15:40:57,736 - __main__ - INFO -     ta: (not found)
+2026-01-16 15:40:57,737 - __main__ - INFO -     requests: 2.31.0
+2026-01-16 15:40:57,738 - __main__ - INFO -     schedule: (not found)
+2026-01-16 15:40:57,740 - __main__ - INFO - Synchronisation Windows silencieuse en cours...
+2026-01-16 15:41:01,481 - __main__ - INFO - Synchronisation Windows silencieuse: REUSSIE
+2026-01-16 15:41:02,709 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 15:41:02,710 - __main__ - INFO - Synchronisation complète (Windows + Binance) effectuée avant envoi d’ordre.
+2026-01-16 15:41:02,710 - __main__ - INFO - Synchronisation complète exécutée au démarrage.
+2026-01-16 15:41:02,710 - __main__ - INFO - Bot crypto H24/7 - Mode ultra-robuste avec privileges admin
+2026-01-16 15:41:02,710 - __main__ - INFO - === INITIALISATION TIMESTAMP ULTRA-ROBUSTE ===
+2026-01-16 15:41:02,711 - __main__ - INFO - === INITIALISATION SYNCHRO ULTRA ROBUSTE ===
+2026-01-16 15:41:02,941 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 15:41:03,402 - __main__ - INFO - VALIDATION: diff=-5193ms
+2026-01-16 15:41:03,402 - __main__ - INFO - SYNCHRONISATION STABLE: -5193ms
+2026-01-16 15:41:03,631 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 15:41:03,632 - __main__ - INFO - Synchronisation timestamp pre-trading terminee
+2026-01-16 15:41:03,859 - __main__ - INFO - Connexion API validée
+2026-01-16 15:41:03,860 - __main__ - INFO - etat du bot charge
+2026-01-16 15:41:03,860 - __main__ - INFO - Script demarre. Planification initiale en cours...
+2026-01-16 15:41:03,860 - __main__ - INFO - Planification nettoyee au demarrage (schedule.clear())
+2026-01-16 15:41:03,860 - __main__ - INFO - Nettoyage automatique du cache planifié: tous les 30 jours
+2026-01-16 15:41:04,392 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1h (44028 candles)
+2026-01-16 15:41:05,089 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 4h (11015 candles)
+2026-01-16 15:41:05,626 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1d (1837 candles)
+2026-01-16 15:41:05,872 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0169)
+2026-01-16 15:41:05,920 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0346)
+2026-01-16 15:41:05,931 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0856)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   8%|\u2588[32m##5                           [0m\u2588| 5/60 [00:00<00:02, 26.15it/s][BACKTESTS]:  13%|\u2588[32m####                          [0m\u2588| 8/60 [00:00<00:03, 14.57it/s][BACKTESTS]:  17%|\u2588[32m#####                         [0m\u2588| 10/60 [00:00<00:04, 11.92it/s][BACKTESTS]:  20%|\u2588[32m######                        [0m\u2588| 12/60 [00:00<00:04, 10.83it/s][BACKTESTS]:  23%|\u2588[32m#######                       [0m\u2588| 14/60 [00:01<00:04,  9.67it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:05,  8.40it/s][BACKTESTS]:  30%|\u2588[32m#########                     [0m\u2588| 18/60 [00:01<00:04,  9.17it/s][BACKTESTS]:  35%|\u2588[32m##########5                   [0m\u2588| 21/60 [00:02<00:04,  9.35it/s][BACKTESTS]:  37%|\u2588[32m###########                   [0m\u2588| 22/60 [00:02<00:04,  8.36it/s][BACKTESTS]:  45%|\u2588[32m#############5                [0m\u2588| 27/60 [00:02<00:02, 12.57it/s][BACKTESTS]:  52%|\u2588[32m###############5              [0m\u2588| 31/60 [00:02<00:01, 16.06it/s][BACKTESTS]:  58%|\u2588[32m#################5            [0m\u2588| 35/60 [00:02<00:01, 19.26it/s][BACKTESTS]:  82%|\u2588[32m########################5     [0m\u2588| 49/60 [00:02<00:00, 37.59it/s][BACKTESTS]:  98%|\u2588[32m#############################5[0m\u2588| 59/60 [00:02<00:00, 48.44it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:02<00:00, 20.23it/s]
+2026-01-16 15:41:11,092 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 15:41:15,083 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 15:41:17,236 - __main__ - INFO - Planification homogène 30-min activée pour SOLUSDT - Réactivité optimale
+2026-01-16 15:41:17,241 - __main__ - INFO - Tâches planifiées actives: 1
+2026-01-16 15:41:17,244 - __main__ - INFO - Bot actif - Surveillance des signaux de trading...
+2026-01-16 15:41:17,245 - __main__ - INFO - Initialisation du gestionnaire d'erreurs...
+2026-01-16 15:41:17,245 - __main__ - INFO - Gestionnaire d'erreurs actif - Mode: default
+2026-01-16 15:43:16,008 - __main__ - INFO - Execution interrompue par l'utilisateur. Arret du script.
+2026-01-16 15:43:23,647 - __main__ - INFO - Client Binance ULTRA ROBUSTE initialisé
+2026-01-16 15:43:23,877 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 15:43:23,883 - __main__ - INFO - Synchronisation Windows silencieuse en cours...
+2026-01-16 15:43:27,413 - __main__ - INFO - Synchronisation Windows silencieuse: REUSSIE
+2026-01-16 15:43:28,643 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 15:43:28,643 - __main__ - INFO - Synchronisation complète (Windows + Binance) effectuée avant envoi d’ordre.
+2026-01-16 15:43:28,644 - __main__ - INFO - Synchronisation complète exécutée au démarrage.
+2026-01-16 15:43:28,644 - __main__ - INFO - Bot crypto H24/7 - Mode ultra-robuste avec privileges admin
+2026-01-16 15:43:28,644 - __main__ - INFO - === INITIALISATION TIMESTAMP ULTRA-ROBUSTE ===
+2026-01-16 15:43:28,644 - __main__ - INFO - === INITIALISATION SYNCHRO ULTRA ROBUSTE ===
+2026-01-16 15:43:28,871 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 15:43:29,326 - __main__ - INFO - VALIDATION: diff=-5186ms
+2026-01-16 15:43:29,327 - __main__ - INFO - SYNCHRONISATION STABLE: -5186ms
+2026-01-16 15:43:29,553 - __main__ - INFO - SYNCHRO OK: offset=-5000ms
+2026-01-16 15:43:29,553 - __main__ - INFO - Synchronisation timestamp pre-trading terminee
+2026-01-16 15:43:29,780 - __main__ - INFO - Connexion API validée
+2026-01-16 15:43:29,781 - __main__ - INFO - etat du bot charge
+2026-01-16 15:43:29,781 - __main__ - INFO - Script demarre. Planification initiale en cours...
+2026-01-16 15:43:29,781 - __main__ - INFO - Planification nettoyee au demarrage (schedule.clear())
+2026-01-16 15:43:29,781 - __main__ - INFO - Nettoyage automatique du cache planifié: tous les 30 jours
+2026-01-16 15:43:30,300 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1h (44028 candles)
+2026-01-16 15:43:31,036 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 4h (11015 candles)
+2026-01-16 15:43:31,613 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1d (1837 candles)
+2026-01-16 15:43:31,886 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0169)
+2026-01-16 15:43:31,947 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0346)
+2026-01-16 15:43:31,959 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0856)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   5%|\u2588[32m#5                            [0m\u2588| 3/60 [00:00<00:01, 29.52it/s][BACKTESTS]:  10%|\u2588[32m###                           [0m\u2588| 6/60 [00:00<00:04, 13.00it/s][BACKTESTS]:  13%|\u2588[32m####                          [0m\u2588| 8/60 [00:00<00:04, 10.55it/s][BACKTESTS]:  17%|\u2588[32m#####                         [0m\u2588| 10/60 [00:00<00:05,  9.52it/s][BACKTESTS]:  20%|\u2588[32m######                        [0m\u2588| 12/60 [00:01<00:05,  9.36it/s][BACKTESTS]:  23%|\u2588[32m#######                       [0m\u2588| 14/60 [00:01<00:05,  8.86it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:06,  7.40it/s][BACKTESTS]:  27%|\u2588[32m########                      [0m\u2588| 16/60 [00:01<00:06,  6.49it/s][BACKTESTS]:  35%|\u2588[32m##########5                   [0m\u2588| 21/60 [00:01<00:02, 13.05it/s][BACKTESTS]:  38%|\u2588[32m###########5                  [0m\u2588| 23/60 [00:02<00:03, 11.51it/s][BACKTESTS]:  42%|\u2588[32m############5                 [0m\u2588| 25/60 [00:02<00:03, 10.28it/s][BACKTESTS]:  47%|\u2588[32m##############                [0m\u2588| 28/60 [00:02<00:02, 13.15it/s][BACKTESTS]:  52%|\u2588[32m###############5              [0m\u2588| 31/60 [00:02<00:01, 15.90it/s][BACKTESTS]:  60%|\u2588[32m##################            [0m\u2588| 36/60 [00:02<00:01, 21.15it/s][BACKTESTS]:  68%|\u2588[32m####################5         [0m\u2588| 41/60 [00:02<00:00, 24.99it/s][BACKTESTS]:  83%|\u2588[32m#########################     [0m\u2588| 50/60 [00:03<00:00, 38.79it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 18.91it/s]
+2026-01-16 15:43:36,667 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 15:43:41,996 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 15:43:44,127 - __main__ - INFO - Planification homogène 30-min activée pour SOLUSDT - Réactivité optimale
+2026-01-16 15:43:44,132 - __main__ - INFO - Tâches planifiées actives: 1
+2026-01-16 15:43:44,135 - __main__ - INFO - Bot actif - Surveillance des signaux de trading...
+2026-01-16 15:43:44,135 - __main__ - INFO - Initialisation du gestionnaire d'erreurs...
+2026-01-16 15:43:44,136 - __main__ - INFO - Gestionnaire d'erreurs actif - Mode: default
+2026-01-16 15:45:44,137 - __main__ - INFO - [SCHEDULED] DEBUT execution planifiee - 2026-01-16 15:45:44
+2026-01-16 15:45:44,140 - __main__ - INFO - [SCHEDULED] Header affiché, debut des backtests...
+2026-01-16 15:45:44,140 - __main__ - INFO - [SCHEDULED] Re-backtest de SOLUSDT pour obtenir les paramètres les plus à jour...
+2026-01-16 15:45:44,140 - __main__ - INFO - [SCHEDULED] Backtest dates: 17 January 2021 -> 16 January 2026
+2026-01-16 15:45:44,140 - __main__ - INFO - [SCHEDULED] Lancement des backtests...
+2026-01-16 15:45:44,649 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1h (44028 candles)
+2026-01-16 15:45:45,357 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 4h (11015 candles)
+2026-01-16 15:45:45,895 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1d (1837 candles)
+2026-01-16 15:45:46,118 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0169)
+2026-01-16 15:45:46,170 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0346)
+2026-01-16 15:45:46,180 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0856)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   3%|\u2588[32m#                             [0m\u2588| 2/60 [00:00<00:03, 17.47it/s][BACKTESTS]:   7%|\u2588[32m##                            [0m\u2588| 4/60 [00:00<00:03, 16.10it/s][BACKTESTS]:  10%|\u2588[32m###                           [0m\u2588| 6/60 [00:00<00:05, 10.03it/s][BACKTESTS]:  13%|\u2588[32m####                          [0m\u2588| 8/60 [00:00<00:05,  9.60it/s][BACKTESTS]:  17%|\u2588[32m#####                         [0m\u2588| 10/60 [00:01<00:06,  7.60it/s][BACKTESTS]:  18%|\u2588[32m#####5                        [0m\u2588| 11/60 [00:01<00:08,  5.63it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:04,  9.78it/s][BACKTESTS]:  28%|\u2588[32m########5                     [0m\u2588| 17/60 [00:01<00:04, 10.71it/s][BACKTESTS]:  32%|\u2588[32m#########5                    [0m\u2588| 19/60 [00:02<00:05,  7.87it/s][BACKTESTS]:  35%|\u2588[32m##########5                   [0m\u2588| 21/60 [00:02<00:04,  8.85it/s][BACKTESTS]:  38%|\u2588[32m###########5                  [0m\u2588| 23/60 [00:02<00:05,  6.54it/s][BACKTESTS]:  47%|\u2588[32m##############                [0m\u2588| 28/60 [00:03<00:02, 11.00it/s][BACKTESTS]:  55%|\u2588[32m################5             [0m\u2588| 33/60 [00:03<00:01, 15.10it/s][BACKTESTS]:  60%|\u2588[32m##################            [0m\u2588| 36/60 [00:03<00:01, 16.30it/s][BACKTESTS]:  68%|\u2588[32m####################5         [0m\u2588| 41/60 [00:03<00:00, 21.80it/s][BACKTESTS]:  78%|\u2588[32m#######################5      [0m\u2588| 47/60 [00:03<00:00, 28.60it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 50.09it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 16.54it/s]
+2026-01-16 15:45:49,816 - __main__ - INFO - [SCHEDULED] 60 resultats de backtest recus
+2026-01-16 15:45:49,816 - __main__ - INFO - [SCHEDULED] Meilleur resultat: StochRSI_ADX sur 4h | Profit: $2,348,669.89
+2026-01-16 15:45:49,819 - __main__ - INFO - [SCHEDULED] Panel meilleur resultat affiché
+2026-01-16 15:45:49,819 - __main__ - INFO - [SCHEDULED] Creation du tableau des 60 resultats...
+2026-01-16 15:45:49,911 - __main__ - INFO - [SCHEDULED] Tableau affiche - 60 lignes
+2026-01-16 15:45:49,912 - __main__ - INFO - [SCHEDULED] Parametres inchanges pour SOLUSDT
+2026-01-16 15:45:49,912 - __main__ - INFO - [SCHEDULED] Affichage panel trading...
+2026-01-16 15:45:49,913 - __main__ - INFO - [SCHEDULED] Panel trading affiché, appel execute_real_trades...
+2026-01-16 15:45:49,914 - __main__ - INFO - [SCHEDULED] Appel execute_real_trades avec StochRSI_ADX sur 4h + sizing_mode='baseline'...
+2026-01-16 15:45:51,188 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 15:45:55,384 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 15:45:57,366 - __main__ - INFO - [SCHEDULED] execute_real_trades complété avec succès
+2026-01-16 15:45:57,366 - __main__ - INFO - [SCHEDULED] Affichage des informations de suivi...
+2026-01-16 15:45:57,371 - __main__ - INFO - [SCHEDULED] Création et affichage du panel de suivi...
+2026-01-16 15:45:57,374 - __main__ - INFO - [SCHEDULED] Exécution planifiée COMPLETEE pour SOLUSDT
+2026-01-16 15:47:57,377 - __main__ - INFO - [SCHEDULED] DEBUT execution planifiee - 2026-01-16 15:47:57
+2026-01-16 15:47:57,383 - __main__ - INFO - [SCHEDULED] Header affiché, debut des backtests...
+2026-01-16 15:47:57,383 - __main__ - INFO - [SCHEDULED] Re-backtest de SOLUSDT pour obtenir les paramètres les plus à jour...
+2026-01-16 15:47:57,383 - __main__ - INFO - [SCHEDULED] Backtest dates: 17 January 2021 -> 16 January 2026
+2026-01-16 15:47:57,384 - __main__ - INFO - [SCHEDULED] Lancement des backtests...
+2026-01-16 15:47:57,859 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1h (44028 candles)
+2026-01-16 15:47:58,558 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 4h (11015 candles)
+2026-01-16 15:47:59,089 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1d (1837 candles)
+2026-01-16 15:47:59,307 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0169)
+2026-01-16 15:47:59,368 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0346)
+2026-01-16 15:47:59,381 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0856)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   5%|\u2588[32m#5                            [0m\u2588| 3/60 [00:00<00:02, 22.28it/s][BACKTESTS]:  10%|\u2588[32m###                           [0m\u2588| 6/60 [00:00<00:06,  7.95it/s][BACKTESTS]:  13%|\u2588[32m####                          [0m\u2588| 8/60 [00:00<00:05,  9.50it/s][BACKTESTS]:  17%|\u2588[32m#####                         [0m\u2588| 10/60 [00:01<00:05,  9.12it/s][BACKTESTS]:  20%|\u2588[32m######                        [0m\u2588| 12/60 [00:01<00:06,  7.62it/s][BACKTESTS]:  23%|\u2588[32m#######                       [0m\u2588| 14/60 [00:01<00:04,  9.23it/s][BACKTESTS]:  27%|\u2588[32m########                      [0m\u2588| 16/60 [00:01<00:04, 10.07it/s][BACKTESTS]:  30%|\u2588[32m#########                     [0m\u2588| 18/60 [00:02<00:05,  8.35it/s][BACKTESTS]:  35%|\u2588[32m##########5                   [0m\u2588| 21/60 [00:02<00:04,  9.32it/s][BACKTESTS]:  38%|\u2588[32m###########5                  [0m\u2588| 23/60 [00:02<00:05,  7.31it/s][BACKTESTS]:  42%|\u2588[32m############5                 [0m\u2588| 25/60 [00:02<00:04,  8.29it/s][BACKTESTS]:  45%|\u2588[32m#############5                [0m\u2588| 27/60 [00:02<00:03,  9.90it/s][BACKTESTS]:  48%|\u2588[32m##############5               [0m\u2588| 29/60 [00:03<00:03,  9.96it/s][BACKTESTS]:  53%|\u2588[32m################              [0m\u2588| 32/60 [00:03<00:02, 13.37it/s][BACKTESTS]:  57%|\u2588[32m#################             [0m\u2588| 34/60 [00:03<00:01, 14.31it/s][BACKTESTS]:  60%|\u2588[32m##################            [0m\u2588| 36/60 [00:03<00:01, 15.18it/s][BACKTESTS]:  82%|\u2588[32m########################5     [0m\u2588| 49/60 [00:03<00:00, 41.34it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 16.25it/s]
+2026-01-16 15:48:03,080 - __main__ - INFO - [SCHEDULED] 60 resultats de backtest recus
+2026-01-16 15:48:03,081 - __main__ - INFO - [SCHEDULED] Meilleur resultat: StochRSI_ADX sur 4h | Profit: $2,348,669.89
+2026-01-16 15:48:03,082 - __main__ - INFO - [SCHEDULED] Panel meilleur resultat affiché
+2026-01-16 15:48:03,082 - __main__ - INFO - [SCHEDULED] Creation du tableau des 60 resultats...
+2026-01-16 15:48:03,199 - __main__ - INFO - [SCHEDULED] Tableau affiche - 60 lignes
+2026-01-16 15:48:03,199 - __main__ - INFO - [SCHEDULED] Parametres inchanges pour SOLUSDT
+2026-01-16 15:48:03,200 - __main__ - INFO - [SCHEDULED] Affichage panel trading...
+2026-01-16 15:48:03,201 - __main__ - INFO - [SCHEDULED] Panel trading affiché, appel execute_real_trades...
+2026-01-16 15:48:03,201 - __main__ - INFO - [SCHEDULED] Appel execute_real_trades avec StochRSI_ADX sur 4h + sizing_mode='baseline'...
+2026-01-16 15:48:04,653 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 15:48:08,856 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 15:48:10,377 - __main__ - INFO - [SCHEDULED] execute_real_trades complété avec succès
+2026-01-16 15:48:10,377 - __main__ - INFO - [SCHEDULED] Affichage des informations de suivi...
+2026-01-16 15:48:10,380 - __main__ - INFO - [SCHEDULED] Création et affichage du panel de suivi...
+2026-01-16 15:48:10,383 - __main__ - INFO - [SCHEDULED] Exécution planifiée COMPLETEE pour SOLUSDT
+2026-01-16 15:50:10,385 - __main__ - INFO - [SCHEDULED] DEBUT execution planifiee - 2026-01-16 15:50:10
+2026-01-16 15:50:10,388 - __main__ - INFO - [SCHEDULED] Header affiché, debut des backtests...
+2026-01-16 15:50:10,388 - __main__ - INFO - [SCHEDULED] Re-backtest de SOLUSDT pour obtenir les paramètres les plus à jour...
+2026-01-16 15:50:10,388 - __main__ - INFO - [SCHEDULED] Backtest dates: 17 January 2021 -> 16 January 2026
+2026-01-16 15:50:10,388 - __main__ - INFO - [SCHEDULED] Lancement des backtests...
+2026-01-16 15:50:10,857 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1h (44028 candles)
+2026-01-16 15:50:11,554 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 4h (11015 candles)
+2026-01-16 15:50:12,090 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1d (1837 candles)
+2026-01-16 15:50:12,330 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0169)
+2026-01-16 15:50:12,397 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0346)
+2026-01-16 15:50:12,408 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0856)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   5%|\u2588[32m#5                            [0m\u2588| 3/60 [00:00<00:04, 12.32it/s][BACKTESTS]:   8%|\u2588[32m##5                           [0m\u2588| 5/60 [00:00<00:03, 13.93it/s][BACKTESTS]:  12%|\u2588[32m###5                          [0m\u2588| 7/60 [00:00<00:05,  9.82it/s][BACKTESTS]:  15%|\u2588[32m####5                         [0m\u2588| 9/60 [00:00<00:06,  7.99it/s][BACKTESTS]:  18%|\u2588[32m#####5                        [0m\u2588| 11/60 [00:01<00:06,  7.81it/s][BACKTESTS]:  22%|\u2588[32m######5                       [0m\u2588| 13/60 [00:01<00:05,  9.04it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:04,  9.17it/s][BACKTESTS]:  30%|\u2588[32m#########                     [0m\u2588| 18/60 [00:01<00:04,  8.57it/s][BACKTESTS]:  33%|\u2588[32m##########                    [0m\u2588| 20/60 [00:02<00:04,  9.43it/s][BACKTESTS]:  37%|\u2588[32m###########                   [0m\u2588| 22/60 [00:02<00:05,  6.93it/s][BACKTESTS]:  48%|\u2588[32m##############5               [0m\u2588| 29/60 [00:02<00:02, 14.22it/s][BACKTESTS]:  55%|\u2588[32m################5             [0m\u2588| 33/60 [00:02<00:01, 16.54it/s][BACKTESTS]:  60%|\u2588[32m##################            [0m\u2588| 36/60 [00:03<00:01, 17.75it/s][BACKTESTS]:  78%|\u2588[32m#######################5      [0m\u2588| 47/60 [00:03<00:00, 33.43it/s][BACKTESTS]:  87%|\u2588[32m##########################    [0m\u2588| 52/60 [00:03<00:00, 33.56it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 17.69it/s]
+2026-01-16 15:50:15,806 - __main__ - INFO - [SCHEDULED] 60 resultats de backtest recus
+2026-01-16 15:50:15,806 - __main__ - INFO - [SCHEDULED] Meilleur resultat: StochRSI_ADX sur 4h | Profit: $2,348,669.89
+2026-01-16 15:50:15,808 - __main__ - INFO - [SCHEDULED] Panel meilleur resultat affiché
+2026-01-16 15:50:15,808 - __main__ - INFO - [SCHEDULED] Creation du tableau des 60 resultats...
+2026-01-16 15:50:15,894 - __main__ - INFO - [SCHEDULED] Tableau affiche - 60 lignes
+2026-01-16 15:50:15,895 - __main__ - INFO - [SCHEDULED] Parametres inchanges pour SOLUSDT
+2026-01-16 15:50:15,895 - __main__ - INFO - [SCHEDULED] Affichage panel trading...
+2026-01-16 15:50:15,897 - __main__ - INFO - [SCHEDULED] Panel trading affiché, appel execute_real_trades...
+2026-01-16 15:50:15,897 - __main__ - INFO - [SCHEDULED] Appel execute_real_trades avec StochRSI_ADX sur 4h + sizing_mode='baseline'...
+2026-01-16 15:50:17,211 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 15:50:21,230 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 15:50:22,764 - __main__ - INFO - [SCHEDULED] execute_real_trades complété avec succès
+2026-01-16 15:50:22,764 - __main__ - INFO - [SCHEDULED] Affichage des informations de suivi...
+2026-01-16 15:50:22,767 - __main__ - INFO - [SCHEDULED] Création et affichage du panel de suivi...
+2026-01-16 15:50:22,770 - __main__ - INFO - [SCHEDULED] Exécution planifiée COMPLETEE pour SOLUSDT
+2026-01-16 15:52:22,772 - __main__ - INFO - [SCHEDULED] DEBUT execution planifiee - 2026-01-16 15:52:22
+2026-01-16 15:52:22,775 - __main__ - INFO - [SCHEDULED] Header affiché, debut des backtests...
+2026-01-16 15:52:22,775 - __main__ - INFO - [SCHEDULED] Re-backtest de SOLUSDT pour obtenir les paramètres les plus à jour...
+2026-01-16 15:52:22,775 - __main__ - INFO - [SCHEDULED] Backtest dates: 17 January 2021 -> 16 January 2026
+2026-01-16 15:52:22,776 - __main__ - INFO - [SCHEDULED] Lancement des backtests...
+2026-01-16 15:52:23,248 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1h (44028 candles)
+2026-01-16 15:52:23,945 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 4h (11015 candles)
+2026-01-16 15:52:24,476 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1d (1837 candles)
+2026-01-16 15:52:24,719 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0169)
+2026-01-16 15:52:24,781 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0346)
+2026-01-16 15:52:24,792 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0856)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   5%|\u2588[32m#5                            [0m\u2588| 3/60 [00:00<00:02, 20.75it/s][BACKTESTS]:  10%|\u2588[32m###                           [0m\u2588| 6/60 [00:00<00:06,  8.05it/s][BACKTESTS]:  13%|\u2588[32m####                          [0m\u2588| 8/60 [00:00<00:05,  9.71it/s][BACKTESTS]:  17%|\u2588[32m#####                         [0m\u2588| 10/60 [00:01<00:05,  8.63it/s][BACKTESTS]:  20%|\u2588[32m######                        [0m\u2588| 12/60 [00:01<00:07,  6.43it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:04,  9.05it/s][BACKTESTS]:  28%|\u2588[32m########5                     [0m\u2588| 17/60 [00:01<00:04, 10.42it/s][BACKTESTS]:  32%|\u2588[32m#########5                    [0m\u2588| 19/60 [00:02<00:04,  9.40it/s][BACKTESTS]:  35%|\u2588[32m##########5                   [0m\u2588| 21/60 [00:02<00:05,  7.76it/s][BACKTESTS]:  38%|\u2588[32m###########5                  [0m\u2588| 23/60 [00:02<00:04,  7.76it/s][BACKTESTS]:  45%|\u2588[32m#############5                [0m\u2588| 27/60 [00:02<00:02, 11.58it/s][BACKTESTS]:  52%|\u2588[32m###############5              [0m\u2588| 31/60 [00:03<00:01, 14.88it/s][BACKTESTS]:  60%|\u2588[32m##################            [0m\u2588| 36/60 [00:03<00:01, 19.27it/s][BACKTESTS]:  70%|\u2588[32m#####################         [0m\u2588| 42/60 [00:03<00:00, 26.73it/s][BACKTESTS]:  77%|\u2588[32m#######################       [0m\u2588| 46/60 [00:03<00:00, 29.11it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 53.20it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 17.28it/s]
+2026-01-16 15:52:28,273 - __main__ - INFO - [SCHEDULED] 60 resultats de backtest recus
+2026-01-16 15:52:28,273 - __main__ - INFO - [SCHEDULED] Meilleur resultat: StochRSI_ADX sur 4h | Profit: $2,348,669.89
+2026-01-16 15:52:28,275 - __main__ - INFO - [SCHEDULED] Panel meilleur resultat affiché
+2026-01-16 15:52:28,275 - __main__ - INFO - [SCHEDULED] Creation du tableau des 60 resultats...
+2026-01-16 15:52:28,359 - __main__ - INFO - [SCHEDULED] Tableau affiche - 60 lignes
+2026-01-16 15:52:28,360 - __main__ - INFO - [SCHEDULED] Parametres inchanges pour SOLUSDT
+2026-01-16 15:52:28,360 - __main__ - INFO - [SCHEDULED] Affichage panel trading...
+2026-01-16 15:52:28,362 - __main__ - INFO - [SCHEDULED] Panel trading affiché, appel execute_real_trades...
+2026-01-16 15:52:28,362 - __main__ - INFO - [SCHEDULED] Appel execute_real_trades avec StochRSI_ADX sur 4h + sizing_mode='baseline'...
+2026-01-16 15:52:30,274 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 15:52:34,300 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 15:52:35,788 - __main__ - INFO - [SCHEDULED] execute_real_trades complété avec succès
+2026-01-16 15:52:35,788 - __main__ - INFO - [SCHEDULED] Affichage des informations de suivi...
+2026-01-16 15:52:35,791 - __main__ - INFO - [SCHEDULED] Création et affichage du panel de suivi...
+2026-01-16 15:52:35,793 - __main__ - INFO - [SCHEDULED] Exécution planifiée COMPLETEE pour SOLUSDT
+2026-01-16 15:54:35,816 - __main__ - INFO - [SCHEDULED] DEBUT execution planifiee - 2026-01-16 15:54:35
+2026-01-16 15:54:35,818 - __main__ - INFO - [SCHEDULED] Header affiché, debut des backtests...
+2026-01-16 15:54:35,819 - __main__ - INFO - [SCHEDULED] Re-backtest de SOLUSDT pour obtenir les paramètres les plus à jour...
+2026-01-16 15:54:35,819 - __main__ - INFO - [SCHEDULED] Backtest dates: 17 January 2021 -> 16 January 2026
+2026-01-16 15:54:35,819 - __main__ - INFO - [SCHEDULED] Lancement des backtests...
+2026-01-16 15:54:36,304 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1h (44028 candles)
+2026-01-16 15:54:37,029 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 4h (11015 candles)
+2026-01-16 15:54:37,566 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1d (1837 candles)
+2026-01-16 15:54:37,826 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0169)
+2026-01-16 15:54:37,885 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0346)
+2026-01-16 15:54:37,899 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0856)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   5%|\u2588[32m#5                            [0m\u2588| 3/60 [00:00<00:03, 17.56it/s][BACKTESTS]:   8%|\u2588[32m##5                           [0m\u2588| 5/60 [00:00<00:04, 12.79it/s][BACKTESTS]:  12%|\u2588[32m###5                          [0m\u2588| 7/60 [00:00<00:07,  7.44it/s][BACKTESTS]:  15%|\u2588[32m####5                         [0m\u2588| 9/60 [00:01<00:06,  7.45it/s][BACKTESTS]:  18%|\u2588[32m#####5                        [0m\u2588| 11/60 [00:01<00:05,  8.96it/s][BACKTESTS]:  23%|\u2588[32m#######                       [0m\u2588| 14/60 [00:01<00:05,  8.33it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:06,  7.15it/s][BACKTESTS]:  28%|\u2588[32m########5                     [0m\u2588| 17/60 [00:02<00:06,  7.12it/s][BACKTESTS]:  35%|\u2588[32m##########5                   [0m\u2588| 21/60 [00:02<00:04,  8.55it/s][BACKTESTS]:  38%|\u2588[32m###########5                  [0m\u2588| 23/60 [00:02<00:04,  8.59it/s][BACKTESTS]:  40%|\u2588[32m############                  [0m\u2588| 24/60 [00:02<00:04,  8.58it/s][BACKTESTS]:  45%|\u2588[32m#############5                [0m\u2588| 27/60 [00:02<00:02, 11.47it/s][BACKTESTS]:  52%|\u2588[32m###############5              [0m\u2588| 31/60 [00:03<00:01, 15.38it/s][BACKTESTS]:  63%|\u2588[32m###################           [0m\u2588| 38/60 [00:03<00:00, 23.28it/s][BACKTESTS]:  72%|\u2588[32m#####################5        [0m\u2588| 43/60 [00:03<00:00, 25.60it/s][BACKTESTS]:  97%|\u2588[32m############################# [0m\u2588| 58/60 [00:03<00:00, 50.06it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 16.87it/s]
+2026-01-16 15:54:41,464 - __main__ - INFO - [SCHEDULED] 60 resultats de backtest recus
+2026-01-16 15:54:41,464 - __main__ - INFO - [SCHEDULED] Meilleur resultat: StochRSI_ADX sur 4h | Profit: $2,348,669.89
+2026-01-16 15:54:41,466 - __main__ - INFO - [SCHEDULED] Panel meilleur resultat affiché
+2026-01-16 15:54:41,466 - __main__ - INFO - [SCHEDULED] Creation du tableau des 60 resultats...
+2026-01-16 15:54:41,550 - __main__ - INFO - [SCHEDULED] Tableau affiche - 60 lignes
+2026-01-16 15:54:41,551 - __main__ - INFO - [SCHEDULED] Parametres inchanges pour SOLUSDT
+2026-01-16 15:54:41,551 - __main__ - INFO - [SCHEDULED] Affichage panel trading...
+2026-01-16 15:54:41,553 - __main__ - INFO - [SCHEDULED] Panel trading affiché, appel execute_real_trades...
+2026-01-16 15:54:41,553 - __main__ - INFO - [SCHEDULED] Appel execute_real_trades avec StochRSI_ADX sur 4h + sizing_mode='baseline'...
+2026-01-16 15:54:43,245 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 15:54:48,088 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 15:54:50,022 - __main__ - INFO - [SCHEDULED] execute_real_trades complété avec succès
+2026-01-16 15:54:50,022 - __main__ - INFO - [SCHEDULED] Affichage des informations de suivi...
+2026-01-16 15:54:50,026 - __main__ - INFO - [SCHEDULED] Création et affichage du panel de suivi...
+2026-01-16 15:54:50,028 - __main__ - INFO - [SCHEDULED] Exécution planifiée COMPLETEE pour SOLUSDT
+2026-01-16 15:56:50,031 - __main__ - INFO - [SCHEDULED] DEBUT execution planifiee - 2026-01-16 15:56:50
+2026-01-16 15:56:50,033 - __main__ - INFO - [SCHEDULED] Header affiché, debut des backtests...
+2026-01-16 15:56:50,034 - __main__ - INFO - [SCHEDULED] Re-backtest de SOLUSDT pour obtenir les paramètres les plus à jour...
+2026-01-16 15:56:50,034 - __main__ - INFO - [SCHEDULED] Backtest dates: 17 January 2021 -> 16 January 2026
+2026-01-16 15:56:50,034 - __main__ - INFO - [SCHEDULED] Lancement des backtests...
+2026-01-16 15:56:50,517 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1h (44028 candles)
+2026-01-16 15:56:51,252 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 4h (11015 candles)
+2026-01-16 15:56:51,784 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1d (1837 candles)
+2026-01-16 15:56:52,043 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0169)
+2026-01-16 15:56:52,097 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0346)
+2026-01-16 15:56:52,110 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0856)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   5%|\u2588[32m#5                            [0m\u2588| 3/60 [00:00<00:03, 14.57it/s][BACKTESTS]:   8%|\u2588[32m##5                           [0m\u2588| 5/60 [00:00<00:05,  9.79it/s][BACKTESTS]:  12%|\u2588[32m###5                          [0m\u2588| 7/60 [00:00<00:05,  9.15it/s][BACKTESTS]:  15%|\u2588[32m####5                         [0m\u2588| 9/60 [00:00<00:05,  9.90it/s][BACKTESTS]:  18%|\u2588[32m#####5                        [0m\u2588| 11/60 [00:01<00:05,  9.23it/s][BACKTESTS]:  22%|\u2588[32m######5                       [0m\u2588| 13/60 [00:01<00:04, 10.23it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:05,  7.77it/s][BACKTESTS]:  27%|\u2588[32m########                      [0m\u2588| 16/60 [00:01<00:05,  7.95it/s][BACKTESTS]:  30%|\u2588[32m#########                     [0m\u2588| 18/60 [00:02<00:05,  7.05it/s][BACKTESTS]:  33%|\u2588[32m##########                    [0m\u2588| 20/60 [00:02<00:04,  8.58it/s][BACKTESTS]:  37%|\u2588[32m###########                   [0m\u2588| 22/60 [00:02<00:05,  6.91it/s][BACKTESTS]:  38%|\u2588[32m###########5                  [0m\u2588| 23/60 [00:02<00:05,  7.13it/s][BACKTESTS]:  50%|\u2588[32m###############               [0m\u2588| 30/60 [00:02<00:01, 15.28it/s][BACKTESTS]:  55%|\u2588[32m################5             [0m\u2588| 33/60 [00:03<00:01, 16.61it/s][BACKTESTS]:  63%|\u2588[32m###################           [0m\u2588| 38/60 [00:03<00:01, 20.79it/s][BACKTESTS]:  77%|\u2588[32m#######################       [0m\u2588| 46/60 [00:03<00:00, 27.45it/s][BACKTESTS]:  82%|\u2588[32m########################5     [0m\u2588| 49/60 [00:03<00:00, 21.99it/s][BACKTESTS]:  98%|\u2588[32m#############################5[0m\u2588| 59/60 [00:03<00:00, 34.96it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 15.74it/s]
+2026-01-16 15:56:55,930 - __main__ - INFO - [SCHEDULED] 60 resultats de backtest recus
+2026-01-16 15:56:55,930 - __main__ - INFO - [SCHEDULED] Meilleur resultat: StochRSI_ADX sur 4h | Profit: $2,348,669.89
+2026-01-16 15:56:55,932 - __main__ - INFO - [SCHEDULED] Panel meilleur resultat affiché
+2026-01-16 15:56:55,933 - __main__ - INFO - [SCHEDULED] Creation du tableau des 60 resultats...
+2026-01-16 15:56:56,064 - __main__ - INFO - [SCHEDULED] Tableau affiche - 60 lignes
+2026-01-16 15:56:56,065 - __main__ - INFO - [SCHEDULED] Parametres inchanges pour SOLUSDT
+2026-01-16 15:56:56,065 - __main__ - INFO - [SCHEDULED] Affichage panel trading...
+2026-01-16 15:56:56,067 - __main__ - INFO - [SCHEDULED] Panel trading affiché, appel execute_real_trades...
+2026-01-16 15:56:56,067 - __main__ - INFO - [SCHEDULED] Appel execute_real_trades avec StochRSI_ADX sur 4h + sizing_mode='baseline'...
+2026-01-16 15:56:57,797 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 15:57:01,817 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 15:57:03,548 - __main__ - INFO - [SCHEDULED] execute_real_trades complété avec succès
+2026-01-16 15:57:03,548 - __main__ - INFO - [SCHEDULED] Affichage des informations de suivi...
+2026-01-16 15:57:03,552 - __main__ - INFO - [SCHEDULED] Création et affichage du panel de suivi...
+2026-01-16 15:57:03,555 - __main__ - INFO - [SCHEDULED] Exécution planifiée COMPLETEE pour SOLUSDT
+2026-01-16 15:59:03,558 - __main__ - INFO - [SCHEDULED] DEBUT execution planifiee - 2026-01-16 15:59:03
+2026-01-16 15:59:03,562 - __main__ - INFO - [SCHEDULED] Header affiché, debut des backtests...
+2026-01-16 15:59:03,563 - __main__ - INFO - [SCHEDULED] Re-backtest de SOLUSDT pour obtenir les paramètres les plus à jour...
+2026-01-16 15:59:03,563 - __main__ - INFO - [SCHEDULED] Backtest dates: 17 January 2021 -> 16 January 2026
+2026-01-16 15:59:03,563 - __main__ - INFO - [SCHEDULED] Lancement des backtests...
+2026-01-16 15:59:04,041 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1h (44028 candles)
+2026-01-16 15:59:04,748 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 4h (11015 candles)
+2026-01-16 15:59:05,305 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1d (1837 candles)
+2026-01-16 15:59:05,551 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0169)
+2026-01-16 15:59:05,603 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0346)
+2026-01-16 15:59:05,615 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0856)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   5%|\u2588[32m#5                            [0m\u2588| 3/60 [00:00<00:02, 21.58it/s][BACKTESTS]:  10%|\u2588[32m###                           [0m\u2588| 6/60 [00:00<00:05, 10.66it/s][BACKTESTS]:  13%|\u2588[32m####                          [0m\u2588| 8/60 [00:00<00:04, 12.30it/s][BACKTESTS]:  17%|\u2588[32m#####                         [0m\u2588| 10/60 [00:01<00:06,  8.15it/s][BACKTESTS]:  20%|\u2588[32m######                        [0m\u2588| 12/60 [00:01<00:06,  6.93it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:04,  9.12it/s][BACKTESTS]:  28%|\u2588[32m########5                     [0m\u2588| 17/60 [00:01<00:04, 10.49it/s][BACKTESTS]:  32%|\u2588[32m#########5                    [0m\u2588| 19/60 [00:02<00:04,  8.92it/s][BACKTESTS]:  35%|\u2588[32m##########5                   [0m\u2588| 21/60 [00:02<00:04,  8.35it/s][BACKTESTS]:  37%|\u2588[32m###########                   [0m\u2588| 22/60 [00:02<00:05,  6.77it/s][BACKTESTS]:  43%|\u2588[32m#############                 [0m\u2588| 26/60 [00:02<00:03, 11.01it/s][BACKTESTS]:  52%|\u2588[32m###############5              [0m\u2588| 31/60 [00:02<00:01, 16.44it/s][BACKTESTS]:  58%|\u2588[32m#################5            [0m\u2588| 35/60 [00:02<00:01, 19.49it/s][BACKTESTS]:  77%|\u2588[32m#######################       [0m\u2588| 46/60 [00:03<00:00, 31.49it/s][BACKTESTS]:  97%|\u2588[32m############################# [0m\u2588| 58/60 [00:03<00:00, 48.32it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 18.27it/s]
+2026-01-16 15:59:08,907 - __main__ - INFO - [SCHEDULED] 60 resultats de backtest recus
+2026-01-16 15:59:08,907 - __main__ - INFO - [SCHEDULED] Meilleur resultat: StochRSI_ADX sur 4h | Profit: $2,348,669.89
+2026-01-16 15:59:08,909 - __main__ - INFO - [SCHEDULED] Panel meilleur resultat affiché
+2026-01-16 15:59:08,909 - __main__ - INFO - [SCHEDULED] Creation du tableau des 60 resultats...
+2026-01-16 15:59:09,003 - __main__ - INFO - [SCHEDULED] Tableau affiche - 60 lignes
+2026-01-16 15:59:09,004 - __main__ - INFO - [SCHEDULED] Parametres inchanges pour SOLUSDT
+2026-01-16 15:59:09,004 - __main__ - INFO - [SCHEDULED] Affichage panel trading...
+2026-01-16 15:59:09,006 - __main__ - INFO - [SCHEDULED] Panel trading affiché, appel execute_real_trades...
+2026-01-16 15:59:09,006 - __main__ - INFO - [SCHEDULED] Appel execute_real_trades avec StochRSI_ADX sur 4h + sizing_mode='baseline'...
+2026-01-16 15:59:11,150 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 15:59:15,163 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 15:59:16,686 - __main__ - INFO - [SCHEDULED] execute_real_trades complété avec succès
+2026-01-16 15:59:16,687 - __main__ - INFO - [SCHEDULED] Affichage des informations de suivi...
+2026-01-16 15:59:16,690 - __main__ - INFO - [SCHEDULED] Création et affichage du panel de suivi...
+2026-01-16 15:59:16,693 - __main__ - INFO - [SCHEDULED] Exécution planifiée COMPLETEE pour SOLUSDT
+2026-01-16 16:01:16,694 - __main__ - INFO - [SCHEDULED] DEBUT execution planifiee - 2026-01-16 16:01:16
+2026-01-16 16:01:16,703 - __main__ - INFO - [SCHEDULED] Header affiché, debut des backtests...
+2026-01-16 16:01:16,703 - __main__ - INFO - [SCHEDULED] Re-backtest de SOLUSDT pour obtenir les paramètres les plus à jour...
+2026-01-16 16:01:16,704 - __main__ - INFO - [SCHEDULED] Backtest dates: 17 January 2021 -> 16 January 2026
+2026-01-16 16:01:16,704 - __main__ - INFO - [SCHEDULED] Lancement des backtests...
+2026-01-16 16:01:17,220 - __main__ - INFO - [CACHE] Cache updated: SOLUSDT 1h (+1 new candles)
+2026-01-16 16:01:17,232 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1h (44029 candles)
+2026-01-16 16:01:17,930 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 4h (11015 candles)
+2026-01-16 16:01:18,463 - __main__ - INFO - [OK] Cache used + updated: SOLUSDT 1d (1837 candles)
+2026-01-16 16:01:18,729 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0169)
+2026-01-16 16:01:18,787 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0346)
+2026-01-16 16:01:18,799 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0856)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   5%|\u2588[32m#5                            [0m\u2588| 3/60 [00:00<00:02, 21.39it/s][BACKTESTS]:  10%|\u2588[32m###                           [0m\u2588| 6/60 [00:00<00:06,  8.35it/s][BACKTESTS]:  13%|\u2588[32m####                          [0m\u2588| 8/60 [00:00<00:05,  9.29it/s][BACKTESTS]:  17%|\u2588[32m#####                         [0m\u2588| 10/60 [00:01<00:05,  8.66it/s][BACKTESTS]:  20%|\u2588[32m######                        [0m\u2588| 12/60 [00:01<00:05,  8.14it/s][BACKTESTS]:  22%|\u2588[32m######5                       [0m\u2588| 13/60 [00:01<00:05,  8.24it/s][BACKTESTS]:  23%|\u2588[32m#######                       [0m\u2588| 14/60 [00:01<00:06,  7.40it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:06,  6.56it/s][BACKTESTS]:  27%|\u2588[32m########                      [0m\u2588| 16/60 [00:02<00:07,  5.73it/s][BACKTESTS]:  35%|\u2588[32m##########5                   [0m\u2588| 21/60 [00:02<00:03, 10.23it/s][BACKTESTS]:  38%|\u2588[32m###########5                  [0m\u2588| 23/60 [00:02<00:03, 11.56it/s][BACKTESTS]:  42%|\u2588[32m############5                 [0m\u2588| 25/60 [00:02<00:03, 10.70it/s][BACKTESTS]:  45%|\u2588[32m#############5                [0m\u2588| 27/60 [00:02<00:02, 11.28it/s][BACKTESTS]:  55%|\u2588[32m################5             [0m\u2588| 33/60 [00:03<00:01, 18.24it/s][BACKTESTS]:  58%|\u2588[32m#################5            [0m\u2588| 35/60 [00:03<00:01, 17.72it/s][BACKTESTS]:  70%|\u2588[32m#####################         [0m\u2588| 42/60 [00:03<00:00, 23.72it/s][BACKTESTS]:  90%|\u2588[32m###########################   [0m\u2588| 54/60 [00:03<00:00, 41.39it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 17.07it/s]
+2026-01-16 16:01:22,323 - __main__ - INFO - [SCHEDULED] 60 resultats de backtest recus
+2026-01-16 16:01:22,323 - __main__ - INFO - [SCHEDULED] Meilleur resultat: StochRSI_ADX sur 4h | Profit: $2,348,669.89
+2026-01-16 16:01:22,325 - __main__ - INFO - [SCHEDULED] Panel meilleur resultat affiché
+2026-01-16 16:01:22,325 - __main__ - INFO - [SCHEDULED] Creation du tableau des 60 resultats...
+2026-01-16 16:01:22,418 - __main__ - INFO - [SCHEDULED] Tableau affiche - 60 lignes
+2026-01-16 16:01:22,420 - __main__ - INFO - [SCHEDULED] Parametres inchanges pour SOLUSDT
+2026-01-16 16:01:22,420 - __main__ - INFO - [SCHEDULED] Affichage panel trading...
+2026-01-16 16:01:22,422 - __main__ - INFO - [SCHEDULED] Panel trading affiché, appel execute_real_trades...
+2026-01-16 16:01:22,422 - __main__ - INFO - [SCHEDULED] Appel execute_real_trades avec StochRSI_ADX sur 4h + sizing_mode='baseline'...
+2026-01-16 16:01:23,753 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 16:01:27,726 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 16:01:29,255 - __main__ - INFO - [SCHEDULED] execute_real_trades complété avec succès
+2026-01-16 16:01:29,255 - __main__ - INFO - [SCHEDULED] Affichage des informations de suivi...
+2026-01-16 16:01:29,259 - __main__ - INFO - [SCHEDULED] Création et affichage du panel de suivi...
+2026-01-16 16:01:29,262 - __main__ - INFO - [SCHEDULED] Exécution planifiée COMPLETEE pour SOLUSDT
+2026-01-16 16:05:29,269 - __main__ - INFO - [SCHEDULED] DEBUT execution planifiee - 2026-01-16 16:05:29
+2026-01-16 16:05:29,273 - __main__ - INFO - [SCHEDULED] Header affiché, debut des backtests...
+2026-01-16 16:05:29,273 - __main__ - INFO - [SCHEDULED] Re-backtest de SOLUSDT pour obtenir les paramètres les plus à jour...
+2026-01-16 16:05:29,273 - __main__ - INFO - [SCHEDULED] Backtest dates: 17 January 2021 -> 16 January 2026
+2026-01-16 16:05:29,273 - __main__ - INFO - [SCHEDULED] Lancement des backtests...
+2026-01-16 16:05:29,273 - __main__ - INFO - Telechargement SOLUSDT 1h...
+2026-01-16 16:05:57,502 - __main__ - INFO - OK: 43802 candles | 2021-01-17 -> 2026-01-16
+2026-01-16 16:05:57,882 - __main__ - INFO - Telechargement SOLUSDT 4h...
+2026-01-16 16:06:05,222 - __main__ - INFO - OK: 10954 candles | 2021-01-17 -> 2026-01-16
+2026-01-16 16:06:05,365 - __main__ - INFO - Telechargement SOLUSDT 1d...
+2026-01-16 16:06:06,528 - __main__ - INFO - OK: 1826 candles | 2021-01-17 -> 2026-01-16
+2026-01-16 16:06:06,747 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0167)
+2026-01-16 16:06:06,798 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0343)
+2026-01-16 16:06:06,809 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0857)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   3%|\u2588[32m#                             [0m\u2588| 2/60 [00:00<00:02, 19.42it/s][BACKTESTS]:   7%|\u2588[32m##                            [0m\u2588| 4/60 [00:00<00:03, 16.05it/s][BACKTESTS]:  10%|\u2588[32m###                           [0m\u2588| 6/60 [00:00<00:05, 10.18it/s][BACKTESTS]:  13%|\u2588[32m####                          [0m\u2588| 8/60 [00:00<00:06,  7.90it/s][BACKTESTS]:  15%|\u2588[32m####5                         [0m\u2588| 9/60 [00:01<00:06,  7.36it/s][BACKTESTS]:  18%|\u2588[32m#####5                        [0m\u2588| 11/60 [00:01<00:05,  8.80it/s][BACKTESTS]:  23%|\u2588[32m#######                       [0m\u2588| 14/60 [00:01<00:05,  8.59it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:05,  7.60it/s][BACKTESTS]:  28%|\u2588[32m########5                     [0m\u2588| 17/60 [00:01<00:04,  9.26it/s][BACKTESTS]:  32%|\u2588[32m#########5                    [0m\u2588| 19/60 [00:02<00:04, 10.21it/s][BACKTESTS]:  35%|\u2588[32m##########5                   [0m\u2588| 21/60 [00:02<00:04,  9.66it/s][BACKTESTS]:  38%|\u2588[32m###########5                  [0m\u2588| 23/60 [00:02<00:04,  8.15it/s][BACKTESTS]:  45%|\u2588[32m#############5                [0m\u2588| 27/60 [00:02<00:02, 12.50it/s][BACKTESTS]:  52%|\u2588[32m###############5              [0m\u2588| 31/60 [00:02<00:01, 16.13it/s][BACKTESTS]:  60%|\u2588[32m##################            [0m\u2588| 36/60 [00:02<00:01, 21.57it/s][BACKTESTS]:  68%|\u2588[32m####################5         [0m\u2588| 41/60 [00:03<00:00, 26.06it/s][BACKTESTS]:  78%|\u2588[32m#######################5      [0m\u2588| 47/60 [00:03<00:00, 29.18it/s][BACKTESTS]:  98%|\u2588[32m#############################5[0m\u2588| 59/60 [00:03<00:00, 47.47it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 17.72it/s]
+2026-01-16 16:06:10,201 - __main__ - INFO - [SCHEDULED] 60 resultats de backtest recus
+2026-01-16 16:06:10,201 - __main__ - INFO - [SCHEDULED] Meilleur resultat: StochRSI_ADX sur 4h | Profit: $2,207,332.90
+2026-01-16 16:06:10,203 - __main__ - INFO - [SCHEDULED] Panel meilleur resultat affiché
+2026-01-16 16:06:10,203 - __main__ - INFO - [SCHEDULED] Creation du tableau des 60 resultats...
+2026-01-16 16:06:10,299 - __main__ - INFO - [SCHEDULED] Tableau affiche - 60 lignes
+2026-01-16 16:06:10,300 - __main__ - INFO - [SCHEDULED] Parametres inchanges pour SOLUSDT
+2026-01-16 16:06:10,300 - __main__ - INFO - [SCHEDULED] Affichage panel trading...
+2026-01-16 16:06:10,302 - __main__ - INFO - [SCHEDULED] Panel trading affiché, appel execute_real_trades...
+2026-01-16 16:06:10,302 - __main__ - INFO - [SCHEDULED] Appel execute_real_trades avec StochRSI_ADX sur 4h + sizing_mode='baseline'...
+2026-01-16 16:06:12,006 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 16:06:17,041 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 16:06:18,919 - __main__ - INFO - [SCHEDULED] execute_real_trades complété avec succès
+2026-01-16 16:06:18,919 - __main__ - INFO - [SCHEDULED] Affichage des informations de suivi...
+2026-01-16 16:06:18,922 - __main__ - INFO - [SCHEDULED] Création et affichage du panel de suivi...
+2026-01-16 16:06:18,925 - __main__ - INFO - [SCHEDULED] Exécution planifiée COMPLETEE pour SOLUSDT
+2026-01-16 16:10:18,919 - __main__ - INFO - [SCHEDULED] DEBUT execution planifiee - 2026-01-16 16:10:18
+2026-01-16 16:10:18,922 - __main__ - INFO - [SCHEDULED] Header affiché, debut des backtests...
+2026-01-16 16:10:18,922 - __main__ - INFO - [SCHEDULED] Re-backtest de SOLUSDT pour obtenir les paramètres les plus à jour...
+2026-01-16 16:10:18,922 - __main__ - INFO - [SCHEDULED] Backtest dates: 17 January 2021 -> 16 January 2026
+2026-01-16 16:10:18,922 - __main__ - INFO - [SCHEDULED] Lancement des backtests...
+2026-01-16 16:10:18,922 - __main__ - INFO - Telechargement SOLUSDT 1h...
+2026-01-16 16:10:47,177 - __main__ - INFO - OK: 43802 candles | 2021-01-17 -> 2026-01-16
+2026-01-16 16:10:47,575 - __main__ - INFO - Telechargement SOLUSDT 4h...
+2026-01-16 16:10:53,571 - __main__ - INFO - OK: 10954 candles | 2021-01-17 -> 2026-01-16
+2026-01-16 16:10:53,693 - __main__ - INFO - Telechargement SOLUSDT 1d...
+2026-01-16 16:10:54,421 - __main__ - INFO - OK: 1826 candles | 2021-01-17 -> 2026-01-16
+2026-01-16 16:10:54,696 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0167)
+2026-01-16 16:10:54,756 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0343)
+2026-01-16 16:10:54,769 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0857)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   5%|\u2588[32m#5                            [0m\u2588| 3/60 [00:00<00:02, 21.70it/s][BACKTESTS]:  10%|\u2588[32m###                           [0m\u2588| 6/60 [00:00<00:07,  7.62it/s][BACKTESTS]:  13%|\u2588[32m####                          [0m\u2588| 8/60 [00:00<00:05,  9.59it/s][BACKTESTS]:  17%|\u2588[32m#####                         [0m\u2588| 10/60 [00:01<00:06,  8.30it/s][BACKTESTS]:  20%|\u2588[32m######                        [0m\u2588| 12/60 [00:01<00:05,  8.97it/s][BACKTESTS]:  23%|\u2588[32m#######                       [0m\u2588| 14/60 [00:01<00:05,  8.03it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:05,  7.99it/s][BACKTESTS]:  28%|\u2588[32m########5                     [0m\u2588| 17/60 [00:01<00:04,  9.85it/s][BACKTESTS]:  32%|\u2588[32m#########5                    [0m\u2588| 19/60 [00:02<00:04,  8.89it/s][BACKTESTS]:  35%|\u2588[32m##########5                   [0m\u2588| 21/60 [00:02<00:04,  8.18it/s][BACKTESTS]:  37%|\u2588[32m###########                   [0m\u2588| 22/60 [00:02<00:05,  6.82it/s][BACKTESTS]:  45%|\u2588[32m#############5                [0m\u2588| 27/60 [00:02<00:02, 12.17it/s][BACKTESTS]:  53%|\u2588[32m################              [0m\u2588| 32/60 [00:02<00:01, 17.08it/s][BACKTESTS]:  58%|\u2588[32m#################5            [0m\u2588| 35/60 [00:03<00:01, 16.58it/s][BACKTESTS]:  75%|\u2588[32m######################5       [0m\u2588| 45/60 [00:03<00:00, 30.71it/s][BACKTESTS]:  85%|\u2588[32m#########################5    [0m\u2588| 51/60 [00:03<00:00, 35.55it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 17.28it/s]
+2026-01-16 16:10:58,249 - __main__ - INFO - [SCHEDULED] 60 resultats de backtest recus
+2026-01-16 16:10:58,249 - __main__ - INFO - [SCHEDULED] Meilleur resultat: StochRSI_ADX sur 4h | Profit: $2,214,305.16
+2026-01-16 16:10:58,252 - __main__ - INFO - [SCHEDULED] Panel meilleur resultat affiché
+2026-01-16 16:10:58,252 - __main__ - INFO - [SCHEDULED] Creation du tableau des 60 resultats...
+2026-01-16 16:10:58,342 - __main__ - INFO - [SCHEDULED] Tableau affiche - 60 lignes
+2026-01-16 16:10:58,342 - __main__ - INFO - [SCHEDULED] Parametres inchanges pour SOLUSDT
+2026-01-16 16:10:58,343 - __main__ - INFO - [SCHEDULED] Affichage panel trading...
+2026-01-16 16:10:58,345 - __main__ - INFO - [SCHEDULED] Panel trading affiché, appel execute_real_trades...
+2026-01-16 16:10:58,345 - __main__ - INFO - [SCHEDULED] Appel execute_real_trades avec StochRSI_ADX sur 4h + sizing_mode='baseline'...
+2026-01-16 16:11:00,028 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 16:11:04,007 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 16:11:05,922 - __main__ - INFO - [SCHEDULED] execute_real_trades complété avec succès
+2026-01-16 16:11:05,922 - __main__ - INFO - [SCHEDULED] Affichage des informations de suivi...
+2026-01-16 16:11:05,926 - __main__ - INFO - [SCHEDULED] Création et affichage du panel de suivi...
+2026-01-16 16:11:05,930 - __main__ - INFO - [SCHEDULED] Exécution planifiée COMPLETEE pour SOLUSDT
+2026-01-16 16:15:05,927 - __main__ - INFO - [SCHEDULED] DEBUT execution planifiee - 2026-01-16 16:15:05
+2026-01-16 16:15:05,930 - __main__ - INFO - [SCHEDULED] Header affiché, debut des backtests...
+2026-01-16 16:15:05,930 - __main__ - INFO - [SCHEDULED] Re-backtest de SOLUSDT pour obtenir les paramètres les plus à jour...
+2026-01-16 16:15:05,930 - __main__ - INFO - [SCHEDULED] Backtest dates: 17 January 2021 -> 16 January 2026
+2026-01-16 16:15:05,931 - __main__ - INFO - [SCHEDULED] Lancement des backtests...
+2026-01-16 16:15:05,931 - __main__ - INFO - Telechargement SOLUSDT 1h...
+2026-01-16 16:15:33,031 - __main__ - INFO - OK: 43802 candles | 2021-01-17 -> 2026-01-16
+2026-01-16 16:15:33,451 - __main__ - INFO - Telechargement SOLUSDT 4h...
+2026-01-16 16:15:39,436 - __main__ - INFO - OK: 10954 candles | 2021-01-17 -> 2026-01-16
+2026-01-16 16:15:39,541 - __main__ - INFO - Telechargement SOLUSDT 1d...
+2026-01-16 16:15:40,298 - __main__ - INFO - OK: 1826 candles | 2021-01-17 -> 2026-01-16
+2026-01-16 16:15:40,575 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0167)
+2026-01-16 16:15:40,636 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0343)
+2026-01-16 16:15:40,646 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0857)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   3%|\u2588[32m#                             [0m\u2588| 2/60 [00:00<00:03, 17.66it/s][BACKTESTS]:   7%|\u2588[32m##                            [0m\u2588| 4/60 [00:00<00:03, 18.00it/s][BACKTESTS]:  10%|\u2588[32m###                           [0m\u2588| 6/60 [00:00<00:05, 10.09it/s][BACKTESTS]:  13%|\u2588[32m####                          [0m\u2588| 8/60 [00:00<00:07,  7.01it/s][BACKTESTS]:  18%|\u2588[32m#####5                        [0m\u2588| 11/60 [00:01<00:04,  9.95it/s][BACKTESTS]:  23%|\u2588[32m#######                       [0m\u2588| 14/60 [00:01<00:06,  7.40it/s][BACKTESTS]:  27%|\u2588[32m########                      [0m\u2588| 16/60 [00:02<00:06,  6.79it/s][BACKTESTS]:  33%|\u2588[32m##########                    [0m\u2588| 20/60 [00:02<00:03, 10.18it/s][BACKTESTS]:  37%|\u2588[32m###########                   [0m\u2588| 22/60 [00:02<00:04,  9.03it/s][BACKTESTS]:  40%|\u2588[32m############                  [0m\u2588| 24/60 [00:02<00:03,  9.14it/s][BACKTESTS]:  45%|\u2588[32m#############5                [0m\u2588| 27/60 [00:02<00:02, 11.48it/s][BACKTESTS]:  53%|\u2588[32m################              [0m\u2588| 32/60 [00:02<00:01, 16.42it/s][BACKTESTS]:  58%|\u2588[32m#################5            [0m\u2588| 35/60 [00:03<00:01, 16.51it/s][BACKTESTS]:  73%|\u2588[32m######################        [0m\u2588| 44/60 [00:03<00:00, 27.71it/s][BACKTESTS]:  85%|\u2588[32m#########################5    [0m\u2588| 51/60 [00:03<00:00, 34.95it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 17.27it/s]
+2026-01-16 16:15:44,130 - __main__ - INFO - [SCHEDULED] 60 resultats de backtest recus
+2026-01-16 16:15:44,130 - __main__ - INFO - [SCHEDULED] Meilleur resultat: StochRSI_ADX sur 4h | Profit: $2,211,981.07
+2026-01-16 16:15:44,134 - __main__ - INFO - [SCHEDULED] Panel meilleur resultat affiché
+2026-01-16 16:15:44,134 - __main__ - INFO - [SCHEDULED] Creation du tableau des 60 resultats...
+2026-01-16 16:15:44,232 - __main__ - INFO - [SCHEDULED] Tableau affiche - 60 lignes
+2026-01-16 16:15:44,233 - __main__ - INFO - [SCHEDULED] Parametres inchanges pour SOLUSDT
+2026-01-16 16:15:44,233 - __main__ - INFO - [SCHEDULED] Affichage panel trading...
+2026-01-16 16:15:44,235 - __main__ - INFO - [SCHEDULED] Panel trading affiché, appel execute_real_trades...
+2026-01-16 16:15:44,235 - __main__ - INFO - [SCHEDULED] Appel execute_real_trades avec StochRSI_ADX sur 4h + sizing_mode='baseline'...
+2026-01-16 16:15:45,736 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 16:15:49,950 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 16:15:51,644 - __main__ - INFO - [SCHEDULED] execute_real_trades complété avec succès
+2026-01-16 16:15:51,645 - __main__ - INFO - [SCHEDULED] Affichage des informations de suivi...
+2026-01-16 16:15:51,648 - __main__ - INFO - [SCHEDULED] Création et affichage du panel de suivi...
+2026-01-16 16:15:51,652 - __main__ - INFO - [SCHEDULED] Exécution planifiée COMPLETEE pour SOLUSDT
+2026-01-16 16:17:51,656 - __main__ - INFO - [SCHEDULED] DEBUT execution planifiee - 2026-01-16 16:17:51
+2026-01-16 16:17:51,659 - __main__ - INFO - [SCHEDULED] Header affiché, debut des backtests...
+2026-01-16 16:17:51,659 - __main__ - INFO - [SCHEDULED] Re-backtest de SOLUSDT pour obtenir les paramètres les plus à jour...
+2026-01-16 16:17:51,659 - __main__ - INFO - [SCHEDULED] Backtest dates: 17 January 2021 -> 16 January 2026
+2026-01-16 16:17:51,659 - __main__ - INFO - [SCHEDULED] Lancement des backtests...
+2026-01-16 16:17:51,660 - __main__ - INFO - Telechargement SOLUSDT 1h...
+2026-01-16 16:18:16,883 - __main__ - INFO - OK: 43802 candles | 2021-01-17 -> 2026-01-16
+2026-01-16 16:18:17,322 - __main__ - INFO - Telechargement SOLUSDT 4h...
+2026-01-16 16:18:23,321 - __main__ - INFO - OK: 10954 candles | 2021-01-17 -> 2026-01-16
+2026-01-16 16:18:23,430 - __main__ - INFO - Telechargement SOLUSDT 1d...
+2026-01-16 16:18:24,163 - __main__ - INFO - OK: 1826 candles | 2021-01-17 -> 2026-01-16
+2026-01-16 16:18:24,401 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1h: 12/22 (volatilité: 0.0167)
+2026-01-16 16:18:24,452 - __main__ - INFO - EMA adaptatif pour SOLUSDT 4h: 22/44 (volatilité: 0.0343)
+2026-01-16 16:18:24,464 - __main__ - INFO - EMA adaptatif pour SOLUSDT 1d: 44/176 (volatilité: 0.0857)
+[BACKTESTS]:   0%|\u2588[32m                              [0m\u2588| 0/60 [00:00<?, ?it/s][BACKTESTS]:   3%|\u2588[32m#                             [0m\u2588| 2/60 [00:00<00:03, 14.97it/s][BACKTESTS]:   7%|\u2588[32m##                            [0m\u2588| 4/60 [00:00<00:03, 16.35it/s][BACKTESTS]:  10%|\u2588[32m###                           [0m\u2588| 6/60 [00:00<00:04, 10.99it/s][BACKTESTS]:  13%|\u2588[32m####                          [0m\u2588| 8/60 [00:00<00:07,  7.08it/s][BACKTESTS]:  18%|\u2588[32m#####5                        [0m\u2588| 11/60 [00:01<00:04,  9.88it/s][BACKTESTS]:  22%|\u2588[32m######5                       [0m\u2588| 13/60 [00:01<00:04, 11.38it/s][BACKTESTS]:  25%|\u2588[32m#######5                      [0m\u2588| 15/60 [00:01<00:05,  8.57it/s][BACKTESTS]:  28%|\u2588[32m########5                     [0m\u2588| 17/60 [00:01<00:04,  9.97it/s][BACKTESTS]:  32%|\u2588[32m#########5                    [0m\u2588| 19/60 [00:01<00:04,  9.10it/s][BACKTESTS]:  35%|\u2588[32m##########5                   [0m\u2588| 21/60 [00:02<00:03, 10.57it/s][BACKTESTS]:  38%|\u2588[32m###########5                  [0m\u2588| 23/60 [00:02<00:04,  8.86it/s][BACKTESTS]:  42%|\u2588[32m############5                 [0m\u2588| 25/60 [00:02<00:03,  9.80it/s][BACKTESTS]:  45%|\u2588[32m#############5                [0m\u2588| 27/60 [00:02<00:02, 11.10it/s][BACKTESTS]:  53%|\u2588[32m################              [0m\u2588| 32/60 [00:02<00:01, 17.46it/s][BACKTESTS]:  62%|\u2588[32m##################5           [0m\u2588| 37/60 [00:02<00:01, 22.43it/s][BACKTESTS]:  68%|\u2588[32m####################5         [0m\u2588| 41/60 [00:03<00:00, 23.76it/s][BACKTESTS]:  93%|\u2588[32m############################  [0m\u2588| 56/60 [00:03<00:00, 50.50it/s][BACKTESTS]: 100%|\u2588[32m##############################[0m\u2588| 60/60 [00:03<00:00, 18.48it/s]
+2026-01-16 16:18:27,719 - __main__ - INFO - [SCHEDULED] 60 resultats de backtest recus
+2026-01-16 16:18:27,719 - __main__ - INFO - [SCHEDULED] Meilleur resultat: StochRSI_ADX sur 4h | Profit: $2,206,403.27
+2026-01-16 16:18:27,721 - __main__ - INFO - [SCHEDULED] Panel meilleur resultat affiché
+2026-01-16 16:18:27,721 - __main__ - INFO - [SCHEDULED] Creation du tableau des 60 resultats...
+2026-01-16 16:18:27,806 - __main__ - INFO - [SCHEDULED] Tableau affiche - 60 lignes
+2026-01-16 16:18:27,807 - __main__ - INFO - [SCHEDULED] Parametres inchanges pour SOLUSDT
+2026-01-16 16:18:27,807 - __main__ - INFO - [SCHEDULED] Affichage panel trading...
+2026-01-16 16:18:27,809 - __main__ - INFO - [SCHEDULED] Panel trading affiché, appel execute_real_trades...
+2026-01-16 16:18:27,809 - __main__ - INFO - [SCHEDULED] Appel execute_real_trades avec StochRSI_ADX sur 4h + sizing_mode='baseline'...
+2026-01-16 16:18:29,113 - __main__ - INFO - Telechargement SOLUSDC 4h...
+2026-01-16 16:18:33,987 - __main__ - INFO - OK: 6721 candles | 2021-09-24 -> 2026-01-16
+2026-01-16 16:18:35,483 - __main__ - INFO - [SCHEDULED] execute_real_trades complété avec succès
+2026-01-16 16:18:35,483 - __main__ - INFO - [SCHEDULED] Affichage des informations de suivi...
+2026-01-16 16:18:35,486 - __main__ - INFO - [SCHEDULED] Création et affichage du panel de suivi...
+2026-01-16 16:18:35,488 - __main__ - INFO - [SCHEDULED] Exécution planifiée COMPLETEE pour SOLUSDT
+2026-01-16 16:22:24,323 - __main__ - INFO - Execution interrompue par l'utilisateur. Arret du script.
