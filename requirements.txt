@@ -1,0 +1,9 @@
+pandas
+numpy
+ta
+structlog
+pydantic
+rich
+schedule
+binance
+pytest
