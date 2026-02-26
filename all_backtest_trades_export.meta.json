@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-01-11T19:00:20",
+  "source": "trading_bot",
+  "taker_fee": 0.001,
+  "atr_multiplier": 5.0,
+  "atr_stop_multiplier": 3.0,
+  "initial_wallet": 10000.0,
+  "backtest_days": 1825
+}
