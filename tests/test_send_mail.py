@@ -50,11 +50,13 @@ def send_email_alert(subject, body):
     except Exception as e:
         print(f"[ERREUR] Impossible d’envoyer l’e-mail : {e}")
 
-# Sujet de l'e-mail
-email_subject = " [ALERTE AVA/BTC] Achat exécuté avec succès !"
+# Lancement uniquement en exécution directe (pas lors de l'import par pytest)
+if __name__ == "__main__":
+    # Sujet de l'e-mail
+    email_subject = " [ALERTE AVA/BTC] Achat exécuté avec succès !"
 
-# Corps de l'e-mail avec mise en forme claire
-email_body = f"""
+    # Corps de l'e-mail avec mise en forme claire
+    email_body = f"""
  **ACHAT EXÉCUTÉ !**
 
 Un nouvel ordre d'achat a été réalisé avec succès sur Binance.
@@ -74,5 +76,5 @@ Un nouvel ordre d'achat a été réalisé avec succès sur Binance.
  Ceci est un message automatique généré par votre bot de trading Binance.
 """.strip()
 
-# Lancer l'envoi
-send_email_alert(email_subject, email_body)
+    # Lancer l'envoi
+    send_email_alert(email_subject, email_body)

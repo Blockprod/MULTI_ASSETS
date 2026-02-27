@@ -1,22 +1,23 @@
 
 import os
 import sys
+from typing import Any, Callable, Dict, List, Optional, Tuple
 # Ajout du dossier bin/ au sys.path pour les modules Cython
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'bin')))
 
 # === UTILITAIRE DE VALIDATION STOP LOSS ===
-def is_valid_stop_loss_order(symbol, quantity, stop_price):
+def is_valid_stop_loss_order(symbol, quantity, stop_price) -> Tuple[bool, Optional[str]]:
     """Vérifie que les paramètres d'ordre stop-loss sont valides."""
     if symbol is None or symbol == "None" or not isinstance(symbol, str) or len(symbol) < 5:
-        return False
+        return (False, "Invalid symbol")
     try:
         q = float(quantity)
         p = float(stop_price)
         if q <= 0 or p <= 0:
-            return False
+            return (False, "Quantity or price <= 0")
     except Exception:
-        return False
-    return True
+        return (False, "Invalid quantity or price format")
+    return (True, None)
 
 class DummyErrorHandler:
     """Fallback si error_handler.py n'est pas disponible."""
@@ -37,7 +38,7 @@ class DummyErrorHandler:
         logger.warning("[DummyErrorHandler] handle_error called.")
         return True, None
 
-def initialize_error_handler(email_config=None):
+def initialize_error_handler(email_config=None) -> Any:
     """Initialise le handler d'erreur — utilise le vrai ErrorHandler si disponible."""
     try:
         from error_handler import ErrorHandler
@@ -80,9 +81,17 @@ import ctypes
 import hashlib
 import hmac
 import json
+from walk_forward import (
+    compute_risk_metrics,
+    default_risk_metrics,
+    timeframe_to_periods_per_year,
+    split_walk_forward_folds,
+    validate_oos_result,
+    run_walk_forward_validation,
+)
 import logging
 import numpy as np
-import os
+import functools
 import pandas as pd
 import pickle
 import random
@@ -91,8 +100,9 @@ import schedule
 import smtplib
 import socket
 import subprocess
-import sys
-import ta
+from ta.momentum import RSIIndicator
+from ta.trend import ADXIndicator, MACD
+from ta.volatility import AverageTrueRange
 import time
 import traceback
 import uuid
@@ -114,22 +124,24 @@ class Config:
     smtp_port: int = 587
     taker_fee: float = 0.0007  # Default, will be overridden by Binance API
     maker_fee: float = 0.0002
-    slippage_buy: float = 0.0001
-    slippage_sell: float = 0.0001
+    slippage_buy: float = 0.0001   # 1bps — V3 original
+    slippage_sell: float = 0.0001  # 1bps — V3 original
     initial_wallet: float = 10000.0
     backtest_days: int = 1825  # 5 ans
     max_workers: int = 4
     cache_dir: str = "cache"
     states_dir: str = "states"
-    state_file: str = "bot_state.pkl"
+    state_file: str = "bot_state.json"  # P0.4 audit fix: JSON instead of pickle
     atr_period: int = 14
     atr_multiplier: float = 5.5
     atr_stop_multiplier: float = 3.0
-    risk_per_trade: float = 0.05  # 5% risk per trade (was 1%, increased for better capital utilization)
+    risk_per_trade: float = 0.05  # 5% risk per trade — V3 original
     # Capital protection
     daily_loss_limit_pct: float = 0.05  # Arrêt trading si perte journalière > 5% du portefeuille
     max_drawdown_pct: float = 0.15  # Kill-switch si drawdown > 15% depuis le pic
-    sizing_mode: str = 'baseline'  # Position sizing: baseline, risk, fixed_notional, volatility_parity
+    sizing_mode: str = 'baseline'  # Position sizing: baseline (V3 default), risk, fixed_notional, volatility_parity
+    paper_trading: bool = False  # P6.2: dry-run mode — logs trades without executing
+    max_open_positions: int = 5  # P6.4: maximum simultaneous open positions across all pairs
 
     @classmethod
     def from_env(cls) -> 'Config':
@@ -155,22 +167,24 @@ class Config:
         # Optionnels
         config_data['taker_fee'] = float(os.getenv('TAKER_FEE', '0.0007'))
         config_data['maker_fee'] = float(os.getenv('MAKER_FEE', '0.0002'))
-        config_data['slippage_buy'] = float(os.getenv('SLIPPAGE_BUY', '0.0001'))
-        config_data['slippage_sell'] = float(os.getenv('SLIPPAGE_SELL', '0.0001'))
+        config_data['slippage_buy'] = float(os.getenv('SLIPPAGE_BUY', '0.0001'))   # 1bps V3 original
+        config_data['slippage_sell'] = float(os.getenv('SLIPPAGE_SELL', '0.0001'))  # 1bps V3 original
         config_data['api_timeout'] = int(os.getenv('API_TIMEOUT', '30'))
         config_data['max_workers'] = int(os.getenv('MAX_WORKERS', '4'))
         config_data['initial_wallet'] = float(os.getenv('INITIAL_WALLET', '10000.0'))
         config_data['backtest_days'] = int(os.getenv('BACKTEST_DAYS', '1825'))
         config_data['cache_dir'] = os.getenv('CACHE_DIR', 'cache')
         config_data['states_dir'] = os.getenv('STATES_DIR', 'states')
-        config_data['state_file'] = os.getenv('STATE_FILE', 'bot_state.pkl')
+        config_data['state_file'] = os.getenv('STATE_FILE', 'bot_state.json')
         config_data['atr_period'] = int(os.getenv('ATR_PERIOD', '14'))
         config_data['atr_multiplier'] = float(os.getenv('ATR_MULTIPLIER', '5.5'))
         config_data['atr_stop_multiplier'] = float(os.getenv('ATR_STOP_MULTIPLIER', '3.0'))
-        config_data['risk_per_trade'] = float(os.getenv('RISK_PER_TRADE', '0.05'))  # 5% risk per trade
+        config_data['risk_per_trade'] = float(os.getenv('RISK_PER_TRADE', '0.05'))  # 5% risk per trade — V3 original
         config_data['daily_loss_limit_pct'] = float(os.getenv('DAILY_LOSS_LIMIT_PCT', '0.05'))
         config_data['max_drawdown_pct'] = float(os.getenv('MAX_DRAWDOWN_PCT', '0.15'))
-        config_data['sizing_mode'] = os.getenv('SIZING_MODE', 'baseline')
+        config_data['sizing_mode'] = os.getenv('SIZING_MODE', 'baseline')  # V3 original
+        config_data['paper_trading'] = os.getenv('PAPER_TRADING', 'false').lower() in ('true', '1', 'yes')  # P6.2
+        config_data['max_open_positions'] = int(os.getenv('MAX_OPEN_POSITIONS', '5'))  # P6.4
         config_data['smtp_server'] = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
         config_data['smtp_port'] = int(os.getenv('SMTP_PORT', '587'))
         # Création de l'instance et assignation des attributs
@@ -181,17 +195,77 @@ class Config:
     def __init__(self):
         pass
 
+    def validate(self) -> List[str]:
+        """Validate config values at startup. Returns list of error messages (empty = OK).
+        
+        Raises ConfigError if any critical issue is found.
+        """
+        errors = []
+        warnings = []
+
+        # --- Critical: API keys must be set ---
+        if not getattr(self, 'api_key', None) or len(self.api_key) < 10:
+            errors.append("BINANCE_API_KEY is missing or too short")
+        if not getattr(self, 'secret_key', None) or len(self.secret_key) < 10:
+            errors.append("BINANCE_SECRET_KEY is missing or too short")
+
+        # --- Risk parameters bounds ---
+        if not (0.001 <= self.risk_per_trade <= 0.10):
+            errors.append(f"risk_per_trade={self.risk_per_trade} out of safe range [0.1%, 10%]")
+        if not (0.01 <= self.daily_loss_limit_pct <= 0.20):
+            errors.append(f"daily_loss_limit_pct={self.daily_loss_limit_pct} out of range [1%, 20%]")
+        if not (0.05 <= self.max_drawdown_pct <= 0.50):
+            errors.append(f"max_drawdown_pct={self.max_drawdown_pct} out of range [5%, 50%]")
+
+        # --- ATR parameters ---
+        if not (1.0 <= self.atr_multiplier <= 20.0):
+            errors.append(f"atr_multiplier={self.atr_multiplier} out of range [1.0, 20.0]")
+        if not (1.0 <= self.atr_stop_multiplier <= 10.0):
+            errors.append(f"atr_stop_multiplier={self.atr_stop_multiplier} out of range [1.0, 10.0]")
+        if self.atr_stop_multiplier >= self.atr_multiplier:
+            warnings.append(f"atr_stop_multiplier ({self.atr_stop_multiplier}) >= atr_multiplier ({self.atr_multiplier}) — stop is wider than trailing")
+
+        # --- Fee sanity ---
+        if not (0.0 <= self.taker_fee <= 0.01):
+            errors.append(f"taker_fee={self.taker_fee} out of range [0, 1%]")
+        if not (0.0 <= self.slippage_buy <= 0.01):
+            errors.append(f"slippage_buy={self.slippage_buy} out of range [0, 1%]")
+
+        # --- Sizing mode ---
+        valid_modes = {'baseline', 'risk', 'fixed_notional', 'volatility_parity'}
+        if self.sizing_mode not in valid_modes:
+            errors.append(f"sizing_mode='{self.sizing_mode}' not in {valid_modes}")
+
+        # --- Paper trading mode ---
+        if not hasattr(self, 'paper_trading'):
+            self.paper_trading = False
+
+        # --- Max open positions ---
+        if not hasattr(self, 'max_open_positions'):
+            self.max_open_positions = 5
+
+        if errors:
+            for e in errors:
+                logging.getLogger(__name__).error(f"[CONFIG] {e}")
+            raise ConfigError(f"Config validation failed: {'; '.join(errors)}")
+
+        for w in warnings:
+            logging.getLogger(__name__).warning(f"[CONFIG] {w}")
+
+        logging.getLogger(__name__).info(f"[CONFIG] Validation OK — sizing={self.sizing_mode}, risk={self.risk_per_trade:.1%}, "
+                     f"paper_trading={self.paper_trading}, max_positions={self.max_open_positions}")
+        return warnings
+
 # Chargement de la configuration
 config = Config.from_env()
+config.validate()
 from binance.exceptions import BinanceAPIException
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 ## Toutes les fonctions utilitaires, la config, le logger, etc. sont maintenant définis directement dans ce fichier.
 ## Supprimer toute dépendance à core.py
-from functools import lru_cache
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from rich import print
@@ -199,7 +273,12 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from tqdm import tqdm
-from typing import Any, Dict, List, Optional, Tuple
+from exceptions import (
+    TradingBotError, ConfigError, ExchangeError, RateLimitError,
+    InsufficientFundsError, OrderError, DataError, StaleDataError,
+    InsufficientDataError, StrategyError, StateError, CapitalProtectionError,
+)
+from trade_journal import log_trade as _journal_log_trade
 
 # === PARTIALS: Vérification proactive pour éviter reliquat non vendable ===
 def can_execute_partial_safely(coin_balance: float, current_price: float, min_notional: float) -> bool:
@@ -233,7 +312,7 @@ os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-def display_buy_signal_panel(row, usdc_balance, best_params, scenario, buy_condition, console, buy_reason=None):
+def display_buy_signal_panel(row, usdc_balance, best_params, scenario, buy_condition, console, buy_reason=None) -> None:
     """
     Affiche le panneau d'analyse des signaux d'achat avec détails des conditions et du solde USDC.
     Args:
@@ -296,7 +375,7 @@ def display_buy_signal_panel(row, usdc_balance, best_params, scenario, buy_condi
         logger.error(f"[ENCODING ERROR] display_buy_signal_panel: {e}")
 
 _last_sell_panel_hash = None
-def display_sell_signal_panel(row, coin_balance, pair_state, sell_triggered, console, coin_symbol, sell_reason=None, trailing_activation_price=None):
+def display_sell_signal_panel(row, coin_balance, pair_state, sell_triggered, console, coin_symbol, sell_reason=None, trailing_activation_price=None) -> None:
     """
     Affiche le panneau d'analyse des signaux de vente avec détails des conditions, stop-loss et trailing stop.
     Args:
@@ -442,7 +521,7 @@ def display_sell_signal_panel(row, coin_balance, pair_state, sell_triggered, con
         logger.error(f"[ENCODING ERROR] display_sell_signal_panel: {e}")
 
 _last_balance_panel_hash = None
-def display_account_balances_panel(account_info, coin_symbol, quote_currency, client, console, last_buy_price=None, atr_at_entry=None):
+def display_account_balances_panel(account_info, coin_symbol, quote_currency, client, console, last_buy_price=None, atr_at_entry=None) -> None:
     """
     Affiche le panel des soldes de trading (quote_currency, coin), le prix de la paire courante et le solde global converti dynamiquement dans la devise de cotation.
     La conversion utilise la route la plus adaptée (directe ou via intermédiaire comme BTC, ETH, BNB) selon les tickers disponibles.
@@ -472,7 +551,7 @@ def display_account_balances_panel(account_info, coin_symbol, quote_currency, cl
         pair_state['ticker_spot_price'] = spot_price
 
     tickers = get_all_tickers_cached(client)
-    def convert_to_usdc(asset, amount):
+    def convert_to_usdc(asset: str, amount: float) -> float:
         if amount < 1e-8 or asset == '':
             return 0.0
         if asset == quote_currency or asset == 'BUSD':
@@ -544,7 +623,7 @@ def display_account_balances_panel(account_info, coin_symbol, quote_currency, cl
             logger.error(f"[ENCODING ERROR] display_account_balances_panel: {e}")
         _last_balance_panel_hash = panel_hash
 
-def log_exceptions(default_return=None):
+def log_exceptions(default_return=None) -> Callable:
     """Décorateur pour logguer les exceptions et retourner une valeur par défaut."""
     def decorator(func):
         def wrapper(*args, **kwargs):
@@ -565,19 +644,28 @@ def log_exceptions(default_return=None):
         return wrapper
     return decorator
 
-def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0):
-    """Decorateur pour retry avec backoff exponentiel."""
+def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0, retryable_exceptions: tuple = (Exception,)):
+    """Decorateur pour retry avec backoff exponentiel + jitter.
+    
+    Args:
+        max_retries: Nombre max de tentatives.
+        base_delay: Délai de base en secondes (doublé à chaque tentative).
+        retryable_exceptions: Tuple d'exceptions à retenter. Les autres sont propagées immédiatement.
+    """
     def decorator(func):
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             for attempt in range(max_retries):
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
+                except retryable_exceptions as e:
                     if attempt == max_retries - 1:
-                        raise e
+                        raise
                     delay = base_delay * (2 ** attempt)
-                    logger.warning(f"Tentative {attempt + 1} echouee pour {func.__name__}: {e}. Retry dans {delay}s")
-                    time.sleep(delay)
+                    jitter = delay * 0.1 * (2 * random.random() - 1)  # ±10% jitter
+                    sleep_time = max(0, delay + jitter)
+                    logger.warning(f"Tentative {attempt + 1}/{max_retries} echouee pour {func.__name__}: {type(e).__name__}: {e}. Retry dans {sleep_time:.1f}s")
+                    time.sleep(sleep_time)
             return None
         return wrapper
     return decorator
@@ -655,61 +743,7 @@ def send_trading_alert_email(subject: str, body_main: str, client, add_spot_bala
 
 @retry_with_backoff(max_retries=3, base_delay=2.0)
 @log_exceptions(default_return=None)
-def place_trailing_stop_order(symbol: str, quantity: float, activation_price: float, trailing_delta: int, client_id: str = None) -> dict:
-    """
-    Place un ordre TRAILING_STOP_MARKET sur Binance (spot).
-    """
-    client._sync_server_time()
-    timestamp = int(time.time() * 1000)
-    params = {
-        'symbol': symbol,
-        'side': 'SELL',
-        'type': 'TRAILING_STOP_MARKET',
-        'quantity': float(quantity),
-        'activationPrice': float(activation_price),
-        'trailingDelta': int(trailing_delta),
-        'timestamp': timestamp,
-        'recvWindow': 10000
-    }
-    if client_id:
-        params['newClientOrderId'] = client_id
-    # Signature
-    query_string = '&'.join([f"{k}={v}" for k, v in sorted(params.items())])
-    signature = hmac.new(
-        client.api_secret.encode('utf-8'),
-        query_string.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
-    params['signature'] = str(signature)
-    url = "https://api.binance.com/api/v3/order"
-    headers = {'X-MBX-APIKEY': client.api_key}
-    response = requests.post(url, data=params, headers=headers, timeout=30)
-    if response.status_code != 200:
-        try:
-            error_data = response.json()
-            error_code = error_data.get('code', 'UNKNOWN')
-            error_msg = error_data.get('msg', 'Unknown error')
-            # Envoi d'une alerte mail en cas d'erreur d'ordre
-            send_trading_alert_email(
-                subject="[BOT CRYPTO] ERREUR EXECUTION TRAILING STOP",
-                body_main=f"Erreur lors de l'execution de l'ordre TRAILING STOP : {error_code} - {error_msg}\n\nParams : {params}",
-                client=client
-            )
-            raise Exception(f"Binance API error {error_code}: {error_msg}")
-        except Exception:
-            response.raise_for_status()
-    result = response.json()
-    # Envoi d'une alerte mail pour toute transaction exécutée
-    send_trading_alert_email(
-        subject="[BOT CRYPTO] TRAILING STOP EXECUTE",
-        body_main=f"Ordre TRAILING STOP exécuté avec succès.\n\nParams : {params}\nRéponse : {result}",
-        client=client
-    )
-    return result
-
-@retry_with_backoff(max_retries=3, base_delay=2.0)
-@log_exceptions(default_return=None)
-def place_stop_loss_order(symbol: str, quantity: float, stop_price: float, limit_price: float = None, tick_size: float = None, client_id: str = None) -> dict:
+def place_stop_loss_order(symbol: str, quantity: float, stop_price: float, limit_price: Optional[float] = None, tick_size: Optional[float] = None, client_id: Optional[str] = None) -> dict:
     """
     Place un ordre STOP_LOSS_LIMIT sur Binance (spot).
     Le limit_price est légèrement inférieur au stop_price pour garantir l'exécution.
@@ -722,7 +756,7 @@ def place_stop_loss_order(symbol: str, quantity: float, stop_price: float, limit
     # Arrondir les prix au tick_size si fourni
     if tick_size and tick_size > 0:
         tick_dec = Decimal(str(tick_size))
-        tick_decimals = abs(tick_dec.as_tuple().exponent)
+        tick_decimals = abs(int(tick_dec.as_tuple().exponent))
         stop_price = float(Decimal(str(stop_price)).quantize(tick_dec))
         limit_price = float(Decimal(str(limit_price)).quantize(tick_dec))
     params = {
@@ -797,7 +831,7 @@ def cancel_open_stop_orders(symbol: str) -> int:
     return cancelled
 
 
-def place_exchange_stop_loss(symbol: str, quantity: float, stop_price: float, tick_size: float = None, pair_state: dict = None) -> dict:
+def place_exchange_stop_loss(symbol: str, quantity: float, stop_price: float, tick_size: Optional[float] = None, pair_state: Optional[dict] = None) -> Optional[dict]:
     """
     Place un STOP_LOSS_LIMIT sur l'exchange après annulation des stops précédents.
     Met à jour pair_state['exchange_stop_order_id'] si fourni.
@@ -823,7 +857,7 @@ def place_exchange_stop_loss(symbol: str, quantity: float, stop_price: float, ti
 
 # Import Cython modules for optimization (en-tête du fichier)
 try:
-    import backtest_engine_standard as backtest_engine  # type: ignore
+    import backtest_engine_standard as backtest_engine
     CYTHON_BACKTEST_AVAILABLE = True
 except ImportError as e:
     CYTHON_BACKTEST_AVAILABLE = False
@@ -858,6 +892,10 @@ logger = logging.getLogger(__name__)
 class BinanceFinalClient(Client):
     """Client Binance ULTRA ROBUSTE - Correction définitive du timestamp -1021"""
 
+    # Binance Spot API weight limit: 1200/minute. We cap at 1000 for safety.
+    _RATE_LIMIT_MAX_WEIGHT = 1000
+    _RATE_LIMIT_WINDOW = 60  # seconds
+
     def __init__(self, api_key, api_secret, **kwargs):
         self.api_key = api_key  # Correction pour accès direct
         self.api_secret = api_secret  # Correction pour accès direct
@@ -866,12 +904,35 @@ class BinanceFinalClient(Client):
         self._sync_interval = 180
         self._error_count = 0
         self._max_errors = 5
+        # Rate limiter: sliding window of (timestamp, weight) tuples
+        self._rate_window: list = []
+        self._rate_lock = threading.Lock()
         kwargs['requests_params'] = {'timeout': 45}
         super().__init__(api_key, api_secret, **kwargs)
         logger.info("Client Binance ULTRA ROBUSTE initialisé")
         self._perform_ultra_robust_sync()
 
-    def _perform_ultra_robust_sync(self):
+    def _enforce_rate_limit(self, weight: int = 1) -> None:
+        """Sliding-window rate limiter. Blocks if adding `weight` would exceed limit."""
+        with self._rate_lock:
+            now = time.time()
+            cutoff = now - self._RATE_LIMIT_WINDOW
+            # Purge expired entries
+            self._rate_window = [(t, w) for t, w in self._rate_window if t > cutoff]
+            current_weight = sum(w for _, w in self._rate_window)
+            if current_weight + weight > self._RATE_LIMIT_MAX_WEIGHT:
+                # Calculate sleep time until enough weight expires
+                earliest = self._rate_window[0][0] if self._rate_window else now
+                sleep_time = earliest + self._RATE_LIMIT_WINDOW - now + 0.1
+                logger.warning(f"[RATE-LIMIT] Weight {current_weight}+{weight} > {self._RATE_LIMIT_MAX_WEIGHT}. Sleeping {sleep_time:.1f}s")
+                time.sleep(max(0.1, sleep_time))
+                # Re-purge after sleep
+                now = time.time()
+                cutoff = now - self._RATE_LIMIT_WINDOW
+                self._rate_window = [(t, w) for t, w in self._rate_window if t > cutoff]
+            self._rate_window.append((time.time(), weight))
+
+    def _perform_ultra_robust_sync(self) -> None:
         """Synchronisation radicale avec compensation complète."""
         try:
             local_before = int(time.time() * 1000)
@@ -896,7 +957,7 @@ class BinanceFinalClient(Client):
             logger.error(f"Echec synchronisation: {e}")
             self._server_time_offset = -10000
 
-    def _get_ultra_safe_timestamp(self):
+    def _get_ultra_safe_timestamp(self) -> int:
         """Génère un timestamp garanti correct."""
         current_time = time.time()
         if (current_time - self._last_sync > 60 or self._error_count > 0):
@@ -914,7 +975,7 @@ class BinanceFinalClient(Client):
             pass
         return safe_ts
 
-    def _request(self, method, uri, signed, force_params=False, **kwargs):
+    def _request(self, method: str, uri: str, signed: bool, force_params: bool = False, **kwargs) -> dict:
         """Override MINIMAL - only handle timestamp sync, let parent handle params.
 
         The parent Client._request() already correctly:
@@ -922,8 +983,11 @@ class BinanceFinalClient(Client):
         - Adds recvWindow with sane defaults
         - Converts params/data to query string appropriately
 
-        We ONLY need to handle timestamp synchronization, nothing else!
+        We ONLY need to handle timestamp synchronization and rate limiting.
         """
+        # Enforce rate limit before making any request
+        self._enforce_rate_limit(weight=1)
+        
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -988,7 +1052,7 @@ class BinanceFinalClient(Client):
                 raise
         
         # Fallback
-        return None
+        return {}
 
     def _sync_server_time(self):
         self._perform_ultra_robust_sync()
@@ -1143,6 +1207,106 @@ def check_capital_protection(client_obj) -> Tuple[bool, str]:
     
     return True, ""
 
+
+def count_open_positions() -> int:
+    """Count the number of pairs currently in an open BUY position.
+    
+    Scans bot_state for pairs whose last_order_side == 'BUY'.
+    Used by the max-open-positions guard (P6.4).
+    """
+    return sum(
+        1 for pair_data in bot_state.values()
+        if isinstance(pair_data, dict) and pair_data.get('last_order_side') == 'BUY'
+    )
+
+
+def check_max_positions_guard() -> Tuple[bool, str]:
+    """Block new BUY if the number of open positions >= config.max_open_positions.
+    
+    Returns:
+        (can_open: bool, reason: str) — True if a new position is allowed.
+    """
+    current = count_open_positions()
+    limit = config.max_open_positions
+    if current >= limit:
+        reason = (f"MAX POSITIONS: {current}/{limit} positions ouvertes. "
+                  f"Nouveau BUY bloqué jusqu'à fermeture d'une position.")
+        return False, reason
+    return True, ""
+
+
+def compute_pair_correlation(pair_a: str, pair_b: str, timeframe: str = '1h',
+                              lookback: int = 168) -> float:
+    """Compute Pearson correlation between two pairs over recent candles.
+    
+    Args:
+        pair_a: First trading pair symbol (e.g. 'TRXUSDT')
+        pair_b: Second trading pair symbol (e.g. 'BTCUSDT')
+        timeframe: Kline interval (default '1h')
+        lookback: Number of candles to compare (default 168 = 1 week hourly)
+    
+    Returns:
+        Pearson correlation coefficient [-1, 1], or 0.0 on error.
+    """
+    try:
+        klines_a = client.get_klines(symbol=pair_a, interval=timeframe, limit=lookback)
+        klines_b = client.get_klines(symbol=pair_b, interval=timeframe, limit=lookback)
+        if len(klines_a) < 30 or len(klines_b) < 30:
+            return 0.0
+        closes_a = np.array([float(k[4]) for k in klines_a])
+        closes_b = np.array([float(k[4]) for k in klines_b])
+        # Align lengths
+        min_len = min(len(closes_a), len(closes_b))
+        closes_a = closes_a[-min_len:]
+        closes_b = closes_b[-min_len:]
+        # Compute log returns to avoid spurious correlation from trends
+        ret_a = np.diff(np.log(closes_a))
+        ret_b = np.diff(np.log(closes_b))
+        if np.std(ret_a) == 0 or np.std(ret_b) == 0:
+            return 0.0
+        corr = float(np.corrcoef(ret_a, ret_b)[0, 1])
+        return corr
+    except Exception as e:
+        logger.debug(f"[CORRELATION] Erreur calcul {pair_a}/{pair_b}: {e}")
+        return 0.0
+
+
+def check_correlation_guard(candidate_pair: str, threshold: float = 0.85) -> Tuple[bool, str]:
+    """Block a BUY if the candidate pair is highly correlated with an already-open position.
+    
+    Iterates over bot_state, finds pairs with open BUY positions, and computes
+    Pearson correlation of log-returns over the last 168 hourly candles.
+    If any open pair has |correlation| > threshold, the new BUY is blocked.
+    
+    Args:
+        candidate_pair: Backtest-side pair symbol (e.g. 'TRXUSDT')
+        threshold: Maximum allowed |correlation| (default 0.85)
+    
+    Returns:
+        (can_open: bool, reason: str) — True if correlation is acceptable.
+    """
+    open_pairs = [
+        pair for pair, data in bot_state.items()
+        if isinstance(data, dict) and data.get('last_order_side') == 'BUY'
+        and pair != candidate_pair
+    ]
+    if not open_pairs:
+        return True, ""
+    
+    for open_pair in open_pairs:
+        corr = compute_pair_correlation(candidate_pair, open_pair, timeframe='1h', lookback=168)
+        if abs(corr) > threshold:
+            reason = (f"CORRELATION GUARD: {candidate_pair} vs {open_pair} "
+                      f"corrélation = {corr:.3f} (seuil: {threshold}). "
+                      f"BUY bloqué — diversification insuffisante.")
+            logger.warning(f"[CORRELATION] {reason}")
+            return False, reason
+        else:
+            logger.info(f"[CORRELATION] {candidate_pair} vs {open_pair}: {corr:.3f} (OK < {threshold})")
+    
+    return True, ""
+
+
 # Variable globale pour le répertoire cache (pour éviter les créations multiples)
 _cache_dir_initialized = False
 
@@ -1155,7 +1319,7 @@ _current_backtest_pair = None
 #                                                             #
 ###############################################################
 
-def full_timestamp_resync():
+def full_timestamp_resync() -> None:
     try:
         sync_windows_silently()
         time.sleep(1)  
@@ -1231,7 +1395,7 @@ ACTIONS RECOMMANDEES:
                 body_main=email_body,
                 client=client
             )
-        except:
+        except Exception:
             pass
         return False
 
@@ -1260,52 +1424,116 @@ def validate_data_integrity(df: pd.DataFrame) -> bool:
     return True
 
 
-def get_cache_key(pair: str, interval: str, params: Dict) -> str:
-    """Genere une cle de cache unique pour les indicateurs."""
-    # Utilisation d'un cache mémoire pour accélérer les accès redondants
-    key_data = f"{pair}_{interval}_{json.dumps(params, sort_keys=True)}"
-    return hashlib.md5(key_data.encode()).hexdigest()
-
-# Version lru_cache pour usage sur des paramètres immuables (ex: tickers)
-# Already provided by core.py, so no need to redefine here.
-
-
-# Initialize error handler with email config
-
-
-
 @log_exceptions(default_return=None)
-def save_bot_state():
-    """Sauvegarde l'etat du bot."""
+def save_bot_state() -> None:
+    """Sauvegarde l'etat du bot en JSON avec ecriture atomique et backup.
+    Persiste egalement _daily_pnl_tracker (P0.3 audit fix).
+    """
     try:
         os.makedirs(config.states_dir, exist_ok=True)
         state_path = os.path.join(config.states_dir, config.state_file)
-        # Only write if state changed (by hash)
-        state_bytes = pickle.dumps(bot_state)
+        # Include _daily_pnl_tracker in persisted state (P0.3 audit fix)
+        state_to_save = {
+            'bot_state': bot_state,
+            '_daily_pnl_tracker': _daily_pnl_tracker,
+            '_state_version': 2,  # Schema version for future migrations
+        }
+        state_json = json.dumps(state_to_save, indent=2, default=str)
+        # Dirty check: only write if state changed
+        new_hash = hash(state_json)
         old_hash = None
         if os.path.exists(state_path):
-            with open(state_path, 'rb') as f:
-                old_hash = hash(f.read())
-        new_hash = hash(state_bytes)
+            try:
+                with open(state_path, 'r', encoding='utf-8') as f:
+                    old_hash = hash(f.read())
+            except Exception:
+                old_hash = None
         if old_hash != new_hash:
-            with open(state_path, 'wb') as f:
-                f.write(state_bytes)
-            logger.debug("etat du bot sauvegarde (modifié)")
+            # Backup existing state before overwriting
+            if os.path.exists(state_path):
+                backup_path = state_path + '.bak'
+                try:
+                    import shutil
+                    shutil.copy2(state_path, backup_path)
+                except Exception as bak_err:
+                    logger.warning(f"Backup d'etat echoue: {bak_err}")
+            # Atomic write: write to .tmp then rename (P0.4 audit fix)
+            tmp_path = state_path + '.tmp'
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                f.write(state_json)
+            os.replace(tmp_path, state_path)
+            logger.debug("etat du bot sauvegarde (modifie)")
         else:
-            logger.debug("etat du bot inchangé, pas de sauvegarde")
+            logger.debug("etat du bot inchange, pas de sauvegarde")
     except Exception as e:
         logger.error(f"Erreur lors de la sauvegarde: {e}")
 
 @log_exceptions(default_return=None)
-def load_bot_state():
-    """Charge l'etat du bot."""
-    global bot_state
+def load_bot_state() -> None:
+    """Charge l'etat du bot depuis JSON (avec migration automatique depuis pickle).
+    Restaure _daily_pnl_tracker si present (P0.3 audit fix).
+    """
+    global bot_state, _daily_pnl_tracker
     try:
         state_path = os.path.join(config.states_dir, config.state_file)
+        # Try JSON first
         if os.path.exists(state_path):
-            with open(state_path, 'rb') as f:
-                bot_state = pickle.load(f)
-            logger.info("etat du bot charge")
+            try:
+                with open(state_path, 'r', encoding='utf-8') as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict) and '_state_version' in loaded:
+                    bot_state = loaded.get('bot_state', {})
+                    saved_tracker = loaded.get('_daily_pnl_tracker')
+                    if saved_tracker and isinstance(saved_tracker, dict):
+                        for key in _daily_pnl_tracker:
+                            if key in saved_tracker:
+                                _daily_pnl_tracker[key] = saved_tracker[key]
+                        logger.info(f"[CAPITAL] peak_equity restaure: {_daily_pnl_tracker.get('peak_equity', 0):.2f} USDC")
+                    logger.info("etat du bot charge (JSON v2)")
+                    return
+                else:
+                    # Legacy JSON without version — treat as bot_state directly
+                    bot_state = loaded
+                    logger.info("etat du bot charge (JSON legacy)")
+                    return
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                logger.warning("Fichier d'etat JSON invalide, tentative de recovery...")
+                # Try loading backup
+                backup_path = state_path + '.bak'
+                if os.path.exists(backup_path):
+                    try:
+                        with open(backup_path, 'r', encoding='utf-8') as f:
+                            loaded = json.load(f)
+                        if isinstance(loaded, dict) and '_state_version' in loaded:
+                            bot_state = loaded.get('bot_state', {})
+                            saved_tracker = loaded.get('_daily_pnl_tracker')
+                            if saved_tracker and isinstance(saved_tracker, dict):
+                                for key in _daily_pnl_tracker:
+                                    if key in saved_tracker:
+                                        _daily_pnl_tracker[key] = saved_tracker[key]
+                        else:
+                            bot_state = loaded
+                        logger.warning("etat du bot restaure depuis le backup")
+                        return
+                    except Exception:
+                        logger.error("Backup d'etat egalement corrompu")
+        # Auto-migrate from pickle if JSON doesn't exist (P0.4 audit fix)
+        pickle_path = os.path.join(config.states_dir, 'bot_state.pkl')
+        if os.path.exists(pickle_path):
+            try:
+                with open(pickle_path, 'rb') as f:
+                    bot_state = pickle.load(f)
+                logger.warning("Migration depuis pickle vers JSON effectuee")
+                save_bot_state()  # Immediately persist as JSON
+                # Rename old pickle to prevent re-migration
+                try:
+                    os.rename(pickle_path, pickle_path + '.migrated')
+                except Exception:
+                    pass
+                return
+            except Exception as pkl_err:
+                logger.error(f"Erreur migration pickle: {pkl_err}")
+        logger.info("Aucun etat precedent trouve, demarrage avec etat vierge")
     except Exception as e:
         logger.error(f"Erreur lors du chargement: {e}")
 
@@ -1340,36 +1568,6 @@ def get_spot_balance_usdc(client) -> float:
         return spot_balance_usdc
     except Exception:
         return 0.0
-
-@retry_with_backoff(max_retries=3, base_delay=2.0)
-def send_email_alert(subject: str, body: str) -> bool:
-    """Envoie une alerte par email avec retry automatique."""
-    try:
-        # Ajout automatique du solde SPOT global à la fin de chaque email
-        try:
-            spot_balance_usdc = get_spot_balance_usdc(client)
-            body += f"\n\nSolde SPOT global : {spot_balance_usdc:.2f} USDC"
-        except Exception:
-            pass
-
-        msg = MIMEMultipart()
-        msg['From'] = config.sender_email
-        msg['To'] = config.receiver_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
-
-        with smtplib.SMTP(config.smtp_server, config.smtp_port) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(config.sender_email, config.smtp_password)
-            server.sendmail(config.sender_email, config.receiver_email, msg.as_string())
-        logger.info("Email d'alerte envoye avec succes")
-        print("[green][SUCCESS] Email d'alerte envoye[/green]")
-        return True
-    except Exception as e:
-        logger.error(f"Erreur envoi email: {e}")
-        raise
 
 @log_exceptions(default_return={'min_qty': Decimal('0.001'), 'step_size': Decimal('0.000001'), 'min_notional': Decimal('10.0')})
 def get_symbol_filters(symbol: str) -> Dict:
@@ -1447,7 +1645,7 @@ def safe_cache_read(cache_file: str) -> Optional[pd.DataFrame]:
             logger.info(f"Cache expiré (>30 jours): {os.path.basename(cache_file)} - Mise à jour nécessaire")
             try:
                 os.remove(cache_file)
-            except:
+            except Exception:
                 pass
             return None
         
@@ -1456,14 +1654,14 @@ def safe_cache_read(cache_file: str) -> Optional[pd.DataFrame]:
         if file_size == 0:
             try:
                 os.remove(cache_file)
-            except:
+            except Exception:
                 pass
             return None
         
         if file_size > 100 * 1024 * 1024:  # 100MB max
             try:
                 os.remove(cache_file)
-            except:
+            except Exception:
                 pass
             return None
         
@@ -1475,7 +1673,7 @@ def safe_cache_read(cache_file: str) -> Optional[pd.DataFrame]:
         if df.empty or len(df) < 10:
             try:
                 os.remove(cache_file)
-            except:
+            except Exception:
                 pass
             return None
         
@@ -1489,7 +1687,7 @@ def safe_cache_read(cache_file: str) -> Optional[pd.DataFrame]:
         # Autres erreurs - nettoyage silencieux
         try:
             os.remove(cache_file)
-        except:
+        except Exception:
             pass
         return None
 
@@ -1517,6 +1715,7 @@ def safe_cache_write(cache_file: str, lock_file: str, df: pd.DataFrame) -> bool:
         except Exception:
             return False  # Abandonner silencieusement
         
+        temp_file = ""
         try:
             # Écriture atomique simplifiée
             temp_file = cache_file + f".tmp_{os.getpid()}_{int(time.time())}"
@@ -1534,7 +1733,7 @@ def safe_cache_write(cache_file: str, lock_file: str, df: pd.DataFrame) -> bool:
                 if os.path.exists(cache_file):
                     try:
                         os.remove(cache_file)
-                    except:
+                    except Exception:
                         pass
                 os.rename(temp_file, cache_file)
                 logger.debug(f"Cache sauvegardé: {os.path.basename(cache_file)} (modifié)")
@@ -1547,7 +1746,7 @@ def safe_cache_write(cache_file: str, lock_file: str, df: pd.DataFrame) -> bool:
             try:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
-            except:
+            except Exception:
                 pass
             return False
             
@@ -1555,7 +1754,7 @@ def safe_cache_write(cache_file: str, lock_file: str, df: pd.DataFrame) -> bool:
             # Supprimer le verrou
             try:
                 os.remove(lock_file)
-            except:
+            except Exception:
                 pass
                 
     except Exception:
@@ -1771,7 +1970,7 @@ ACTIONS RECOMMANDEES:
                 body_main=email_body,
                 client=client
             )
-        except:
+        except Exception:
             pass
         raise
     except Exception as e:
@@ -1835,7 +2034,7 @@ SURVEILLANCE REQUISE:
                 body_main=email_body,
                 client=client
             )
-        except:
+        except Exception:
             pass
         return pd.DataFrame()
 
@@ -1850,7 +2049,7 @@ def get_cache_key(prefix: str, df: pd.DataFrame, params: Dict[str, Any]) -> str:
     if df.empty or 'close' not in df.columns:
         return f"{prefix}_empty"
     
-    close_vals = df['close'].values
+    close_vals = df['close'].to_numpy()
     # Échantillon représentatif : 5 premières + 5 dernières valeurs
     sample_size = min(5, len(close_vals))
     sample = np.concatenate([close_vals[:sample_size], close_vals[-sample_size:]])
@@ -1889,7 +2088,7 @@ def universal_calculate_indicators(
                 df_work['ema1'] = df_work['close'].ewm(span=ema1_period, adjust=False).mean()
                 df_work['ema2'] = df_work['close'].ewm(span=ema2_period, adjust=False).mean()
                 if 'rsi' not in df_work.columns:
-                    df_work['rsi'] = ta.momentum.RSIIndicator(df_work['close'], window=14).rsi()
+                    df_work['rsi'] = RSIIndicator(df_work['close'], window=14).rsi()
                 def compute_stochrsi(rsi_series: pd.Series, period: int = 14) -> pd.Series:
                     min_rsi = rsi_series.rolling(window=period, min_periods=period).min()
                     max_rsi = rsi_series.rolling(window=period, min_periods=period).max()
@@ -1898,7 +2097,7 @@ def universal_calculate_indicators(
                     stochrsi = stochrsi.fillna(0)
                     return stochrsi
                 df_work['stoch_rsi'] = compute_stochrsi(df_work['rsi'], period=stoch_period)
-                df_work['atr'] = ta.volatility.AverageTrueRange(
+                df_work['atr'] = AverageTrueRange(
                     high=df_work.get('high', df_work['close']),
                     low=df_work.get('low', df_work['close']),
                     close=df_work['close'],
@@ -1908,7 +2107,7 @@ def universal_calculate_indicators(
                     df_work['sma_long'] = df_work['close'].rolling(window=sma_long).mean()
                 if adx_period and len(df_work) >= adx_period + 2:
                     try:
-                        df_work['adx'] = ta.trend.ADXIndicator(high=df_work['high'], low=df_work['low'], close=df_work['close'], window=adx_period).adx()
+                        df_work['adx'] = ADXIndicator(high=df_work['high'], low=df_work['low'], close=df_work['close'], window=adx_period).adx()
                     except Exception:
                         df_work['adx'] = np.nan
                 if trix_length and trix_signal:
@@ -1920,22 +2119,23 @@ def universal_calculate_indicators(
                     df_work['TRIX_HISTO'] = df_work['TRIX_PCT'] - df_work['TRIX_SIGNAL']
                 # --- MACD histogram (filtre momentum) ---
                 try:
-                    macd_indicator = ta.trend.MACD(df_work['close'], window_fast=12, window_slow=26, window_sign=9)
+                    macd_indicator = MACD(df_work['close'], window_fast=12, window_slow=26, window_sign=9)
                     df_work['macd_histogram'] = macd_indicator.macd_diff()
                 except Exception:
                     df_work['macd_histogram'] = np.nan
                 # --- Volatilité historique & HV z-score ---
                 hv_period = 20
-                log_returns = np.log(df_work['close'] / df_work['close'].shift(1))
+                log_returns = pd.Series(np.log(df_work['close'] / df_work['close'].shift(1)), index=df_work.index)
                 df_work['historical_volatility'] = log_returns.rolling(window=hv_period).std() * np.sqrt(252)
                 hv_mean = df_work['historical_volatility'].rolling(window=50).mean()
                 hv_std = df_work['historical_volatility'].rolling(window=50).std()
                 df_work['hv_zscore'] = (df_work['historical_volatility'] - hv_mean) / (hv_std + 1e-6)
                 # Call Cython-accelerated calculation (returns DataFrame)
+                assert backtest_engine is not None  # guaranteed by CYTHON_BACKTEST_AVAILABLE
                 result = backtest_engine.calculate_indicators_fast(
-                    df_work['close'].values.astype(np.float64),
-                    df_work['high'].values.astype(np.float64),
-                    df_work['low'].values.astype(np.float64),
+                    df_work['close'].to_numpy(dtype=np.float64),
+                    df_work['high'].to_numpy(dtype=np.float64),
+                    df_work['low'].to_numpy(dtype=np.float64),
                     ema1_period,
                     ema2_period,
                     stoch_period,
@@ -1978,23 +2178,30 @@ def get_optimal_ema_periods(df: pd.DataFrame, timeframe: str = '4h', symbol: str
     """
     Optimisation EMA adaptative: Sélectionne les meilleures périodes EMA selon le timeframe.
     
+    P1.3 FIX: Uses only the first 70% of the DataFrame (train-equivalent window)
+    to prevent look-ahead bias in EMA period selection.
+    
     Basé sur l'analyse statistique de la volatilité et momentum par timeframe:
     - 1h: Volatilité haute, trending rapide → EMA courts (9/21)
     - 4h: Balance swing/trend → EMA moyens (14/26 ou 26/50)
     - 1d: Trend long terme → EMA longs (26/50 ou 50/200)
     """
     try:
-        # Calculer la volatilité (ATR/Close)
-        atr = ta.volatility.AverageTrueRange(
-            high=df.get('high', df['close']),
-            low=df.get('low', df['close']),
-            close=df['close'],
+        # P1.3: Use only the first 70% of data to avoid look-ahead bias
+        train_cutoff = int(len(df) * 0.70)
+        df_train = df.iloc[:train_cutoff] if train_cutoff > 50 else df
+        
+        # Calculer la volatilité (ATR/Close) sur train uniquement
+        atr = AverageTrueRange(
+            high=df_train.get('high', df_train['close']),
+            low=df_train.get('low', df_train['close']),
+            close=df_train['close'],
             window=14
         ).average_true_range()
-        volatility = (atr / df['close']).mean()
+        volatility = (atr / df_train['close']).mean()
         
-        # Calculer la tendance (RSI moyen)
-        rsi = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
+        # Calculer la tendance (RSI moyen) sur train uniquement
+        rsi = RSIIndicator(df_train['close'], window=14).rsi()
         
         # Sélectionner les périodes basées sur volatilité et timeframe
         timeframe_map = {
@@ -2082,13 +2289,13 @@ def calculate_indicators(
 
         # --- RSI (seulement si absent) ---
         if 'rsi' not in df_work.columns:
-            df_work['rsi'] = ta.momentum.RSIIndicator(df_work['close'], window=14).rsi()
+            df_work['rsi'] = RSIIndicator(df_work['close'], window=14).rsi()
 
         # --- MACD (OPTIMISATION #7: Filtre Momentum MACD) ---
         # MACD = EMA(12) - EMA(26), Signal = EMA(9) de MACD
         # Histogram = MACD - Signal, positif = bullish, négatif = bearish
         try:
-            macd_indicator = ta.trend.MACD(df_work['close'], window_fast=12, window_slow=26, window_sign=9)
+            macd_indicator = MACD(df_work['close'], window_fast=12, window_slow=26, window_sign=9)
             df_work['macd'] = macd_indicator.macd()
             df_work['macd_signal'] = macd_indicator.macd_signal()
             df_work['macd_histogram'] = macd_indicator.macd_diff()  # histogram positif = bullish
@@ -2113,7 +2320,7 @@ def calculate_indicators(
             df_work['stoch_rsi'] = compute_stochrsi(df_work['rsi'], period=stoch_period)
 
         # --- ATR ---
-        df_work['atr'] = ta.volatility.AverageTrueRange(
+        df_work['atr'] = AverageTrueRange(
             high=df_work.get('high', df_work['close']),
             low=df_work.get('low', df_work['close']),
             close=df_work['close'],
@@ -2127,7 +2334,7 @@ def calculate_indicators(
         # --- ADX (utiliser l'implémentation standard Wilder via ta.trend.ADXIndicator) ---
         if adx_period and len(df_work) >= adx_period + 2:
             try:
-                df_work['adx'] = ta.trend.ADXIndicator(high=df_work['high'], low=df_work['low'], close=df_work['close'], window=adx_period).adx()
+                df_work['adx'] = ADXIndicator(high=df_work['high'], low=df_work['low'], close=df_work['close'], window=adx_period).adx()
             except Exception:
                 df_work['adx'] = np.nan
 
@@ -2142,7 +2349,7 @@ def calculate_indicators(
 
         # --- Volatilité historique & HV z-score (cohérence backtest ↔ live) ---
         hv_period = 20
-        log_returns = np.log(df_work['close'] / df_work['close'].shift(1))
+        log_returns = pd.Series(np.log(df_work['close'] / df_work['close'].shift(1)), index=df_work.index)
         df_work['historical_volatility'] = log_returns.rolling(window=hv_period).std() * np.sqrt(252)
         hv_mean = df_work['historical_volatility'].rolling(window=50).mean()
         hv_std = df_work['historical_volatility'].rolling(window=50).std()
@@ -2224,7 +2431,7 @@ ACTIONS URGENTES:
                 body_main=email_body,
                 client=client
             )
-        except:
+        except Exception:
             pass
         return pd.DataFrame()
 
@@ -2246,9 +2453,9 @@ def prepare_base_dataframe(pair: str, timeframe: str, start_date: str, stoch_per
         df[f'ema_{period}'] = df['close'].ewm(span=period, adjust=False).mean()
 
     # Indicateurs communs à tous les scénarios
-    df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
+    df['rsi'] = RSIIndicator(df['close'], window=14).rsi()
 
-    df['atr'] = ta.volatility.AverageTrueRange(
+    df['atr'] = AverageTrueRange(
         high=df['high'], low=df['low'], close=df['close'], window=config.atr_period
     ).average_true_range()
     # Stochastic RSI (Raw calculation - no smoothing)
@@ -2270,13 +2477,13 @@ def prepare_base_dataframe(pair: str, timeframe: str, start_date: str, stoch_per
     df.dropna(subset=['close', 'rsi', 'atr'], inplace=True)
     return df
 
-def get_binance_trading_fees(client, symbol='TRXUSDC'):
+def get_binance_trading_fees(client_instance: Any, symbol: str = 'TRXUSDC') -> Tuple[float, float]:
     """
     Récupère les frais de trading réels depuis l'API Binance.
     Retourne taker_fee et maker_fee actualisés pour ce compte.
     """
     try:
-        account_info = client.get_account()
+        account_info = client_instance.get_account()
         taker_commission = account_info.get('takerCommission', 1000) / 1000000
         maker_commission = account_info.get('makerCommission', 1000) / 1000000
         logger.info(f"[FEES REELS] Binance - Taker: {taker_commission*100:.4f}%, Maker: {maker_commission*100:.4f}%")
@@ -2285,6 +2492,8 @@ def get_binance_trading_fees(client, symbol='TRXUSDC'):
         logger.warning(f"[FEES] Impossible de récupérer frais Binance: {e}. Utilisation valeurs par défaut.")
         return config.taker_fee, config.maker_fee
 
+# Cache module-level pour les frais Binance (évite les appels API répétés)
+_cached_binance_taker_fee: Optional[float] = None
 
 def backtest_from_dataframe(
     df: pd.DataFrame,
@@ -2294,7 +2503,8 @@ def backtest_from_dataframe(
     adx_period: Optional[int] = None,
     trix_length: Optional[int] = None,
     trix_signal: Optional[int] = None,
-    sizing_mode: str = 'baseline'
+    sizing_mode: str = 'baseline',
+    periods_per_year: int = 8766,
 ) -> Dict[str, Any]:
     """Backtest à partir d'un DataFrame préparé.
     
@@ -2303,6 +2513,7 @@ def backtest_from_dataframe(
     (par ex. 'risk'), force l'utilisation de la version Python qui gère
     explicitement le position sizing.
     """
+    global _cached_binance_taker_fee
     try:
         if df.empty or len(df) < 50:
             return {'final_wallet': 0.0, 'trades': pd.DataFrame(), 'max_drawdown': 0.0, 'win_rate': 0.0}
@@ -2334,8 +2545,8 @@ def backtest_from_dataframe(
                     if 'adx' in df.columns:
                         df_work['adx'] = df['adx'].values
                     else:
-                        # Utiliser ta.trend (optimisé et testé)
-                        df_work['adx'] = ta.trend.ADXIndicator(
+                        # Utiliser ADXIndicator (optimisé et testé)
+                        df_work['adx'] = ADXIndicator(
                             high=df_work['high'],
                             low=df_work['low'],
                             close=df_work['close'],
@@ -2351,17 +2562,18 @@ def backtest_from_dataframe(
                     df_work['TRIX_HISTO'] = df_work['TRIX_PCT'] - df_work['TRIX_SIGNAL']
                 
                 # Appeler le moteur Cython optimisé
+                assert backtest_engine is not None  # guaranteed by CYTHON_BACKTEST_AVAILABLE
                 result = backtest_engine.backtest_from_dataframe_fast(
-                    df_work['close'].values.astype(np.float64),
-                    df_work['high'].values.astype(np.float64),
-                    df_work['low'].values.astype(np.float64),
-                    df_work['ema1'].values.astype(np.float64),
-                    df_work['ema2'].values.astype(np.float64),
-                    df_work['stoch_rsi'].values.astype(np.float64),
-                    df_work['atr'].values.astype(np.float64),
-                    df_work['sma_long'].values.astype(np.float64) if sma_long and 'sma_long' in df_work.columns else None,
-                    df_work['adx'].values.astype(np.float64) if adx_period and 'adx' in df_work.columns else None,
-                    df_work['TRIX_HISTO'].values.astype(np.float64) if trix_length and 'TRIX_HISTO' in df_work.columns else None,
+                    df_work['close'].to_numpy(dtype=np.float64),
+                    df_work['high'].to_numpy(dtype=np.float64),
+                    df_work['low'].to_numpy(dtype=np.float64),
+                    df_work['ema1'].to_numpy(dtype=np.float64),
+                    df_work['ema2'].to_numpy(dtype=np.float64),
+                    df_work['stoch_rsi'].to_numpy(dtype=np.float64),
+                    df_work['atr'].to_numpy(dtype=np.float64),
+                    df_work['sma_long'].to_numpy(dtype=np.float64) if sma_long and 'sma_long' in df_work.columns else None,
+                    df_work['adx'].to_numpy(dtype=np.float64) if adx_period and 'adx' in df_work.columns else None,
+                    df_work['TRIX_HISTO'].to_numpy(dtype=np.float64) if trix_length and 'TRIX_HISTO' in df_work.columns else None,
                     config.initial_wallet,  # initial_wallet
                     'StochRSI',  # scenario
                     sma_long is not None,  # use_sma
@@ -2370,12 +2582,15 @@ def backtest_from_dataframe(
                 )
                 
                 # Convertir le résultat Cython en format compatible
-                return {
+                cython_result = {
                     'final_wallet': result['final_wallet'],
                     'trades': pd.DataFrame(result['trades']) if result['trades'] else pd.DataFrame(),
                     'max_drawdown': result['max_drawdown'],
                     'win_rate': result['win_rate']
                 }
+                # Cython path: add stub risk metrics (detailed metrics only in Python path)
+                cython_result.update(default_risk_metrics())
+                return cython_result
             
             except Exception as e:
                 logger.warning(f" Cython backtest failed, using Python fallback: {e}")
@@ -2401,11 +2616,11 @@ def backtest_from_dataframe(
             df_work['sma_long'] = df_work['close'].rolling(window=sma_long).mean()
         
         if adx_period and 'adx' in df.columns:
-            df_work['adx'] = df['adx'].values
+            df_work['adx'] = df['adx'].to_numpy()
         elif adx_period:
-            close = df_work['close'].values
-            high = df_work['high'].values
-            low = df_work['low'].values
+            close = df_work['close'].to_numpy()
+            high = df_work['high'].to_numpy()
+            low = df_work['low'].to_numpy()
             high_low = high - low
             high_close = np.abs(high[1:] - close[:-1])
             low_close = np.abs(low[1:] - close[:-1])
@@ -2440,7 +2655,7 @@ def backtest_from_dataframe(
         # OPTIMISATION VOLATILITÉ: Calculer volatilité historique sur 20 périodes
         # Utiliser pour filtrer les entrées en volatilité extrême (exclut crises/euphorie)
         hv_period = 20
-        log_returns = np.log(df_work['close'] / df_work['close'].shift(1))
+        log_returns = pd.Series(np.log(df_work['close'] / df_work['close'].shift(1)), index=df_work.index)
         df_work['historical_volatility'] = log_returns.rolling(window=hv_period).std() * np.sqrt(252)  # Annualisée
         hv_mean = df_work['historical_volatility'].rolling(window=50).mean()
         hv_std = df_work['historical_volatility'].rolling(window=50).std()
@@ -2463,6 +2678,9 @@ def backtest_from_dataframe(
         peak_wallet = config.initial_wallet
         winning_trades = 0
         total_trades = 0
+        equity_curve = []  # P1.2: bar-level equity tracking for risk-adjusted metrics
+        partial_taken_1 = False
+        partial_taken_2 = False
 
         # OPTIMISATION: Pré-extraire numpy arrays UNIQUEMENT pour fallback Python
         ema_cross_up = df_work['ema1'] > df_work['ema2']
@@ -2502,7 +2720,7 @@ def backtest_from_dataframe(
                 # Phase 2: Activation quand prix >= entry + 5×ATR
                 # Phase 3: Trailing suit à max_price - 5.5×ATR
                 
-                trailing_distance = 5.5 * atr_at_entry  # ATR_MULTIPLIER = 5.5
+                trailing_distance = 5.5 * (atr_at_entry or 0.0)  # ATR_MULTIPLIER = 5.5
                 
                 # Mise à jour du max_price
                 if row_close > max_price:
@@ -2589,13 +2807,10 @@ def backtest_from_dataframe(
                     logger.debug(f"[BACKTEST] Sortie simulée: {motif_sortie} à {optimized_exit_price:.4f} (qty: {coin:.6f})")
 
                     # OPTIMISATION FRAIS: Récupérer frais réels depuis Binance API (mis en cache)
-                    if not hasattr(backtest_from_dataframe, '_binance_fees'):
-                        taker_fee_real, _ = get_binance_trading_fees(client)
-                        backtest_from_dataframe._binance_fees = taker_fee_real
-                    else:
-                        taker_fee_real = backtest_from_dataframe._binance_fees
+                    if _cached_binance_taker_fee is None:
+                        _cached_binance_taker_fee, _ = get_binance_trading_fees(client)
+                    taker_fee_real = _cached_binance_taker_fee
                     
-                    # Calcul proceeds local (pour le backtest) avec optimisation timing et frais réels
                     gross_proceeds = coin * optimized_exit_price
                     fee = gross_proceeds * taker_fee_real
                     # Add proceeds to existing USD (important for risk mode which keeps reserve capital)
@@ -2627,6 +2842,7 @@ def backtest_from_dataframe(
                     trailing_stop = 0.0
                     stop_loss = 0.0
                     trailing_stop_activated = False
+                    equity_curve.append(usd)  # P1.2: record equity after sell (coin=0)
                     continue
 
 
@@ -2705,13 +2921,9 @@ def backtest_from_dataframe(
 
                 if gross_coin and gross_coin > 0:
                     # OPTIMISATION FRAIS: Récupérer frais réels depuis Binance API (mis en cache)
-                    if not hasattr(backtest_from_dataframe, '_binance_fees'):
-                        taker_fee_real, _ = get_binance_trading_fees(client)
-                        backtest_from_dataframe._binance_fees = taker_fee_real
-                    else:
-                        taker_fee_real = backtest_from_dataframe._binance_fees
-                    
-                    # Calculate entry with real fees from Binance
+                    if _cached_binance_taker_fee is None:
+                        _cached_binance_taker_fee, _ = get_binance_trading_fees(client)
+                    taker_fee_real = _cached_binance_taker_fee
                     fee_in_coin = gross_coin * taker_fee_real
                     coin = gross_coin - fee_in_coin
 
@@ -2754,24 +2966,39 @@ def backtest_from_dataframe(
                     # Impossible d'ouvrir une position (pas de taille calculable)
                     pass
 
+            # P1.2: Track equity at end of every bar (including non-trade bars)
+            equity_curve.append(usd + coin * close_vals[i])
+
         # Final wallet calculation
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
         final_wallet = usd + (coin * df_work['close'].iloc[-1]) if in_position else usd
 
-        return {
+        # P1.2: Compute risk-adjusted metrics from equity curve
+        trades_df = pd.DataFrame(trades_history)
+        risk_metrics = compute_risk_metrics(
+            equity_curve=np.array(equity_curve) if equity_curve else np.array([config.initial_wallet]),
+            trades_df=trades_df,
+            periods_per_year=periods_per_year,
+        )
+
+        result_dict = {
             'final_wallet': final_wallet,
-            'trades': pd.DataFrame(trades_history),
+            'trades': trades_df,
             'max_drawdown': max_drawdown,
-            'win_rate': win_rate
+            'win_rate': win_rate,
         }
+        result_dict.update(risk_metrics)
+        return result_dict
 
     except Exception as e:
         logger.error(f"Erreur dans backtest_from_dataframe: {e}", exc_info=True)
-        return {'final_wallet': 0.0, 'trades': pd.DataFrame(), 'max_drawdown': 0.0, 'win_rate': 0.0}
+        err = {'final_wallet': 0.0, 'trades': pd.DataFrame(), 'max_drawdown': 0.0, 'win_rate': 0.0}
+        err.update(default_risk_metrics())
+        return err
 
 def empty_result_dict(timeframe: str, ema1: int, ema2: int, scenario_name: str) -> Dict[str, Any]:
     """Retourne un résultat de backtest vide en cas d'erreur."""
-    return {
+    d = {
         'timeframe': timeframe,
         'ema_periods': (ema1, ema2),
         'scenario': scenario_name,
@@ -2781,6 +3008,8 @@ def empty_result_dict(timeframe: str, ema1: int, ema2: int, scenario_name: str) 
         'max_drawdown': 0.0,
         'win_rate': 0.0
     }
+    d.update(default_risk_metrics())
+    return d
 
 def run_single_backtest_optimized(args: Tuple) -> Dict[str, Any]:
     """Execute un backtest unique à partir d'un DataFrame préparé.
@@ -2806,9 +3035,10 @@ def run_single_backtest_optimized(args: Tuple) -> Dict[str, Any]:
             adx_period=scenario['params'].get('adx_period'),
             trix_length=scenario['params'].get('trix_length'),
             trix_signal=scenario['params'].get('trix_signal'),
-            sizing_mode=sizing_mode
+            sizing_mode=sizing_mode,
+            periods_per_year=timeframe_to_periods_per_year(timeframe),
         )
-        return {
+        out = {
             'timeframe': timeframe,
             'ema_periods': (ema1, ema2),
             'scenario': scenario['name'],
@@ -2816,11 +3046,17 @@ def run_single_backtest_optimized(args: Tuple) -> Dict[str, Any]:
             'final_wallet': result['final_wallet'],
             'trades': result['trades'],
             'max_drawdown': result['max_drawdown'],
-            'win_rate': result['win_rate']
+            'win_rate': result['win_rate'],
         }
+        # P1.2: propagate risk-adjusted metrics
+        for k in ('sharpe_ratio', 'sortino_ratio', 'calmar_ratio', 'profit_factor',
+                   'max_consecutive_losses', 'total_return_pct', 'annual_return_pct',
+                   'annual_volatility'):
+            out[k] = result.get(k, 0)
+        return out
     except Exception as e:
         logger.error(f"Erreur backtest parallele: {e}")
-        return {
+        err = {
             'timeframe': timeframe,
             'ema_periods': (ema1, ema2),
             'scenario': scenario['name'],
@@ -2830,12 +3066,17 @@ def run_single_backtest_optimized(args: Tuple) -> Dict[str, Any]:
             'max_drawdown': 0.0,
             'win_rate': 0.0
         }
+        err.update(default_risk_metrics())
+        return err
     finally:
         # Nettoyer la variable globale
         _current_backtest_pair = None
 
-def run_all_backtests(backtest_pair: str, start_date: str, timeframes: List[str], sizing_mode: str = 'baseline') -> List[Dict[str, Any]]:
-    """Execute tous les backtests en parallele (version optimisée)."""
+def run_all_backtests(backtest_pair: str, start_date: str, timeframes: List[str], sizing_mode: str = 'baseline') -> Tuple[List[Dict[str, Any]], Dict[str, pd.DataFrame], Dict[str, List], List[Dict]]:
+    """Execute tous les backtests en parallele (version optimisée).
+
+    Returns (results, base_dataframes, ema_periods_by_tf, scenarios) to allow
+    downstream walk-forward validation to reuse the prepared data."""
     results = []
 
     # Préparer 1 DataFrame par timeframe
@@ -2896,9 +3137,9 @@ def run_all_backtests(backtest_pair: str, start_date: str, timeframes: List[str]
                     logger.error(f"Erreur future: {e}")
                     pbar.update(1)
 
-    return results
+    return results, base_dataframes, ema_periods_by_tf, scenarios
 
-def run_parallel_backtests(crypto_pairs: List[Dict], start_date: str, timeframes: List[str], sizing_mode: str = 'baseline') -> List[Dict]:
+def run_parallel_backtests(crypto_pairs: List[Dict], start_date: str, timeframes: List[str], sizing_mode: str = 'baseline') -> Dict[str, Any]:
     """Exécute les backtests en parallèle et retourne les résultats bruts."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
     max_workers = min(len(crypto_pairs), 5)
@@ -2925,10 +3166,10 @@ def run_parallel_backtests(crypto_pairs: List[Dict], start_date: str, timeframes
     # Affichage unique et propre
     console.print(f"\n[bold cyan]Lancement de {total_tasks} backtests avec optimisation sniper...[/bold cyan]")
 
-    def run_single_pair(pair_info):
+    def run_single_pair(pair_info: Dict[str, str]) -> Tuple[str, str, List[Dict]]:
         try:
             # Exécuter le backtest SANS affichage
-            results = run_all_backtests(
+            results, _bd, _ema, _sc = run_all_backtests(
                 pair_info["backtest_pair"], 
                 start_date, 
                 timeframes,
@@ -2953,7 +3194,7 @@ def run_parallel_backtests(crypto_pairs: List[Dict], start_date: str, timeframes
 
     return results_by_pair  # ← retourne un dict structuré
 
-def display_results_for_pair(backtest_pair: str, results: List[Dict]):
+def display_results_for_pair(backtest_pair: str, results: List[Dict]) -> None:
     """Affiche les résultats d'une paire de façon claire et organisée."""
     if not results:
         console.print(f"[red]Aucun résultat pour {backtest_pair}[/red]")
@@ -2965,8 +3206,8 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict]):
     end_date_str = today.strftime("%d %B %Y")
     start_date_str = start_date_obj.strftime("%d %B %Y")
 
-    # Trouver le meilleur résultat
-    best_result = max(results, key=lambda x: x['final_wallet'] - x['initial_wallet'])
+    # P1.2: Trouver le meilleur résultat par Sharpe (pas P&L brut)
+    best_result = max(results, key=lambda x: x.get('sharpe_ratio', 0))
     best_profit = best_result['final_wallet'] - best_result['initial_wallet']
 
     # Créer le tableau
@@ -2984,9 +3225,11 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict]):
     table.add_column("Scénario", style="magenta", justify="left", width=20)
     table.add_column("Profit ($)", style="bold green", justify="right", width=15)
     table.add_column("Final Wallet ($)", style="bold yellow", justify="right", width=18)
+    table.add_column("Sharpe", style="bold cyan", justify="right", width=8)
+    table.add_column("PF", style="white", justify="right", width=7)
     table.add_column("Trades", style="white", justify="right", width=8)
-    table.add_column("Max Drawdown (%)", style="bold red", justify="right", width=18)
-    table.add_column("Win Rate (%)", style="bold cyan", justify="right", width=15)
+    table.add_column("Max DD (%)", style="bold red", justify="right", width=12)
+    table.add_column("Win Rate (%)", style="bold cyan", justify="right", width=12)
 
     for result in results:
         profit = result['final_wallet'] - result['initial_wallet']
@@ -2997,6 +3240,8 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict]):
             f"[magenta]{result['scenario']}[/magenta]",
             f"[{profit_color}]{profit:,.2f}[/{profit_color}]",
             f"[yellow]{result['final_wallet']:,.2f}[/yellow]",
+            f"[cyan]{result.get('sharpe_ratio', 0):.2f}[/cyan]",
+            f"{result.get('profit_factor', 0):.2f}",
             f"{len(result['trades'])}",
             f"[red]{result['max_drawdown']*100:.2f}%[/red]",
             f"[cyan]{result['win_rate']:.2f}%[/cyan]"
@@ -3014,6 +3259,8 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict]):
         f"[bold cyan]Timeframe[/bold cyan]: {best_result['timeframe']}\n"
         f"[bold blue]EMA[/bold blue]: {best_result['ema_periods'][0]} / {best_result['ema_periods'][1]}\n"
         f"[bold yellow]Profit[/bold yellow]: ${best_profit:,.2f}\n"
+        f"[bold cyan]Sharpe[/bold cyan]: {best_result.get('sharpe_ratio', 0):.2f}  |  "
+        f"[bold white]PF[/bold white]: {best_result.get('profit_factor', 0):.2f}\n"
         f"[bold red]Max Drawdown[/bold red]: {best_result['max_drawdown']*100:.2f}%\n"
         f"[bold cyan]Win Rate[/bold cyan]: {best_result['win_rate']:.2f}%",
         title=f"[bold green]*** MEILLEUR RESULTAT — {backtest_pair} ***[/bold green]",
@@ -3032,7 +3279,7 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict]):
 #                                                             #
 ###############################################################
 
-def generate_buy_condition_checker(best_params: Dict[str, Any]):
+def generate_buy_condition_checker(best_params: Dict[str, Any]) -> Callable[[Any, float], Tuple[bool, str]]:
     """
     Génère une fonction de vérification des conditions d'achat 
     qui reflète EXACTEMENT le backtest gagnant.
@@ -3056,22 +3303,8 @@ def generate_buy_condition_checker(best_params: Dict[str, Any]):
         if not stoch_condition:
             return False, f"StochRSI ({row['stoch_rsi']:.4f}) >= 0.8"
         
-        # Filtre volatilité z-score: exclure les périodes de volatilité extrême
-        if 'hv_zscore' in row.index:
-            hv_z = row['hv_zscore']
-            if not (-1.5 < hv_z < 1.5):
-                return False, f"HV z-score ({hv_z:.2f}) hors plage [-1.5, 1.5]"
-        
-        # Filtre RSI momentum: éviter overbought/oversold
-        if 'rsi' in row.index:
-            rsi_val = row['rsi']
-            if not (30 <= rsi_val <= 70):
-                return False, f"RSI ({rsi_val:.1f}) hors plage [30, 70]"
-        
-        # Filtre MACD histogram: confirmer momentum bullish
-        if 'macd_histogram' in row.index and not pd.isna(row['macd_histogram']):
-            if row['macd_histogram'] <= -0.0005:
-                return False, f"MACD histogram ({row['macd_histogram']:.6f}) <= -0.0005"
+        # NOTE: Filtres HV/RSI/MACD retirés pour cohérence avec backtest Cython gagnant ($2.3M)
+        # Le backtest performant n'utilise QUE : EMA cross + StochRSI + filtres scénario (ADX/SMA/TRIX)
         
         # Conditions additionnelles selon le scénario
         scenario = best_params.get('scenario', 'StochRSI')
@@ -3096,7 +3329,7 @@ def generate_buy_condition_checker(best_params: Dict[str, Any]):
     return check_buy_signal
 
 
-def generate_sell_condition_checker(best_params: Dict[str, Any]):
+def generate_sell_condition_checker(best_params: Dict[str, Any]) -> Callable:
     """
     Génère une fonction de vérification des conditions de vente 
     qui reflète EXACTEMENT le backtest gagnant.
@@ -3195,7 +3428,7 @@ def generate_sell_condition_checker(best_params: Dict[str, Any]):
     
     return check_sell_signal
 
-def sync_windows_silently():
+def sync_windows_silently() -> bool:
     """Synchronise Windows silencieusement si privilèges admin disponibles."""
     
     try:
@@ -3243,7 +3476,7 @@ def sync_windows_silently():
         logger.debug(f"Erreur synchronisation silencieuse: {e}")
         return False
 
-def init_timestamp_solution():
+def init_timestamp_solution() -> bool:
     """Initialisation ULTRA ROBUSTE de la synchronisation."""
     try:
         logger.info("=== INITIALISATION SYNCHRO ULTRA ROBUSTE ===")
@@ -3280,45 +3513,49 @@ def init_timestamp_solution():
         return True  # Continuer même en cas d'erreur
 
 def check_network_connectivity() -> bool:
-    """Vérifie la connectivité réseau et tente de la rétablir."""
+    """Vérifie la connectivité réseau et l'accessibilité de Binance API.
+    
+    Two-step check:
+    1. Basic internet (Google DNS 8.8.8.8:53)
+    2. Binance API reachability (api.binance.com:443)
+    """
     
     try:
-        # Test de connectivité basique
+        # Step 1: Basic internet connectivity
         socket.create_connection(("8.8.8.8", 53), timeout=5)
-        return True
     except (socket.error, OSError):
-        logger.warning("Perte de connectivité réseau détectée")
+        logger.warning("Perte de connectivité réseau détectée (Google DNS)")
         
         try:
             # Tenter de réactiver la connexion réseau
             logger.info("Tentative de réactivation de la connexion réseau...")
-            
-            # Flush DNS
             subprocess.run(['ipconfig', '/flushdns'], capture_output=True, timeout=10)
-            
-            # Renouveler l'IP
             subprocess.run(['ipconfig', '/release'], capture_output=True, timeout=10)
             time.sleep(2)
             subprocess.run(['ipconfig', '/renew'], capture_output=True, timeout=15)
-            
-            # Attendre un peu
             time.sleep(5)
             
-            # Re-tester
+            # Re-test
             socket.create_connection(("8.8.8.8", 53), timeout=10)
             logger.info("Connexion réseau rétablie")
-            return True
-            
         except Exception as e:
             logger.error(f"Impossible de rétablir la connexion: {e}")
             return False
+    
+    # Step 2: Binance API reachability
+    try:
+        socket.create_connection(("api.binance.com", 443), timeout=10)
+        return True
+    except (socket.error, OSError):
+        logger.warning("Internet OK mais Binance API injoignable (api.binance.com:443)")
+        return False
 
 def _generate_client_order_id(prefix: str = 'bot') -> str:
     """Generate a reasonably unique client order id to allow idempotent checks across retries."""
     return f"{prefix}-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
 
 
-def compute_position_size_by_risk(equity: float, atr_value: float, entry_price: float, risk_pct: float = None, stop_atr_multiplier: float = None) -> float:
+def compute_position_size_by_risk(equity: float, atr_value: float, entry_price: float, risk_pct: Optional[float] = None, stop_atr_multiplier: Optional[float] = None) -> float:
     """Calcule la taille de position (en unité coin) basée sur un risque fixe en $.
 
     - equity: montant total disponible en quote currency (ex: USDC)
@@ -3355,7 +3592,7 @@ def compute_position_size_by_risk(equity: float, atr_value: float, entry_price: 
         return 0.0
 
 
-def compute_position_size_fixed_notional(equity: float, notional_per_trade_usd: float = None, entry_price: float = None) -> float:
+def compute_position_size_fixed_notional(equity: float, notional_per_trade_usd: Optional[float] = None, entry_price: Optional[float] = None) -> float:
     """Calcule la taille de position avec une allocation fixe en USD par trade.
     
     - equity: montant total disponible en quote currency (ex: USDC) - non utilisé directement pour le sizing
@@ -3384,7 +3621,7 @@ def compute_position_size_fixed_notional(equity: float, notional_per_trade_usd: 
         return 0.0
 
 
-def compute_position_size_volatility_parity(equity: float, atr_value: float, entry_price: float, 
+def compute_position_size_volatility_parity(equity: float, atr_value: Optional[float], entry_price: Optional[float], 
                                            target_volatility_pct: float = 0.02) -> float:
     """Calcule la taille de position pour maintenir une volatilité fixe du P&L par trade.
     
@@ -3419,13 +3656,50 @@ def compute_position_size_volatility_parity(equity: float, atr_value: float, ent
         return 0.0
 
 
-def _direct_market_order(symbol: str, side: str, quoteOrderQty: float = None, quantity: float = None, client_id: str = None) -> Dict[str, Any]:
-    client._sync_server_time()
+def _direct_market_order(symbol: str, side: str, quoteOrderQty: Optional[float] = None, quantity: Optional[float] = None, client_id: Optional[str] = None) -> Dict[str, Any]:
     """Appel API REST direct pour éviter le bug 'Duplicate recvWindow' du wrapper Binance.
     
     Cette fonction contourne le problème du wrapper python-binance qui peut passer
     recvWindow plusieurs fois, causant l'erreur -1101.
+    
+    If config.paper_trading is True, skips actual execution and returns a
+    simulated fill result for logging/testing purposes.
     """
+    # === P6.2 PAPER TRADING MODE ===
+    if config.paper_trading:
+        sim_price = 0.0
+        try:
+            ticker = client.get_symbol_ticker(symbol=symbol)
+            sim_price = float(ticker.get('price', 0))
+        except Exception:
+            pass
+        sim_qty = quantity or (quoteOrderQty / sim_price if sim_price > 0 and quoteOrderQty else 0)
+        paper_result = {
+            'symbol': symbol,
+            'orderId': f'PAPER-{int(time.time()*1000)}',
+            'status': 'FILLED',
+            'side': side,
+            'type': 'MARKET',
+            'executedQty': str(sim_qty),
+            'cummulativeQuoteQty': str(sim_qty * sim_price) if sim_price else '0',
+            'fills': [{'price': str(sim_price), 'qty': str(sim_qty), 'commission': '0', 'commissionAsset': 'USDC'}],
+            '_paper_trade': True,
+        }
+        logger.info(f"[PAPER] Simulated {side} {symbol}: qty={sim_qty:.6f} @ {sim_price:.6f}")
+        # Log to journal even in paper mode
+        try:
+            _logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'logs')
+            _journal_log_trade(
+                _logs_dir,
+                pair=symbol, side=side, quantity=float(sim_qty),
+                price=sim_price, fee=0.0,
+                extra={"paper": True},
+            )
+        except Exception:
+            pass
+        return paper_result
+
+    client._sync_server_time()
     # 1. Construction manuelle de la chaîne de requête dans l'ordre exact requis par Binance (paramètres minimaux)
     # Already imported at the top: requests, hmac, hashlib, time
     timestamp = int(time.time() * 1000)
@@ -3455,18 +3729,18 @@ def _direct_market_order(symbol: str, side: str, quoteOrderQty: float = None, qu
         server_time_resp = requests.get('https://api.binance.com/api/v3/time', timeout=5)
         server_time = server_time_resp.json().get('serverTime')
         timestamp_diff = int(timestamp) - int(server_time)
-        logger.error(f"[DEBUG TIMESTAMP] Différence timestamp local-serveur: {timestamp_diff} ms (local={timestamp}, serveur={server_time})")
+        logger.debug(f"[DEBUG TIMESTAMP] Différence timestamp local-serveur: {timestamp_diff} ms")
     except Exception as e:
-        logger.error(f"[DEBUG TIMESTAMP] Impossible de récupérer le timestamp serveur: {e}")
+        logger.debug(f"[DEBUG TIMESTAMP] Impossible de récupérer le timestamp serveur: {e}")
     # 6. Envoi de la requête POST avec uniquement les paramètres minimaux et dans l'ordre
     url = 'https://api.binance.com/api/v3/order'
-    logger.error(f"[DEBUG ORDER] Query string envoyée: {query_string_with_sig}")
-    logger.error(f"[DEBUG ORDER] Headers envoyés: {headers}")
-    logger.error(f"[DEBUG ORDER] URL appelée: {url}")
+    logger.debug(f"[DEBUG ORDER] Query string envoyée (signature masked)")
+    logger.debug(f"[DEBUG ORDER] Headers envoyés: {{X-MBX-APIKEY: ***{client.api_key[-4:] if client.api_key else '????'}}}")
+    logger.debug(f"[DEBUG ORDER] URL appelée: {url}")
     try:
         response = requests.post(url, data=query_string_with_sig, headers=headers, timeout=10)
-        logger.error(f"[DEBUG ORDER] Status code: {response.status_code}")
-        logger.error(f"[DEBUG ORDER] Response text: {response.text}")
+        logger.debug(f"[DEBUG ORDER] Status code: {response.status_code}")
+        logger.debug(f"[DEBUG ORDER] Response received")
         if response.status_code != 200:
             try:
                 error_data = response.json()
@@ -3484,6 +3758,19 @@ def _direct_market_order(symbol: str, side: str, quoteOrderQty: float = None, qu
                 logger.error(f"[DEBUG ORDER] Erreur HTTP non-JSON: {response.text}")
                 response.raise_for_status()
         result = response.json()
+        # Log trade to structured journal (P5)
+        try:
+            _logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'logs')
+            _journal_log_trade(
+                _logs_dir,
+                pair=symbol,
+                side=side,
+                quantity=float(result.get('executedQty', quantity or 0)),
+                price=float(result.get('fills', [{}])[0].get('price', 0)) if result.get('fills') else 0.0,
+                fee=sum(float(f.get('commission', 0)) for f in result.get('fills', [])),
+            )
+        except Exception:
+            pass  # Journal write failure must never block trading
         # Envoi d'une alerte mail pour toute transaction exécutée
         send_trading_alert_email(
             subject=f"[BOT CRYPTO] {side.upper()} ORDER EXECUTE",
@@ -3504,7 +3791,7 @@ def _direct_market_order(symbol: str, side: str, quoteOrderQty: float = None, qu
             logger.error(f"[EXCEPTION] Echec envoi mail d'alerte: {mail_exc}")
         raise
     
-def verify_order_fill(order_result: dict, expected_price: float = None, max_slippage_pct: float = 0.5) -> dict:
+def verify_order_fill(order_result: dict, expected_price: Optional[float] = None, max_slippage_pct: float = 0.5) -> dict:
     """
     Vérifie qu'un ordre a été correctement rempli et contrôle le slippage.
     Args:
@@ -3607,10 +3894,10 @@ def safe_market_buy(symbol: str, quoteOrderQty: float, max_retries: int = 4) -> 
             logger.warning(f"safe_market_buy attempt {attempt+1} failed for {symbol}: {msg}")
             time.sleep(1.0 + random.random())
     logger.error(f"safe_market_buy failed after {max_retries} attempts for {symbol}")
-    raise last_exc
+    raise last_exc or RuntimeError(f"safe_market_buy failed for {symbol}")
 
 
-def safe_market_sell(symbol: str, quantity: float, max_retries: int = 4) -> Dict[str, Any]:
+def safe_market_sell(symbol: str, quantity: Any, max_retries: int = 4) -> Dict[str, Any]:
     """Place a market SELL with idempotent retries and safety checks (same approach as buy).
     
     Uses parent's order_market_sell() which handles parameters correctly.
@@ -3634,43 +3921,8 @@ def safe_market_sell(symbol: str, quantity: float, max_retries: int = 4) -> Dict
             logger.warning(f"safe_market_sell attempt {attempt+1} failed for {symbol}: {msg}")
             time.sleep(1.0 + random.random())
     logger.error(f"safe_market_sell failed after {max_retries} attempts for {symbol}")
-    raise last_exc
+    raise last_exc or RuntimeError(f"safe_market_sell failed for {symbol}")
 
-
-def get_sniper_entry_price(pair_symbol: str, signal_price: float, max_wait_candles: int = 4) -> float:
-    """Optimise le prix d'entrée en utilisant la timeframe 15min pour des entrées 'sniper'."""
-    try:
-        # Récupérer les données 15min récentes (24h pour avoir assez de données)
-        df_15m = fetch_historical_data(pair_symbol, Client.KLINE_INTERVAL_15MINUTE, "1 day ago")
-        if df_15m.empty or len(df_15m) < 20:
-            return signal_price
-        
-        # Prendre les dernières bougies 15min
-        recent_candles = df_15m.tail(max_wait_candles)
-        
-        # Logique simple : chercher le prix le plus bas dans la fenêtre récente
-        # qui reste proche du signal (max 2% d'écart)
-        best_price = signal_price
-        
-        for _, candle in recent_candles.iterrows():
-            candle_price = candle['low']  # Utiliser le plus bas de la bougie
-            
-            # Vérifier que le prix reste dans une fourchette acceptable (max 2% d'écart)
-            price_diff_pct = abs(candle_price - signal_price) / signal_price * 100
-            
-            if price_diff_pct <= 2.0 and candle_price < best_price:
-                best_price = candle_price
-        
-        # Calculer l'amélioration (logs désactivés pendant backtest)
-        if best_price < signal_price:
-            improvement = (signal_price - best_price) / signal_price * 100
-            logger.debug(f"Optimisation sniper: amélioration de {improvement:.2f}% (prix: {best_price:.8f})")
-        
-        return best_price
-        
-    except Exception as e:
-        logger.debug(f"Erreur optimisation entree sniper: {e}")
-        return signal_price
 
 def extract_coin_from_pair(real_trading_pair: str) -> Tuple[str, str]:
     """Extrait le symbole de la crypto et la devise de cotation (USDC par defaut)."""
@@ -3861,19 +4113,7 @@ def check_partial_exits_from_history(real_trading_pair: str, entry_price: float)
         return False, False
 
 
-def check_if_order_executed(orders: List[Dict], order_type: str) -> bool:
-    """Verifie si un ordre donne (achat ou vente) a deja ete execute."""
-    if orders:
-        last_order = orders[-1]  # Dernier ordre execute
-        last_order_type = last_order['side']  # "BUY" ou "SELL"
-        last_order_status = last_order['status']  # Statut de l'ordre (ex. 'FILLED')
-
-        if last_order_status == 'FILLED' and last_order_type == order_type:            
-            return True  # Un ordre a deja ete execute       
-    
-    return False
-
-def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any], backtest_pair: str):
+def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any], backtest_pair: str) -> None:
     """Wrapper pour les exécutions planifiées avec affichage complet (identique au démarrage)."""
     try:
         # === MESSAGE VISUEL DE DEMARRAGE ===
@@ -3901,7 +4141,7 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
         logger.info(f"[SCHEDULED] Lancement des backtests...")
         try:
             # Utiliser la liste de timeframes déjà définie en global (pas d'attribut config.timeframes)
-            backtest_results = run_all_backtests(
+            backtest_results, _bd, _ema, _sc = run_all_backtests(
                 backtest_pair,
                 dynamic_start_date,
                 timeframes,
@@ -3916,8 +4156,8 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
         if backtest_results:
             logger.info(f"[SCHEDULED] {len(backtest_results)} resultats de backtest recus")
             
-            # Identifier le meilleur résultat basé sur le profit
-            best_result = max(backtest_results, key=lambda x: x['final_wallet'] - x['initial_wallet'])
+            # P1.2: Identifier le meilleur résultat par Sharpe ratio
+            best_result = max(backtest_results, key=lambda x: x.get('sharpe_ratio', 0))
             best_profit = best_result['final_wallet'] - best_result['initial_wallet']
             
             logger.info(f"[SCHEDULED] Meilleur resultat: {best_result['scenario']} sur {best_result['timeframe']} | Profit: ${best_profit:,.2f}")
@@ -4074,10 +4314,10 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
         else:
             history_section = "[bold bright_green]Premiere execution du systeme de trading automatise[/bold bright_green]"
         
-        # Planification (homogène 2 minutes)
-        next_exec = "toutes les 2 minutes (720 exécutions/jour)"
+        # P1.6: Planification alignée sur candle close (60 minutes)
+        next_exec = "toutes les 60 minutes (24 exécutions/jour)"
         schedule_section = (
-            f"[bold white]Mode de planification:[/bold white] [dim]Homogène et réactif - 2 minutes[/dim]\n"
+            f"[bold white]Mode de planification:[/bold white] [dim]Aligné sur candle close - 60 minutes[/dim]\n"
             f"[bold white]Prochaine execution :[/bold white] [bright_green]{next_exec}[/bright_green]"
         )
         
@@ -4107,7 +4347,7 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
         logger.error(f"[SCHEDULED] Traceback complet: {traceback.format_exc()}")
 
 @retry_with_backoff(max_retries=3, base_delay=2.0)
-def execute_real_trades(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any], backtest_pair: str, sizing_mode: str = 'baseline'):
+def execute_real_trades(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any], backtest_pair: str, sizing_mode: str = 'baseline') -> None:
     """
     Exécution complète des trades réels avec gestion totale du cycle achat/vente,
     stop-loss, trailing-stop, sniper entry, envoi d'emails d'alerte et affichage console.
@@ -4124,8 +4364,8 @@ def execute_real_trades(real_trading_pair: str, time_interval: str, best_params:
         pair_state['last_order_side'] = None
 
     # Paramètres stratégiques - VALEURS FIXES COHÉRENTES AVEC CYTHON GAGNANT $2.3M
-    ema1_period = best_params.get('ema1_period')
-    ema2_period = best_params.get('ema2_period')
+    ema1_period = best_params.get('ema1_period', 26)
+    ema2_period = best_params.get('ema2_period', 50)
     atr_multiplier = 5.5  # FIXE : ATR_MULTIPLIER Cython = 5.5 (trailing stop)
     atr_stop_multiplier = 3.0  # FIXE : ATR_STOP_MULTIPLIER Cython = 3.0 (stop-loss initial)
     scenario = best_params.get('scenario', 'StochRSI')
@@ -4168,7 +4408,7 @@ def execute_real_trades(real_trading_pair: str, time_interval: str, best_params:
         min_qty_dec = Decimal(str(min_qty))
         max_qty_dec = Decimal(str(max_qty))
         step_size_dec = Decimal(str(step_size))
-        step_decimals = abs(step_size_dec.as_tuple().exponent)
+        step_decimals = abs(int(step_size_dec.as_tuple().exponent))
 
         # Afficher le panel des soldes (après min_qty défini)
         last_buy_price = pair_state.get('entry_price') if coin_balance >= min_qty else None
@@ -4531,7 +4771,8 @@ Scenario : {scenario}
         # === CONDITIONS VENTE STRATÉGIE (vérifier SEULEMENT si position ouverte) ===
         if position_has_crypto:
             entry_price_for_panel = pair_state.get('entry_price') or row.get('close')
-            pair_state.setdefault('stop_loss_at_entry', entry_price_for_panel - 3 * row.get('atr') if entry_price_for_panel and row.get('atr') else None)
+            _atr_val = row.get('atr') or 0.0
+            pair_state.setdefault('stop_loss_at_entry', entry_price_for_panel - 3 * _atr_val if entry_price_for_panel and _atr_val else None)
             pair_state.setdefault('atr_at_entry', row.get('atr'))
             pair_state.setdefault('max_price', entry_price_for_panel)
 
@@ -4628,6 +4869,8 @@ Scenario : {scenario}
                                 total_usdc_received = float(qty_str) * executed_price
                                 
                                 # === MISE À JOUR DES FLAGS ET ÉTAT APRÈS SUCCÈS ===
+                                sell_type_desc = sell_reason
+                                position_closed = "100%"
                                 if sell_reason == 'PARTIAL-1':
                                     pair_state['partial_taken_1'] = True
                                     save_bot_state()
@@ -4794,6 +5037,20 @@ Scenario : {scenario}
                 if buy_condition:
                     logger.warning(f"[CAPITAL] Signal BUY bloqué: {capital_reason}")
                 buy_condition = False
+            
+            # === P6.4: MAX OPEN POSITIONS GUARD ===
+            if buy_condition:
+                can_open, pos_reason = check_max_positions_guard()
+                if not can_open:
+                    logger.warning(f"[POSITIONS] Signal BUY bloqué: {pos_reason}")
+                    buy_condition = False
+            
+            # === P6.3: CORRELATION GUARD (multi-asset diversification) ===
+            if buy_condition:
+                can_open, corr_reason = check_correlation_guard(backtest_pair)
+                if not can_open:
+                    logger.warning(f"[CORRELATION] Signal BUY bloqué: {corr_reason}")
+                    buy_condition = False
             
             # === CAPITAL DISPONIBLE POUR ACHAT ===
             # Récupérer les USDC de TOUTES les ventes depuis le dernier achat via l'historique Binance
@@ -5008,7 +5265,7 @@ def detect_market_changes(pair: str, timeframes: List[str], start_date: str) -> 
         for tf in timeframes:
             try:
                 df = prepare_base_dataframe(pair, tf, start_date, 14)
-                if df.empty or len(df) < 50:
+                if df is None or df.empty or len(df) < 50:
                     continue
                 
                 # Récupérer les 2 derniers candles
@@ -5094,7 +5351,7 @@ def detect_market_changes(pair: str, timeframes: List[str], start_date: str) -> 
     return changes
 
 
-def display_market_changes(changes: Dict[str, Any], pair: str):
+def display_market_changes(changes: Dict[str, Any], pair: str) -> None:
     """Affiche les changements détectés de façon élégante"""
     has_changes = any([changes['ema_crosses'], changes['stoch_extremes'], changes['price_records']])
     
@@ -5129,7 +5386,7 @@ def display_market_changes(changes: Dict[str, Any], pair: str):
             console.print(f"  {status} on {tf} @ ${price:.2f}")
 
 
-def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, start_date: str, timeframes: List[str], sizing_mode: str = 'baseline'):
+def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, start_date: str, timeframes: List[str], sizing_mode: str = 'baseline') -> Optional[Dict[str, Any]]:
     """
     Effectue les backtests pour differents timeframes, affiche les resultats,
     et identifie les meilleurs parametres pour le trading en temps reel.
@@ -5167,7 +5424,7 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
     pair_state = bot_state[backtest_pair]
     
     try:
-        results = run_all_backtests(backtest_pair, dynamic_start_date, timeframes, sizing_mode=sizing_mode)
+        results, base_dataframes, _ema_periods_by_tf, _scenarios = run_all_backtests(backtest_pair, dynamic_start_date, timeframes, sizing_mode=sizing_mode)
     except Exception as e:
         logger.error(f"Une erreur est survenue pendant les backtests : {e}")
         return
@@ -5176,12 +5433,60 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
         logger.error("Aucune donnee de backtest n'a ete generee")
         return
 
-    # Identifier le meilleur resultat
-    best_result = max(results, key=lambda x: x['final_wallet'] - x['initial_wallet'])
+    # P1.2: Select best by Sharpe ratio (not raw P&L) — reduces overfitting
+    best_result = max(results, key=lambda x: x.get('sharpe_ratio', 0))
     best_profit = best_result['final_wallet'] - best_result['initial_wallet']
 
+    # P1.1: Walk-forward validation for top-5 configs
+    try:
+        wf_validation = run_walk_forward_validation(
+            base_dataframes=base_dataframes,
+            full_sample_results=results,
+            scenarios=_scenarios,
+            backtest_fn=backtest_from_dataframe,
+            initial_capital=config.initial_wallet,
+            sizing_mode=sizing_mode,
+            top_n=5,
+            n_folds=4,
+        )
+        if wf_validation['any_passed']:
+            wf_best = wf_validation['best_wf_config']
+            wf_match = next(
+                (r for r in results
+                 if r['timeframe'] == wf_best['timeframe']
+                 and r['ema_periods'] == tuple(wf_best['ema_periods'])
+                 and r['scenario'] == wf_best['scenario']),
+                None,
+            )
+            if wf_match:
+                best_result = wf_match
+                best_profit = best_result['final_wallet'] - best_result['initial_wallet']
+            logger.info(
+                f"WF VALIDATED: {wf_best['scenario']} EMA{wf_best['ema_periods']} "
+                f"on {wf_best['timeframe']} — OOS Sharpe={wf_best['avg_oos_sharpe']:.2f}"
+            )
+            console.print(Panel(
+                f"[bold green]Config WF-validée[/bold green]: {wf_best['scenario']} EMA{wf_best['ema_periods']} {wf_best['timeframe']}\n"
+                f"[bold]Full-Sample Sharpe[/bold]: {wf_best.get('full_sample_sharpe', 0):.2f}  →  "
+                f"[bold cyan]OOS Sharpe[/bold cyan]: {wf_best['avg_oos_sharpe']:.2f}  |  "
+                f"[bold cyan]OOS Win Rate[/bold cyan]: {wf_best['avg_oos_win_rate']:.1f}%  |  "
+                f"[bold]Pass Rate[/bold]: {wf_best.get('pass_rate', 0)*100:.0f}%",
+                title="[bold green]WALK-FORWARD VALIDATION — PASS[/bold green]",
+                border_style="green",
+            ))
+        else:
+            logger.warning("No config passed OOS gates. Using best full-sample Sharpe as fallback.")
+            console.print(Panel(
+                "[bold red]Aucune configuration n'a passé les gates OOS (Sharpe > 0.5 & WR > 45%).[/bold red]\n"
+                "[yellow]La stratégie est potentiellement sur-ajustée (overfit). "
+                "Utilisation du meilleur Sharpe full-sample comme fallback.[/yellow]",
+                title="[bold red]WALK-FORWARD VALIDATION — FAIL[/bold red]",
+                border_style="red",
+            ))
+    except Exception as e:
+        logger.warning(f"Walk-forward validation failed: {e}. Continuing with full-sample selection.")
+
     # Afficher les resultats
-    console = Console()
     table = Table(
         title="[bold cyan]Backtest Results[/bold cyan]",
         title_style="bold magenta",
@@ -5195,9 +5500,11 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
     table.add_column("Initial Wallet ($)", style="bold white", justify="center", width=20)
     table.add_column("Final Wallet ($)", style="bold yellow", justify="right", width=20)
     table.add_column("Profit ($)", style="bold green", justify="right", width=20)
-    table.add_column("Trades", style="bold white", justify="right", width=15)
-    table.add_column("Max Drawdown (%)", style="bold red", justify="right", width=15)
-    table.add_column("Win Rate (%)", style="bold cyan", justify="right", width=15)
+    table.add_column("Sharpe", style="bold cyan", justify="right", width=10)
+    table.add_column("PF", style="bold white", justify="right", width=8)
+    table.add_column("Trades", style="bold white", justify="right", width=10)
+    table.add_column("Max DD (%)", style="bold red", justify="right", width=12)
+    table.add_column("Win Rate (%)", style="bold cyan", justify="right", width=12)
 
     for result in results:
         profit = result['final_wallet'] - result['initial_wallet']
@@ -5211,6 +5518,8 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
             f"[bold white]${result['initial_wallet']:.2f}[/bold white]",
             f"[{final_wallet_color}]${result['final_wallet']:.2f}[/{final_wallet_color}]",
             f"[{profit_color}]${profit:.2f}[/{profit_color}]",
+            f"[bold cyan]{result.get('sharpe_ratio', 0):.2f}[/bold cyan]",
+            f"[bold white]{result.get('profit_factor', 0):.2f}[/bold white]",
             f"[bold white]{len(result['trades'])}[/bold white]",
             f"[bold red]{result['max_drawdown']*100:.2f}%[/bold red]",
             f"[bold cyan]{result['win_rate']:.2f}%[/bold cyan]"
@@ -5223,6 +5532,9 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
         f"Scenario: [magenta]{best_result['scenario']}[/magenta]\n"
         f"Profit: [bold green]${best_profit:.2f}[/bold green]\n"
         f"Final Wallet: [bold yellow]${best_result['final_wallet']:.2f}[/bold yellow]\n"
+        f"Sharpe Ratio: [bold cyan]{best_result.get('sharpe_ratio', 0):.2f}[/bold cyan]\n"
+        f"Sortino Ratio: [bold cyan]{best_result.get('sortino_ratio', 0):.2f}[/bold cyan]\n"
+        f"Profit Factor: [bold white]{best_result.get('profit_factor', 0):.2f}[/bold white]\n"
         f"Max Drawdown: [bold red]{best_result['max_drawdown']*100:.2f}%[/bold red]\n"
         f"Win Rate: [bold cyan]{best_result['win_rate']:.2f}%[/bold cyan]"
     )
@@ -5305,7 +5617,8 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
     existing_job = None
     for job in schedule.jobs:
         try:
-            if hasattr(job.job_func, 'args') and len(job.job_func.args) >= 2 and job.job_func.args[0] == backtest_pair:
+            job_func = job.job_func
+            if job_func is not None and hasattr(job_func, 'args') and len(job_func.args) >= 2 and job_func.args[0] == backtest_pair:
                 existing_job = job
                 break
         except Exception:
@@ -5316,8 +5629,7 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
         schedule.cancel_job(existing_job)
         logger.info(f"Ancienne planification supprimée pour {backtest_pair}")
     
-    # Programmer une tâche UNIQUE et HOMOGENE toutes les 2 minutes (indépendant du timeframe)
-    # IMPORTANT: recalculer start_date à CHAQUE exécution pour conserver une fenêtre glissante de 5 ans
+    # V3 scheduling: toutes les 2 minutes
     schedule.every(2).minutes.do(
         lambda bp=backtest_pair, rp=real_trading_pair, tfs=timeframes, sm=args.sizing_mode: backtest_and_display_results(
             bp,
@@ -5327,11 +5639,10 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
             sm
         )
     )
-    next_exec = "toutes les 2 minutes (720 exécutions/jour)"
-    # logger.info(f"Planification homogène 30-min activée pour {backtest_pair} - Réactivité optimale")
+    next_exec = "toutes les 60 minutes (24 exécutions/jour)"
     
     schedule_section = (
-        f"[bold white]Mode de planification:[/bold white] [dim]Homogène et réactif - 2 minutes[/dim]\n"
+        f"[bold white]Mode de planification:[/bold white] [dim]Aligné sur candle close - 60 minutes[/dim]\n"
         f"[bold white]Prochaine execution :[/bold white] [bright_green]{next_exec}[/bright_green]"
     )
     
@@ -5351,7 +5662,7 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
 #                                                             #
 ###############################################################
 
-def cleanup_expired_cache():
+def cleanup_expired_cache() -> None:
     """Nettoie automatiquement les caches expirés (>30 jours)."""
     try:
         if not os.path.exists(config.cache_dir):
@@ -5425,15 +5736,55 @@ def check_admin_privileges():
     except Exception:
         return False
 
+
+def write_heartbeat(states_dir: str, extra: Optional[dict] = None):
+    """Write a heartbeat JSON file for external monitors (watchdog/PM2).
+    
+    The heartbeat contains:
+    - timestamp: ISO format, UTC
+    - uptime_s: seconds since first heartbeat
+    - circuit_breaker: current mode (if error_handler available)
+    - extra: any additional metrics passed by the caller
+    """
+    heartbeat_path = os.path.join(states_dir, "heartbeat.json")
+    heartbeat = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "pid": os.getpid(),
+    }
+    if extra:
+        heartbeat.update(extra)
+    try:
+        tmp_path = heartbeat_path + ".tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(heartbeat, f)
+        os.replace(tmp_path, heartbeat_path)
+    except Exception as e:
+        logger.debug(f"[HEARTBEAT] Write failed: {e}")
+
 if __name__ == "__main__":
     import sys
     import os
     import signal
+    import atexit
 
     # === GRACEFUL SHUTDOWN HANDLER ===
     _shutdown_requested = False
+    _shutdown_completed = False
+
+    def _save_state_on_exit():
+        """atexit fallback — saves state if shutdown handler didn't run."""
+        global _shutdown_completed
+        if _shutdown_completed:
+            return
+        try:
+            save_bot_state()
+        except Exception:
+            pass
+
+    atexit.register(_save_state_on_exit)
+
     def _graceful_shutdown(signum, frame):
-        global _shutdown_requested
+        global _shutdown_requested, _shutdown_completed
         if _shutdown_requested:
             logger.warning("[SHUTDOWN] Deuxième signal reçu, arrêt forcé!")
             sys.exit(1)
@@ -5441,6 +5792,7 @@ if __name__ == "__main__":
         logger.info(f"[SHUTDOWN] Signal {signum} reçu. Sauvegarde état et arrêt propre...")
         try:
             save_bot_state()
+            _shutdown_completed = True
             logger.info("[SHUTDOWN] État du bot sauvegardé.")
             # Annuler les stops exchange ouverts pour éviter les exécutions orphelines
             # NON: on laisse les stops sur l'exchange comme protection si le bot ne redémarre pas
@@ -5454,6 +5806,12 @@ if __name__ == "__main__":
             )
         except Exception:
             pass
+        # Flush all logging handlers
+        for handler in logging.getLogger().handlers:
+            try:
+                handler.flush()
+            except Exception:
+                pass
         logger.info("[SHUTDOWN] Arrêt propre terminé.")
         sys.exit(0)
 
@@ -5469,7 +5827,7 @@ if __name__ == "__main__":
     logger.info("Bot crypto H24/7 - Mode ultra-robuste avec privileges admin")
     
     crypto_pairs = [
-        {"backtest_pair": "TRXUSDT", "real_pair": "TRXUSDC"},        
+        {"backtest_pair": "SOLUSDT", "real_pair": "SOLUSDC"},        
     ]
     try:
         # SOLUTION ULTRA-ROBUSTE TIMESTAMP
@@ -5699,17 +6057,14 @@ TRACE COMPLETE:
             # CORRECTION: Nettoyer les planifications existantes pour éviter les doublons
             schedule.clear()
             
-            # Planification UNIQUE homogène toutes les 2 minutes (indépendant du timeframe)
-            # CRITICAL: Capture best_params with default argument to avoid late-binding closure issue
-            # IMPORTANT: start_date will be calculated dynamically in execute_scheduled_trading
+            # V3 scheduling: toutes les 2 minutes
             schedule.every(2).minutes.do(
                 lambda bp=backtest_pair, rp=data['real_pair'], tf=best_result['timeframe'], params=dict(best_params): execute_scheduled_trading(rp, tf, params, bp)
             )
             next_exec = "toutes les 2 minutes (720 exécutions/jour)"
-            # logger.info(f"Planification homogène 30-min activée pour {backtest_pair} - Réactivité optimale")
             
             schedule_section = (
-                f"[bold white]Mode de planification:[/bold white] [dim]Homogène et réactif - 2 minutes[/dim]\n"
+                f"[bold white]Mode de planification:[/bold white] [dim]V3 original - 2 minutes[/dim]\n"
                 f"[bold white]Prochaine exécution :[/bold white] [bright_green]{next_exec}[/bright_green]"
             )
             
@@ -5732,8 +6087,9 @@ TRACE COMPLETE:
         # === BOUCLE PRINCIPALE ===
         console.print("\n" + "="*120)
         console.print(f"[bold green][OK] BOT ACTIF - Surveillance 24/7 demarree a {datetime.now().strftime('%H:%M:%S')}[/bold green]")
-        console.print(f"[bold cyan][INFO] {len(schedule.jobs)} tache(s) planifiee(s) - Prochaine execution: {schedule.next_run().strftime('%H:%M:%S') if schedule.next_run() else 'N/A'}[/bold cyan]")
-        console.print(f"[dim]Le bot execute les verifications de trading toutes les 2 minutes automatiquement[/dim]")
+        _next_run = schedule.next_run()
+        console.print(f"[bold cyan][INFO] {len(schedule.jobs)} tache(s) planifiee(s) - Prochaine execution: {_next_run.strftime('%H:%M:%S') if _next_run else 'N/A'}[/bold cyan]")
+        console.print(f"[dim]Le bot execute les verifications de trading toutes les 60 minutes automatiquement[/dim]")
         console.print("="*120 + "\n")
         
         logger.info("Bot actif - Surveillance des signaux de trading...")
@@ -5794,8 +6150,15 @@ TRACE COMPLETE:
                         print(f"[TIME] {now.strftime('%H:%M:%S')} - Bot actif (RUNNING) | Prochaine execution non planifiée")
 
                     running_counter += 1
-                    if running_counter % 1 == 0:  # Toutes les 10 minutes (600s sleep)
+                    if running_counter % 5 == 0:  # ~every 10 min (5 × 120s)
                         print(f"[RUNNING] {now.strftime('%H:%M:%S')} - running en cours")
+
+                    # Write heartbeat for external monitoring
+                    write_heartbeat(config.states_dir, extra={
+                        "circuit_mode": error_handler.circuit_breaker.mode.value,
+                        "error_count": error_handler.circuit_breaker.failure_count,
+                        "loop_counter": running_counter,
+                    })
 
                     time.sleep(120)
 
@@ -5826,7 +6189,7 @@ TRACE COMPLETE:
                     subject="[BOT CRYPTO] ARRET CRITIQUE",
                     body=email_body
                 )
-            except:
+            except Exception:
                 pass
             save_bot_state()
 
@@ -5843,6 +6206,6 @@ TRACE COMPLETE:
                 subject="[BOT CRYPTO] ARRET CRITIQUE",
                 body=email_body
             )
-        except:
+        except Exception:
             pass
         save_bot_state()

@@ -29,7 +29,7 @@ cdef struct PositionState:
     double stop_loss
 
 # Constantes
-DEF ATR_MULTIPLIER = 5.0
+DEF ATR_MULTIPLIER = 5.5  # Aligned with backtest_engine_standard.pyx and Python engine (P0.5 audit fix)
 DEF ATR_STOP_MULTIPLIER = 3.0
 DEF TAKER_FEE = 0.0007
 DEF STOCH_THRESHOLD_BUY = 0.8

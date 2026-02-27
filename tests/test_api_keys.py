@@ -25,7 +25,7 @@ def test_api_keys():
     
     if not api_key or not api_secret:
         print("ERREUR: Cles API manquantes dans le fichier .env")
-        return False
+        assert False, "Clés API manquantes dans le fichier .env"
     
     # Test 1: Ping (pas de signature requise)
     print("\nTest 1: Ping API...")
@@ -35,10 +35,10 @@ def test_api_keys():
             print("Ping reussi")
         else:
             print(f"Ping echoue: {response.status_code}")
-            return False
+            assert False, f"Ping échoué: {response.status_code}"
     except Exception as e:
         print(f"Erreur ping: {e}")
-        return False
+        assert False, f"Erreur ping: {e}"
     
     # Test 2: Temps serveur (pas de signature requise)
     print("\nTest 2: Temps serveur...")
@@ -52,10 +52,10 @@ def test_api_keys():
             print(f"   Difference: {diff} ms")
         else:
             print(f"Temps serveur echoue: {response.status_code}")
-            return False
+            assert False, f"Temps serveur échoué: {response.status_code}"
     except Exception as e:
         print(f"Erreur temps serveur: {e}")
-        return False
+        assert False, f"Erreur temps serveur: {e}"
     
     # Test 3: Requête signée (account info)
     print("\nTest 3: Requete signee (account info)...")
@@ -68,7 +68,7 @@ def test_api_keys():
         }
         
         # Créer la signature
-        query_string = urlencode(sorted(params.items()))
+        query_string = urlencode(params)
         signature = hmac.new(
             api_secret.encode('utf-8'),
             query_string.encode('utf-8'),
@@ -98,24 +98,23 @@ def test_api_keys():
             print("Requete signee reussie")
             print(f"   Compte type: {account_data.get('accountType', 'N/A')}")
             print(f"   Permissions: {account_data.get('permissions', [])}")
-            return True
         else:
             print(f"Requete signee echouee: {response.status_code}")
             print(f"   Reponse: {response.text}")
-            return False
+            assert False, f"Requête signée échouée: {response.status_code} — {response.text}"
             
     except Exception as e:
         print(f"Erreur requete signee: {e}")
-        return False
+        assert False, f"Erreur requête signée: {e}"
 
 if __name__ == "__main__":
     print("Test des cles API Binance")
     print("=" * 50)
     
-    success = test_api_keys()
-    
-    print("\n" + "=" * 50)
-    if success:
+    try:
+        test_api_keys()
+        print("\n" + "=" * 50)
         print("TOUS LES TESTS REUSSIS - Cles API fonctionnelles")
-    else:
-        print("ECHEC DES TESTS - Verifiez vos cles API")
+    except AssertionError as e:
+        print("\n" + "=" * 50)
+        print(f"ECHEC DES TESTS - {e}")

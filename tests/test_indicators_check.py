@@ -16,14 +16,22 @@ if os.path.exists(env_path):
 API_KEY = os.getenv('BINANCE_API_KEY')
 API_SECRET = os.getenv('BINANCE_SECRET_KEY')
 
-if not API_KEY or not API_SECRET:
-    print('API keys not trouvées. Placez BINANCE_API_KEY et BINANCE_SECRET_KEY dans votre fichier .env ou variables d\'environnement.')
-    raise SystemExit(1)
+client = None  # Initialisé uniquement en exécution directe
 
-client = Client(API_KEY, API_SECRET)
+
+def _get_client():
+    global client
+    if client is None:
+        if not API_KEY or not API_SECRET:
+            print('API keys not trouvées. Placez BINANCE_API_KEY et BINANCE_SECRET_KEY dans votre fichier .env ou variables d\'environnement.')
+            raise SystemExit(1)
+        client = Client(API_KEY, API_SECRET)
+    return client
+
 
 def fetch_latest(symbol, interval, limit=1000):
-    klines = client.get_historical_klines(symbol, interval, limit=limit)
+    c = _get_client()
+    klines = c.get_historical_klines(symbol, interval, limit=limit)
     df = pd.DataFrame(klines, columns=['timestamp','open','high','low','close','volume','close_time','quote_av','trades','tb_base_av','tb_quote_av','ignore'])
     df = df[['timestamp','open','high','low','close','volume']]
     df[['open','high','low','close','volume']] = df[['open','high','low','close','volume']].astype(float)

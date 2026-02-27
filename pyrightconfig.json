@@ -1,5 +1,6 @@
 {
   "extraPaths": [
-    "./code/bin"
+    "./code/bin",
+    "./code/src"
   ]
 }

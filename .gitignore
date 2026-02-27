@@ -37,3 +37,7 @@ code/cache/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Build artifacts
+code/build/
+build/
