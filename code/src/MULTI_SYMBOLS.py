@@ -19,6 +19,7 @@ def is_valid_stop_loss_order(symbol, quantity, stop_price):
     return True
 
 class DummyErrorHandler:
+    """Fallback si error_handler.py n'est pas disponible."""
     def __init__(self, email_config=None):
         self.email_config = email_config or {}
         class DummyMode:
@@ -27,18 +28,25 @@ class DummyErrorHandler:
         class DummyCircuitBreaker:
             def __init__(self):
                 self.mode = DummyMode()
+                self.timeout_seconds = 300
             def is_available(self):
                 return True
         self.circuit_breaker = DummyCircuitBreaker()
-        self.mode = 'default'         # Attribut fictif pour compatibilité
+        self.mode = 'default'
     def handle_error(self, *args, **kwargs):
-        # Dummy error handler: log or ignore
-        print("[DummyErrorHandler] handle_error called.")
+        logger.warning("[DummyErrorHandler] handle_error called.")
+        return True, None
 
 def initialize_error_handler(email_config=None):
-    """Initialise le handler d'erreur avec configuration email."""
-    # Retourne un objet avec circuit_breaker et email_config
-    return DummyErrorHandler(email_config)
+    """Initialise le handler d'erreur — utilise le vrai ErrorHandler si disponible."""
+    try:
+        from error_handler import ErrorHandler
+        handler = ErrorHandler(email_config=email_config)
+        logger.info("[ERROR-HANDLER] Module error_handler.py chargé avec succès (CircuitBreaker actif)")
+        return handler
+    except ImportError:
+        logger.warning("[ERROR-HANDLER] Module error_handler.py non trouvé, utilisation DummyErrorHandler")
+        return DummyErrorHandler(email_config)
 import locale
 try:
     # Forcer la console Windows en UTF-8 (code page 65001)
@@ -118,6 +126,10 @@ class Config:
     atr_multiplier: float = 5.5
     atr_stop_multiplier: float = 3.0
     risk_per_trade: float = 0.05  # 5% risk per trade (was 1%, increased for better capital utilization)
+    # Capital protection
+    daily_loss_limit_pct: float = 0.05  # Arrêt trading si perte journalière > 5% du portefeuille
+    max_drawdown_pct: float = 0.15  # Kill-switch si drawdown > 15% depuis le pic
+    sizing_mode: str = 'baseline'  # Position sizing: baseline, risk, fixed_notional, volatility_parity
 
     @classmethod
     def from_env(cls) -> 'Config':
@@ -156,6 +168,9 @@ class Config:
         config_data['atr_multiplier'] = float(os.getenv('ATR_MULTIPLIER', '5.5'))
         config_data['atr_stop_multiplier'] = float(os.getenv('ATR_STOP_MULTIPLIER', '3.0'))
         config_data['risk_per_trade'] = float(os.getenv('RISK_PER_TRADE', '0.05'))  # 5% risk per trade
+        config_data['daily_loss_limit_pct'] = float(os.getenv('DAILY_LOSS_LIMIT_PCT', '0.05'))
+        config_data['max_drawdown_pct'] = float(os.getenv('MAX_DRAWDOWN_PCT', '0.15'))
+        config_data['sizing_mode'] = os.getenv('SIZING_MODE', 'baseline')
         config_data['smtp_server'] = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
         config_data['smtp_port'] = int(os.getenv('SMTP_PORT', '587'))
         # Création de l'instance et assignation des attributs
@@ -168,13 +183,11 @@ class Config:
 
 # Chargement de la configuration
 config = Config.from_env()
-import sys
 from binance.exceptions import BinanceAPIException
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
-import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 ## Toutes les fonctions utilitaires, la config, le logger, etc. sont maintenant définis directement dans ce fichier.
 ## Supprimer toute dépendance à core.py
@@ -218,17 +231,6 @@ def can_execute_partial_safely(coin_balance: float, current_price: float, min_no
 sys.dont_write_bytecode = True
 os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-
-
-from datetime import datetime, timedelta
-from decimal import Decimal, ROUND_DOWN
-from dataclasses import dataclass
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 
 def display_buy_signal_panel(row, usdc_balance, best_params, scenario, buy_condition, console, buy_reason=None):
@@ -563,27 +565,6 @@ def log_exceptions(default_return=None):
         return wrapper
     return decorator
 
-@log_exceptions(default_return=False)
-def send_trading_alert_email(subject: str, body_main: str, client, add_spot_balance: bool = True) -> bool:
-    """
-    Envoie un email d'alerte de trading avec possibilité d'injecter le solde SPOT USDC.
-    Args:
-        subject: Sujet de l'email.
-        body_main: Corps principal du message.
-        client: Client Binance API.
-        add_spot_balance: Ajoute le solde SPOT USDC si True.
-    Returns:
-        Booléen succès/échec.
-    """
-    body = body_main
-    if add_spot_balance:
-        try:
-            spot_balance_usdc = get_spot_balance_usdc(client)
-            body += f"\n\nSolde SPOT global : {spot_balance_usdc:.2f} USDC"
-        except Exception:
-            pass
-    return send_email_alert(subject, body)
-
 def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0):
     """Decorateur pour retry avec backoff exponentiel."""
     def decorator(func):
@@ -652,29 +633,6 @@ def get_all_tickers_cached(client, cache_ttl: int = 10) -> dict:
         _tickers_cache['data'] = tickers
         _tickers_cache['timestamp'] = now
         return tickers
-def log_exceptions(default_return=None):
-    """Décorateur pour logguer les exceptions et retourner une valeur par défaut."""
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                logger.error(f"[EXCEPTION] {func.__name__}: {e}")
-                # Envoi d'une alerte mail pour toute exception
-                try:
-                    send_trading_alert_email(
-                        subject=f"[BOT CRYPTO] EXCEPTION: {func.__name__}",
-                        body_main=f"Exception dans {func.__name__}: {e}\n\nArgs: {args}\nKwargs: {kwargs}",
-                        client=client
-                    )
-                except Exception as mail_exc:
-                    logger.error(f"[EXCEPTION] Echec envoi mail d'alerte: {mail_exc}")
-                    return default_return if default_return is not None else None
-        return wrapper
-    return decorator
-
-
-
 def send_trading_alert_email(subject: str, body_main: str, client, add_spot_balance: bool = True) -> bool:
     """
     Envoie un email d'alerte de trading avec possibilité d'injecter le solde SPOT USDC.
@@ -686,7 +644,6 @@ def send_trading_alert_email(subject: str, body_main: str, client, add_spot_bala
     Returns:
         Booléen succès/échec.
     """
-    """Centralized function to send trading alert emails with optional SPOT balance injection."""
     body = body_main
     if add_spot_balance:
         try:
@@ -752,18 +709,30 @@ def place_trailing_stop_order(symbol: str, quantity: float, activation_price: fl
 
 @retry_with_backoff(max_retries=3, base_delay=2.0)
 @log_exceptions(default_return=None)
-def place_stop_loss_order(symbol: str, quantity: float, stop_price: float, client_id: str = None) -> dict:
+def place_stop_loss_order(symbol: str, quantity: float, stop_price: float, limit_price: float = None, tick_size: float = None, client_id: str = None) -> dict:
     """
-    Place un ordre STOP_LOSS sur Binance (spot).
+    Place un ordre STOP_LOSS_LIMIT sur Binance (spot).
+    Le limit_price est légèrement inférieur au stop_price pour garantir l'exécution.
     """
     client._sync_server_time()
     timestamp = int(time.time() * 1000)
+    # Calcul du limit_price si non fourni (0.5% sous le stop_price pour garantir le fill)
+    if limit_price is None:
+        limit_price = stop_price * 0.995
+    # Arrondir les prix au tick_size si fourni
+    if tick_size and tick_size > 0:
+        tick_dec = Decimal(str(tick_size))
+        tick_decimals = abs(tick_dec.as_tuple().exponent)
+        stop_price = float(Decimal(str(stop_price)).quantize(tick_dec))
+        limit_price = float(Decimal(str(limit_price)).quantize(tick_dec))
     params = {
         'symbol': symbol,
         'side': 'SELL',
-        'type': 'STOP_LOSS',
+        'type': 'STOP_LOSS_LIMIT',
+        'timeInForce': 'GTC',
         'quantity': float(quantity),
         'stopPrice': float(stop_price),
+        'price': float(limit_price),
         'timestamp': timestamp,
         'recvWindow': 10000
     }
@@ -804,6 +773,54 @@ def place_stop_loss_order(symbol: str, quantity: float, stop_price: float, clien
     return result
 
 
+@retry_with_backoff(max_retries=3, base_delay=2.0)
+@log_exceptions(default_return=None)
+def cancel_open_stop_orders(symbol: str) -> int:
+    """
+    Annule tous les ordres STOP_LOSS_LIMIT ouverts pour un symbole donné.
+    Returns:
+        Nombre d'ordres annulés.
+    """
+    cancelled = 0
+    try:
+        open_orders = client.get_open_orders(symbol=symbol)
+        for order in open_orders:
+            if order.get('type') in ('STOP_LOSS_LIMIT', 'STOP_LOSS'):
+                try:
+                    client.cancel_order(symbol=symbol, orderId=order['orderId'])
+                    cancelled += 1
+                    logger.info(f"[STOP-EXCHANGE] Ordre stop #{order['orderId']} annulé pour {symbol}")
+                except Exception as e:
+                    logger.warning(f"[STOP-EXCHANGE] Échec annulation ordre #{order['orderId']}: {e}")
+    except Exception as e:
+        logger.error(f"[STOP-EXCHANGE] Erreur récupération ordres ouverts {symbol}: {e}")
+    return cancelled
+
+
+def place_exchange_stop_loss(symbol: str, quantity: float, stop_price: float, tick_size: float = None, pair_state: dict = None) -> dict:
+    """
+    Place un STOP_LOSS_LIMIT sur l'exchange après annulation des stops précédents.
+    Met à jour pair_state['exchange_stop_order_id'] si fourni.
+    """
+    # Annuler les stops précédents
+    cancel_open_stop_orders(symbol)
+    
+    # Arrondir la quantité selon le step_size si c'est nécessaire
+    order = place_stop_loss_order(
+        symbol=symbol,
+        quantity=quantity,
+        stop_price=stop_price,
+        tick_size=tick_size
+    )
+    
+    if order and pair_state is not None:
+        pair_state['exchange_stop_order_id'] = order.get('orderId')
+        pair_state['exchange_stop_price'] = stop_price
+        logger.info(f"[STOP-EXCHANGE] STOP_LOSS_LIMIT placé à {stop_price:.6f} pour {quantity} {symbol} (orderId={order.get('orderId')})")
+    
+    return order
+
+
 # Import Cython modules for optimization (en-tête du fichier)
 try:
     import backtest_engine_standard as backtest_engine  # type: ignore
@@ -816,12 +833,17 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 console = Console()
 
-# Configuration du logging
+# Configuration du logging avec rotation des fichiers
+from logging.handlers import RotatingFileHandler
+_log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'logs')
+os.makedirs(_log_dir, exist_ok=True)
+_log_file = os.path.join(_log_dir, 'trading_bot.log')
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('trading_bot.log', encoding='utf-8'),
+        RotatingFileHandler(_log_file, maxBytes=10*1024*1024, backupCount=5, encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -1002,6 +1024,125 @@ indicators_cache: Dict[str, pd.DataFrame] = {}
 # etat du bot
 bot_state: Dict[str, Dict] = {}
 
+# === PROTECTION CAPITAL: Daily Loss Limit & Max Drawdown Kill-Switch ===
+_daily_pnl_tracker = {
+    'date': None,           # Date courante (str YYYY-MM-DD)
+    'starting_equity': 0.0, # Équité au début de la journée
+    'current_equity': 0.0,  # Équité courante
+    'peak_equity': 0.0,     # Équité maximale historique (pour drawdown)
+    'daily_pnl': 0.0,       # P&L journalier en valeur absolue
+    'daily_pnl_pct': 0.0,   # P&L journalier en pourcentage
+    'drawdown_pct': 0.0,    # Drawdown courant depuis le pic
+    'trading_halted': False, # Flag: trading arrêté par daily limit
+    'kill_switch': False,    # Flag: kill-switch drawdown activé
+}
+
+def get_total_portfolio_value(client_obj) -> float:
+    """Calcule la valeur totale du portefeuille en USDC (USDC + valeur crypto)."""
+    try:
+        account_info = client_obj.get_account()
+        total_usdc = 0.0
+        for balance in account_info['balances']:
+            free = float(balance['free'])
+            locked = float(balance['locked'])
+            total = free + locked
+            if total <= 0:
+                continue
+            asset = balance['asset']
+            if asset == 'USDC':
+                total_usdc += total
+            elif asset in ('USDT', 'BUSD', 'USD'):
+                total_usdc += total  # Stablecoins ~= 1:1
+            else:
+                # Convertir en USDC via le ticker
+                try:
+                    ticker = client_obj.get_symbol_ticker(symbol=f"{asset}USDC")
+                    total_usdc += total * float(ticker['price'])
+                except Exception:
+                    try:
+                        ticker = client_obj.get_symbol_ticker(symbol=f"{asset}USDT")
+                        total_usdc += total * float(ticker['price'])
+                    except Exception:
+                        pass  # Ignorer les assets non convertibles
+        return total_usdc
+    except Exception as e:
+        logger.error(f"[CAPITAL] Erreur calcul valeur portefeuille: {e}")
+        return 0.0
+
+
+def check_capital_protection(client_obj) -> Tuple[bool, str]:
+    """
+    Vérifie les protections capital (daily loss limit + max drawdown).
+    Returns:
+        (can_trade: bool, reason: str) — True si on peut trader, sinon raison du blocage.
+    """
+    global _daily_pnl_tracker
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    
+    current_equity = get_total_portfolio_value(client_obj)
+    if current_equity <= 0:
+        return True, ""  # Pas de données, ne pas bloquer
+    
+    # Reset journalier
+    if _daily_pnl_tracker['date'] != today_str:
+        _daily_pnl_tracker['date'] = today_str
+        _daily_pnl_tracker['starting_equity'] = current_equity
+        _daily_pnl_tracker['trading_halted'] = False
+        logger.info(f"[CAPITAL] Nouveau jour {today_str}: équité de départ = {current_equity:.2f} USDC")
+    
+    # Mettre à jour le pic historique
+    if current_equity > _daily_pnl_tracker['peak_equity']:
+        _daily_pnl_tracker['peak_equity'] = current_equity
+    
+    _daily_pnl_tracker['current_equity'] = current_equity
+    
+    # Calcul P&L journalier
+    starting = _daily_pnl_tracker['starting_equity']
+    if starting > 0:
+        daily_pnl = current_equity - starting
+        daily_pnl_pct = daily_pnl / starting
+        _daily_pnl_tracker['daily_pnl'] = daily_pnl
+        _daily_pnl_tracker['daily_pnl_pct'] = daily_pnl_pct
+        
+        # Daily loss limit
+        if daily_pnl_pct <= -config.daily_loss_limit_pct:
+            _daily_pnl_tracker['trading_halted'] = True
+            reason = (f"DAILY LOSS LIMIT: perte journalière {daily_pnl_pct*100:.2f}% "
+                     f"(limite: -{config.daily_loss_limit_pct*100:.1f}%). "
+                     f"Équité: {current_equity:.2f} USDC (départ: {starting:.2f})")
+            logger.warning(f"[CAPITAL] {reason}")
+            return False, reason
+    
+    # Max drawdown kill-switch
+    peak = _daily_pnl_tracker['peak_equity']
+    if peak > 0:
+        drawdown_pct = (peak - current_equity) / peak
+        _daily_pnl_tracker['drawdown_pct'] = drawdown_pct
+        
+        if drawdown_pct >= config.max_drawdown_pct:
+            _daily_pnl_tracker['kill_switch'] = True
+            reason = (f"MAX DRAWDOWN KILL-SWITCH: drawdown {drawdown_pct*100:.2f}% "
+                     f"(limite: {config.max_drawdown_pct*100:.1f}%). "
+                     f"Pic: {peak:.2f} USDC → Actuel: {current_equity:.2f} USDC")
+            logger.critical(f"[CAPITAL] {reason}")
+            try:
+                send_trading_alert_email(
+                    subject="[BOT CRYPTO] KILL-SWITCH ACTIVÉ - TRADING ARRÊTÉ",
+                    body_main=reason,
+                    client=client_obj
+                )
+            except Exception:
+                pass
+            return False, reason
+    
+    # Trading déjà arrêté aujourd'hui
+    if _daily_pnl_tracker['trading_halted']:
+        return False, f"Trading arrêté pour la journée (daily loss limit atteinte)"
+    if _daily_pnl_tracker['kill_switch']:
+        return False, f"Kill-switch drawdown actif (intervention manuelle requise)"
+    
+    return True, ""
+
 # Variable globale pour le répertoire cache (pour éviter les créations multiples)
 _cache_dir_initialized = False
 
@@ -1022,23 +1163,6 @@ def full_timestamp_resync():
         logger.info("Synchronisation complète (Windows + Binance) effectuée avant envoi d’ordre.")
     except Exception as e:
         logger.error(f"Echec de la resynchronisation horaire: {e}")
-
-def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0):
-    """Decorateur pour retry avec backoff exponentiel."""
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise e
-                    delay = base_delay * (2 ** attempt)
-                    logger.warning(f"Tentative {attempt + 1} echouee pour {func.__name__}: {e}. Retry dans {delay}s")
-                    time.sleep(delay)
-            return None
-        return wrapper
-    return decorator
 
 def validate_api_connection() -> bool:
     """Valide la connexion a l'API Binance."""
@@ -1794,6 +1918,19 @@ def universal_calculate_indicators(
                     df_work['TRIX_PCT'] = ema3.pct_change() * 100
                     df_work['TRIX_SIGNAL'] = df_work['TRIX_PCT'].rolling(window=trix_signal).mean()
                     df_work['TRIX_HISTO'] = df_work['TRIX_PCT'] - df_work['TRIX_SIGNAL']
+                # --- MACD histogram (filtre momentum) ---
+                try:
+                    macd_indicator = ta.trend.MACD(df_work['close'], window_fast=12, window_slow=26, window_sign=9)
+                    df_work['macd_histogram'] = macd_indicator.macd_diff()
+                except Exception:
+                    df_work['macd_histogram'] = np.nan
+                # --- Volatilité historique & HV z-score ---
+                hv_period = 20
+                log_returns = np.log(df_work['close'] / df_work['close'].shift(1))
+                df_work['historical_volatility'] = log_returns.rolling(window=hv_period).std() * np.sqrt(252)
+                hv_mean = df_work['historical_volatility'].rolling(window=50).mean()
+                hv_std = df_work['historical_volatility'].rolling(window=50).std()
+                df_work['hv_zscore'] = (df_work['historical_volatility'] - hv_mean) / (hv_std + 1e-6)
                 # Call Cython-accelerated calculation (returns DataFrame)
                 result = backtest_engine.calculate_indicators_fast(
                     df_work['close'].values.astype(np.float64),
@@ -2002,6 +2139,14 @@ def calculate_indicators(
             df_work['TRIX_PCT'] = ema3.pct_change() * 100
             df_work['TRIX_SIGNAL'] = df_work['TRIX_PCT'].rolling(window=trix_signal).mean()
             df_work['TRIX_HISTO'] = df_work['TRIX_PCT'] - df_work['TRIX_SIGNAL']
+
+        # --- Volatilité historique & HV z-score (cohérence backtest ↔ live) ---
+        hv_period = 20
+        log_returns = np.log(df_work['close'] / df_work['close'].shift(1))
+        df_work['historical_volatility'] = log_returns.rolling(window=hv_period).std() * np.sqrt(252)
+        hv_mean = df_work['historical_volatility'].rolling(window=50).mean()
+        hv_std = df_work['historical_volatility'].rolling(window=50).std()
+        df_work['hv_zscore'] = (df_work['historical_volatility'] - hv_mean) / (hv_std + 1e-6)
 
         # --- Nettoyage final ---
         # Supprimer NaN uniquement des colonnes essentielles (pas stoch_rsi qui a des 0 valides)
@@ -2911,8 +3056,22 @@ def generate_buy_condition_checker(best_params: Dict[str, Any]):
         if not stoch_condition:
             return False, f"StochRSI ({row['stoch_rsi']:.4f}) >= 0.8"
         
-        # NOTE: Filtres HV/RSI/MACD retirés pour cohérence avec backtest Cython gagnant ($2.3M)
-        # Le backtest performant n'utilise QUE : EMA cross + StochRSI + filtres scénario (ADX/SMA/TRIX)
+        # Filtre volatilité z-score: exclure les périodes de volatilité extrême
+        if 'hv_zscore' in row.index:
+            hv_z = row['hv_zscore']
+            if not (-1.5 < hv_z < 1.5):
+                return False, f"HV z-score ({hv_z:.2f}) hors plage [-1.5, 1.5]"
+        
+        # Filtre RSI momentum: éviter overbought/oversold
+        if 'rsi' in row.index:
+            rsi_val = row['rsi']
+            if not (30 <= rsi_val <= 70):
+                return False, f"RSI ({rsi_val:.1f}) hors plage [30, 70]"
+        
+        # Filtre MACD histogram: confirmer momentum bullish
+        if 'macd_histogram' in row.index and not pd.isna(row['macd_histogram']):
+            if row['macd_histogram'] <= -0.0005:
+                return False, f"MACD histogram ({row['macd_histogram']:.6f}) <= -0.0005"
         
         # Conditions additionnelles selon le scénario
         scenario = best_params.get('scenario', 'StochRSI')
@@ -3345,6 +3504,65 @@ def _direct_market_order(symbol: str, side: str, quoteOrderQty: float = None, qu
             logger.error(f"[EXCEPTION] Echec envoi mail d'alerte: {mail_exc}")
         raise
     
+def verify_order_fill(order_result: dict, expected_price: float = None, max_slippage_pct: float = 0.5) -> dict:
+    """
+    Vérifie qu'un ordre a été correctement rempli et contrôle le slippage.
+    Args:
+        order_result: Réponse de l'API Binance
+        expected_price: Prix attendu (pour calcul slippage)
+        max_slippage_pct: Slippage max toléré en % (défaut: 0.5%)
+    Returns:
+        Dict avec 'filled': bool, 'avg_price': float, 'slippage_pct': float, 'warning': str
+    """
+    result = {'filled': False, 'avg_price': 0.0, 'slippage_pct': 0.0, 'warning': ''}
+    
+    if not order_result:
+        result['warning'] = "Résultat d'ordre vide"
+        return result
+    
+    status = order_result.get('status', '')
+    if status != 'FILLED':
+        result['warning'] = f"Ordre non rempli: status={status}"
+        logger.warning(f"[FILL-CHECK] {result['warning']}")
+        return result
+    
+    result['filled'] = True
+    
+    # Calculer le prix moyen d'exécution
+    executed_qty = float(order_result.get('executedQty', 0))
+    cumm_quote = float(order_result.get('cummulativeQuoteQty', 0))
+    
+    if executed_qty > 0 and cumm_quote > 0:
+        avg_price = cumm_quote / executed_qty
+        result['avg_price'] = avg_price
+        
+        # Calculer le slippage si prix attendu fourni
+        if expected_price and expected_price > 0:
+            slippage_pct = abs(avg_price - expected_price) / expected_price * 100
+            result['slippage_pct'] = slippage_pct
+            
+            if slippage_pct > max_slippage_pct:
+                result['warning'] = (f"SLIPPAGE ÉLEVÉ: {slippage_pct:.3f}% "
+                                    f"(attendu: {expected_price:.4f}, exécuté: {avg_price:.4f})")
+                logger.warning(f"[SLIPPAGE] {result['warning']}")
+                try:
+                    send_trading_alert_email(
+                        subject=f"[BOT CRYPTO] ALERTE SLIPPAGE: {slippage_pct:.2f}%",
+                        body_main=f"Slippage détecté sur {order_result.get('symbol', '?')}:\n"
+                                  f"Prix attendu: {expected_price:.4f}\n"
+                                  f"Prix exécuté: {avg_price:.4f}\n"
+                                  f"Slippage: {slippage_pct:.3f}%\n"
+                                  f"Seuil max: {max_slippage_pct:.1f}%",
+                        client=client
+                    )
+                except Exception:
+                    pass
+            else:
+                logger.info(f"[FILL-CHECK] Ordre rempli OK: avg_price={avg_price:.4f}, slippage={slippage_pct:.3f}%")
+    
+    return result
+
+
 def safe_market_buy(symbol: str, quoteOrderQty: float, max_retries: int = 4) -> Dict[str, Any]:
     """Place a market BUY by quote amount with idempotency/retry and safety checks.
 
@@ -3352,6 +3570,7 @@ def safe_market_buy(symbol: str, quoteOrderQty: float, max_retries: int = 4) -> 
     - Retries on network errors, timestamp errors (-1021), rate limits
     - After an exception, queries the order by `origClientOrderId` to confirm placement
     - Uses direct REST API call to avoid 'Duplicate recvWindow' bug
+    - Includes fill verification and slippage guard
     """
     client_id = _generate_client_order_id('buy')
     last_exc = None
@@ -3821,8 +4040,8 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
         
         # Exécuter le trading avec les paramètres mis à jour + BASELINE sizing (simple & agressif)
         try:
-            logger.info(f"[SCHEDULED] Appel execute_real_trades avec {best_params['scenario']} sur {best_params['timeframe']} + sizing_mode='baseline'...")
-            execute_real_trades(real_trading_pair, best_params['timeframe'], best_params, backtest_pair, sizing_mode='baseline')
+            logger.info(f"[SCHEDULED] Appel execute_real_trades avec {best_params['scenario']} sur {best_params['timeframe']} + sizing_mode='{config.sizing_mode}'...")
+            execute_real_trades(real_trading_pair, best_params['timeframe'], best_params, backtest_pair, sizing_mode=config.sizing_mode)
             logger.info(f"[SCHEDULED] execute_real_trades complété avec succès")
         except Exception as trade_error:
             logger.error(f"[SCHEDULED] Erreur dans execute_real_trades: {str(trade_error)}")
@@ -3887,15 +4106,6 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
         logger.error(f"[SCHEDULED] Erreur GLOBALE execution planifiee {backtest_pair}: {str(e)}")
         logger.error(f"[SCHEDULED] Traceback complet: {traceback.format_exc()}")
 
-from decimal import Decimal, ROUND_DOWN
-from datetime import datetime, timezone
-import uuid
-import json
-import time
-import logging
-
-logger = logging.getLogger(__name__)
-
 @retry_with_backoff(max_retries=3, base_delay=2.0)
 def execute_real_trades(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any], backtest_pair: str, sizing_mode: str = 'baseline'):
     """
@@ -3944,6 +4154,7 @@ def execute_real_trades(real_trading_pair: str, time_interval: str, best_params:
 
         lot_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'LOT_SIZE'), None)
         notional_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'MIN_NOTIONAL'), None)
+        price_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'PRICE_FILTER'), None)
         if not lot_filter:
             console.print("[ERREUR] Filtre LOT_SIZE non trouvé.")
             return
@@ -3952,6 +4163,7 @@ def execute_real_trades(real_trading_pair: str, time_interval: str, best_params:
         max_qty = float(lot_filter['maxQty'])
         step_size = float(lot_filter['stepSize'])
         min_notional = float(notional_filter.get('minNotional', '10.0')) if notional_filter else 10.0
+        tick_size = float(price_filter.get('tickSize', '0.01')) if price_filter else 0.01
 
         min_qty_dec = Decimal(str(min_qty))
         max_qty_dec = Decimal(str(max_qty))
@@ -4012,27 +4224,7 @@ def execute_real_trades(real_trading_pair: str, time_interval: str, best_params:
                         net_usdc = None
             # On n'affiche PAS ici le panel d'achat, il sera affiché plus bas une seule fois
 
-        # === FILTRES PAIRE (une seule récupération) ===
-        exchange_info = client.get_exchange_info()
-        symbol_info = next((s for s in exchange_info['symbols'] if s['symbol'] == real_trading_pair), None)
-        if not symbol_info:
-            console.print(f"[ERREUR] Informations symbole introuvables pour {real_trading_pair}.")
-            return
-
-        lot_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'LOT_SIZE'), None)
-        if not lot_filter:
-            console.print("[ERREUR] Filtre LOT_SIZE non trouvé.")
-            return
-
-        min_qty = float(lot_filter['minQty'])
-        max_qty = float(lot_filter['maxQty'])
-        step_size = float(lot_filter['stepSize'])
-        min_notional = float(notional_filter.get('minNotional', '10.0')) if notional_filter else 10.0
-
-        min_qty_dec = Decimal(str(min_qty))
-        max_qty_dec = Decimal(str(max_qty))
-        step_size_dec = Decimal(str(step_size))
-        step_decimals = abs(step_size_dec.as_tuple().exponent)
+        # (exchange_info, lot_filter, min_qty, etc. déjà récupérés plus haut — pas de double fetch)
 
         # === GESTION POSITION APRÈS BUY ===
         if last_side == 'BUY':
@@ -4100,6 +4292,18 @@ def execute_real_trades(real_trading_pair: str, time_interval: str, best_params:
                         trailing_stop_val = max_price - trailing_distance
                         pair_state['trailing_stop'] = trailing_stop_val
                         logger.info(f"[TRAILING] Stop initial: {trailing_stop_val:.4f}")
+                        # === Mettre à jour le STOP_LOSS_LIMIT sur l'exchange ===
+                        try:
+                            place_exchange_stop_loss(
+                                symbol=real_trading_pair,
+                                quantity=coin_balance,
+                                stop_price=trailing_stop_val,
+                                tick_size=tick_size,
+                                pair_state=pair_state
+                            )
+                            save_bot_state()
+                        except Exception as sl_trail_err:
+                            logger.error(f"[TRAILING] Échec placement stop trailing exchange: {sl_trail_err}")
 
             # Mise à jour du trailing stop SI activé
             if trailing_activated and atr_at_entry is not None and max_price is not None:
@@ -4110,6 +4314,18 @@ def execute_real_trades(real_trading_pair: str, time_interval: str, best_params:
                 if new_trailing is not None and current_trailing is not None and new_trailing > current_trailing:
                     pair_state['trailing_stop'] = new_trailing
                     logger.info(f"[TRAILING] Nouveau stop : {new_trailing:.4f} (max: {max_price:.4f})")
+                    # === Mettre à jour le STOP_LOSS_LIMIT sur l'exchange ===
+                    try:
+                        place_exchange_stop_loss(
+                            symbol=real_trading_pair,
+                            quantity=coin_balance,
+                            stop_price=new_trailing,
+                            tick_size=tick_size,
+                            pair_state=pair_state
+                        )
+                        save_bot_state()
+                    except Exception as sl_update_err:
+                        logger.error(f"[TRAILING] Échec mise à jour stop exchange: {sl_update_err}")
 
             pair_state.update({
                 'trailing_stop_activated': trailing_activated,
@@ -4132,6 +4348,11 @@ def execute_real_trades(real_trading_pair: str, time_interval: str, best_params:
                 is_trailing_stop = True
             
             if effective_stop is not None and global_current_price is not None and global_current_price <= effective_stop:
+                # Annuler le stop-loss exchange AVANT la vente manuelle
+                try:
+                    cancel_open_stop_orders(real_trading_pair)
+                except Exception as cancel_err:
+                    logger.warning(f"[STOP-LOSS] Échec annulation stop exchange: {cancel_err}")
                 # Exécution vente immédiate sur stop-loss
                 quantity_decimal = Decimal(str(coin_balance))
                 quantity_rounded = (quantity_decimal // step_size_dec) * step_size_dec
@@ -4148,8 +4369,11 @@ def execute_real_trades(real_trading_pair: str, time_interval: str, best_params:
                     if stop_loss_order and stop_loss_order.get('status') == 'FILLED':
                         logger.info(f"[STOP-LOSS] Vente exécutée et confirmée : {qty_str} {coin_symbol}")
                         
-                        # Récupérer le prix d'exécution
-                        executed_price = global_current_price
+                        # Vérification du fill et du slippage
+                        sl_fill = verify_order_fill(stop_loss_order, expected_price=global_current_price)
+                        
+                        # Récupérer le prix d'exécution réel
+                        executed_price = sl_fill['avg_price'] if sl_fill['avg_price'] > 0 else global_current_price
                         total_usdc_received = float(qty_str) * executed_price
                         
                         # Déterminer le type de stop-loss
@@ -4208,6 +4432,8 @@ Scenario : {scenario}
                         'trailing_stop': None, 'trailing_stop_activated': False,
                         'atr_at_entry': None, 'stop_loss_at_entry': None,
                         'trailing_activation_price_at_entry': None,
+                        'exchange_stop_order_id': None,
+                        'exchange_stop_price': None,
                         'last_order_side': 'SELL'
                     })
                     save_bot_state()
@@ -4258,6 +4484,11 @@ Scenario : {scenario}
                 logger.info(f"[DUST] Résidu ignoré (position considérée comme fermée)")
             else:
                 logger.info(f"[DUST] Tentative de vente forcée du résidu pour débloquer le trading...")
+                # Annuler stops exchange avant dust sell
+                try:
+                    cancel_open_stop_orders(real_trading_pair)
+                except Exception:
+                    pass
                 
                 try:
                     # Binance accepte les "dust conversions" via l'API
@@ -4276,6 +4507,8 @@ Scenario : {scenario}
                             'atr_at_entry': None, 'stop_loss_at_entry': None,
                             'trailing_activation_price_at_entry': None,
                             'initial_position_size': None,
+                            'exchange_stop_order_id': None,
+                            'exchange_stop_price': None,
                             'partial_taken_1': False,
                             'partial_taken_2': False
                         })
@@ -4362,6 +4595,12 @@ Scenario : {scenario}
                         qty_to_sell = None
 
                     if qty_to_sell and qty_to_sell > 0:
+                        # Annuler le stop-loss exchange AVANT toute vente manuelle
+                        if sell_reason == 'SIGNAL':
+                            try:
+                                cancel_open_stop_orders(real_trading_pair)
+                            except Exception as cancel_err:
+                                logger.warning(f"[{sell_reason}] Échec annulation stop exchange: {cancel_err}")
                         # Arrondir la quantité selon les règles d'échange
                         quantity_decimal = Decimal(str(qty_to_sell))
                         quantity_rounded = (quantity_decimal // step_size_dec) * step_size_dec
@@ -4381,8 +4620,11 @@ Scenario : {scenario}
                             if sell_order and sell_order.get('status') == 'FILLED':
                                 logger.info(f"[{sell_reason}] Vente exécutée et confirmée : {qty_str} {coin_symbol}")
                                 
-                                # Récupérer le prix d'exécution
-                                executed_price = current_price
+                                # Vérification du fill et du slippage
+                                sell_fill = verify_order_fill(sell_order, expected_price=current_price)
+                                
+                                # Récupérer le prix d'exécution réel
+                                executed_price = sell_fill['avg_price'] if sell_fill['avg_price'] > 0 else current_price
                                 total_usdc_received = float(qty_str) * executed_price
                                 
                                 # === MISE À JOUR DES FLAGS ET ÉTAT APRÈS SUCCÈS ===
@@ -4398,6 +4640,32 @@ Scenario : {scenario}
                                     logger.info(f"[PARTIAL-2] Flag mis à jour : partial_taken_2 = True")
                                     sell_type_desc = "Prise de profit partielle 2 (+4%)"
                                     position_closed = "30%"
+                                
+                                # Après un PARTIAL, re-placer le stop avec la quantité réduite
+                                if sell_reason in ('PARTIAL-1', 'PARTIAL-2'):
+                                    try:
+                                        # Rafraîchir le solde coin après la vente partielle
+                                        _acct = client.get_account()
+                                        _coin_obj = next((b for b in _acct['balances'] if b['asset'] == coin_symbol), None)
+                                        remaining_balance = float(_coin_obj['free']) if _coin_obj else 0.0
+                                        current_stop = pair_state.get('exchange_stop_price') or pair_state.get('stop_loss_at_entry')
+                                        if remaining_balance > 0 and current_stop:
+                                            # Arrondir la quantité restante
+                                            rem_dec = Decimal(str(remaining_balance))
+                                            rem_rounded = (rem_dec // step_size_dec) * step_size_dec
+                                            if rem_rounded >= min_qty_dec:
+                                                place_exchange_stop_loss(
+                                                    symbol=real_trading_pair,
+                                                    quantity=float(rem_rounded),
+                                                    stop_price=current_stop,
+                                                    tick_size=tick_size,
+                                                    pair_state=pair_state
+                                                )
+                                                save_bot_state()
+                                                logger.info(f"[{sell_reason}] Stop exchange re-placé avec quantité réduite: {rem_rounded}")
+                                    except Exception as sl_partial_err:
+                                        logger.error(f"[{sell_reason}] Échec re-placement stop après partial: {sl_partial_err}")
+                                
                                 elif sell_reason == 'SIGNAL':
                                     sell_type_desc = "Signal de vente (croisement baissier)"
                                     position_closed = "100% (20% restants)"
@@ -4408,6 +4676,8 @@ Scenario : {scenario}
                                         'atr_at_entry': None, 'stop_loss_at_entry': None,
                                         'trailing_activation_price_at_entry': None,
                                         'initial_position_size': None,
+                                        'exchange_stop_order_id': None,
+                                        'exchange_stop_price': None,
                                         'last_order_side': None,
                                         'partial_taken_1': False,
                                         'partial_taken_2': False
@@ -4493,6 +4763,8 @@ Scenario : {scenario}
                                                 'atr_at_entry': None, 'stop_loss_at_entry': None,
                                                 'trailing_activation_price_at_entry': None,
                                                 'initial_position_size': None,
+                                                'exchange_stop_order_id': None,
+                                                'exchange_stop_price': None,
                                                 'last_order_side': None,
                                                 'partial_taken_1': False,
                                                 'partial_taken_2': False
@@ -4515,6 +4787,13 @@ Scenario : {scenario}
             # === CONDITIONS ACHAT (vérifier SEULEMENT si position fermée) ===
             check_buy_signal = generate_buy_condition_checker(best_params)
             buy_condition, buy_reason = check_buy_signal(row, usdc_balance)
+            
+            # === PROTECTION CAPITAL: vérifier daily loss limit & drawdown ===
+            can_trade, capital_reason = check_capital_protection(client)
+            if not can_trade:
+                if buy_condition:
+                    logger.warning(f"[CAPITAL] Signal BUY bloqué: {capital_reason}")
+                buy_condition = False
             
             # === CAPITAL DISPONIBLE POUR ACHAT ===
             # Récupérer les USDC de TOUTES les ventes depuis le dernier achat via l'historique Binance
@@ -4597,6 +4876,10 @@ Scenario : {scenario}
                         
                         buy_order = safe_market_buy(symbol=real_trading_pair, quoteOrderQty=quote_amount)
                         if buy_order and buy_order.get('status') == 'FILLED':
+                            # Vérification du fill et du slippage
+                            fill_info = verify_order_fill(buy_order, expected_price=entry_price)
+                            if fill_info['avg_price'] > 0:
+                                entry_price = fill_info['avg_price']  # Utiliser le prix réel d'exécution
                             logger.info(f"[BUY] Achat exécuté et confirmé : {qty_str} {coin_symbol}")
                             logger.info(f"[BUY] Capital utilisé : {usdc_for_buy:.2f} USDC (provenant des ventes)")
                             logger.info(f"[BUY] Quantité réellement exécutée : {buy_order.get('executedQty', 'N/A')} {coin_symbol}")
@@ -4646,7 +4929,7 @@ Scenario : {scenario}
                                 'entry_price': entry_price,
                                 'atr_at_entry': atr_value,
                                 'stop_loss_at_entry': entry_price - (config.atr_stop_multiplier * atr_value) if atr_value else None,
-                                'trailing_activation_price_at_entry': entry_price * (1 + 0.03),  # +3% activation
+                                'trailing_activation_price_at_entry': entry_price + (config.atr_multiplier * atr_value) if atr_value else None,  # Cohérent backtest: entry + 5.5×ATR
                                 'max_price': entry_price,
                                 'trailing_stop_activated': False,
                                 'initial_position_size': float(quantity_rounded),
@@ -4656,6 +4939,27 @@ Scenario : {scenario}
                                 'partial_taken_2': False
                             })
                             save_bot_state()
+                            
+                            # === PROTECTION: Placer STOP_LOSS_LIMIT sur l'exchange ===
+                            sl_price = pair_state.get('stop_loss_at_entry')
+                            if sl_price and float(quantity_rounded) > 0:
+                                try:
+                                    place_exchange_stop_loss(
+                                        symbol=real_trading_pair,
+                                        quantity=float(quantity_rounded),
+                                        stop_price=sl_price,
+                                        tick_size=tick_size,
+                                        pair_state=pair_state
+                                    )
+                                    save_bot_state()
+                                    logger.info(f"[BUY] STOP_LOSS_LIMIT placé sur exchange à {sl_price:.4f}")
+                                except Exception as sl_err:
+                                    logger.error(f"[BUY] Échec placement STOP_LOSS_LIMIT exchange: {sl_err}")
+                                    send_trading_alert_email(
+                                        subject=f"[BOT CRYPTO] ALERTE: STOP-LOSS NON PLACÉ - {real_trading_pair}",
+                                        body_main=f"Le stop-loss n'a pas pu être placé sur l'exchange après l'achat.\nErreur: {sl_err}\nStop prévu: {sl_price:.4f}\nACTION REQUISE: Placer manuellement un stop-loss!",
+                                        client=client
+                                    )
                             
                             # Rafraîchir le balance après achat
                             account_info = client.get_account()
@@ -4970,7 +5274,7 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
     
     try:
         # POSITION SIZING: mode='baseline' (95% du capital)
-        execute_real_trades(real_trading_pair, best_params['timeframe'], best_params, backtest_pair, sizing_mode='baseline')        
+        execute_real_trades(real_trading_pair, best_params['timeframe'], best_params, backtest_pair, sizing_mode=config.sizing_mode)        
     except Exception as e:
         logger.error(f"Une erreur est survenue lors de l'execution des ordres en reel: {e}")
         send_email_alert(
@@ -5124,6 +5428,37 @@ def check_admin_privileges():
 if __name__ == "__main__":
     import sys
     import os
+    import signal
+
+    # === GRACEFUL SHUTDOWN HANDLER ===
+    _shutdown_requested = False
+    def _graceful_shutdown(signum, frame):
+        global _shutdown_requested
+        if _shutdown_requested:
+            logger.warning("[SHUTDOWN] Deuxième signal reçu, arrêt forcé!")
+            sys.exit(1)
+        _shutdown_requested = True
+        logger.info(f"[SHUTDOWN] Signal {signum} reçu. Sauvegarde état et arrêt propre...")
+        try:
+            save_bot_state()
+            logger.info("[SHUTDOWN] État du bot sauvegardé.")
+            # Annuler les stops exchange ouverts pour éviter les exécutions orphelines
+            # NON: on laisse les stops sur l'exchange comme protection si le bot ne redémarre pas
+        except Exception as e:
+            logger.error(f"[SHUTDOWN] Erreur sauvegarde: {e}")
+        try:
+            send_trading_alert_email(
+                subject="[BOT CRYPTO] Arrêt propre du bot",
+                body_main=f"Le bot a été arrêté proprement (signal {signum}).\nHorodatage: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                client=client
+            )
+        except Exception:
+            pass
+        logger.info("[SHUTDOWN] Arrêt propre terminé.")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _graceful_shutdown)
+    signal.signal(signal.SIGTERM, _graceful_shutdown)
 
     # ...logs de diagnostic supprimés...
 

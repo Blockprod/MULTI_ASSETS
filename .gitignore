@@ -1,0 +1,39 @@
+# Environnement virtuel
+.venv/
+venv/
+env/
+
+# Variables d'environnement (API keys, secrets)
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Fichiers compilés Cython / C++
+*.cpp
+*.so
+*.pyd
+
+# État du bot (pickle)
+*.pkl
+states/
+code/states/
+
+# Logs
+*.log
+code/logs/
+
+# Cache de données
+cache/
+code/cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

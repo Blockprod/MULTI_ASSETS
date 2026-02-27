@@ -11,8 +11,13 @@ import joblib
 from datetime import datetime, timedelta
 
 # === CONFIGURATION ===
-API_KEY = "ta_cle_api"
-SECRET_KEY = "ton_secret"
+from dotenv import load_dotenv
+load_dotenv()
+API_KEY = os.getenv("BINANCE_API_KEY", "")
+SECRET_KEY = os.getenv("BINANCE_SECRET_KEY", "")
+if not API_KEY or not SECRET_KEY:
+    print("[ERROR] Variables BINANCE_API_KEY / BINANCE_SECRET_KEY non définies dans .env")
+    sys.exit(1)
 PAIRS = ["BTCUSDT"]
 TIMEFRAMES = [
     Client.KLINE_INTERVAL_1HOUR,
