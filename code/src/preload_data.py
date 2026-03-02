@@ -65,9 +65,9 @@ def calculate_all_indicators(df):
     ).adx()
 
     # TRIX
-    ema1 = df_work['close'].ewm(span=7).mean()
-    ema2 = ema1.ewm(span=7).mean()
-    ema3 = ema2.ewm(span=7).mean()
+    ema1 = df_work['close'].ewm(span=7, adjust=False).mean()
+    ema2 = ema1.ewm(span=7, adjust=False).mean()
+    ema3 = ema2.ewm(span=7, adjust=False).mean()
     df_work['TRIX_PCT'] = ema3.pct_change() * 100
     df_work['TRIX_SIGNAL'] = df_work['TRIX_PCT'].rolling(window=15).mean()
     df_work['TRIX_HISTO'] = df_work['TRIX_PCT'] - df_work['TRIX_SIGNAL']

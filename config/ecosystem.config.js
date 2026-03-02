@@ -1,10 +1,13 @@
+const path = require('path');
+const root = path.resolve(__dirname, '..');
+
 module.exports = {
   apps: [
     {
       name: "MULTI_SYMBOLS",
       script: "MULTI_SYMBOLS.py",
-      cwd: "C:/Users/averr/MULTI_ASSETS/code/src",
-      interpreter: "C:/Users/averr/MULTI_ASSETS/.venv/Scripts/pythonw.exe",
+      cwd: path.join(root, "code", "src"),
+      interpreter: path.join(root, ".venv", "Scripts", "pythonw.exe"),
       args: ["-B"],  // Flag -B: pas de fichiers .pyc
       watch: false,
       autorestart: true,

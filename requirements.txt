@@ -9,6 +9,7 @@ scipy==1.17.1
 
 # === PERFORMANCE / COMPILATION ===
 Cython==3.2.4
+joblib==1.5.3
 
 # === EXCHANGE CLIENT ===
 python-binance==1.0.35

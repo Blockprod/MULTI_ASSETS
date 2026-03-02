@@ -17,6 +17,7 @@ import tempfile
 import time
 import unittest
 import numpy as np
+from datetime import timezone
 
 # Add src to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'code', 'src')))
@@ -245,7 +246,7 @@ class TestHeartbeat(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             heartbeat_path = os.path.join(tmpdir, "heartbeat.json")
             heartbeat = {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "pid": os.getpid(),
                 "circuit_mode": "RUNNING",
                 "error_count": 0,

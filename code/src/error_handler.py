@@ -14,11 +14,14 @@ import logging
 from datetime import datetime
 from typing import Dict, Callable, Any, Optional, Tuple
 from enum import Enum
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+
+import time as _time
 
 logger = logging.getLogger(__name__)
+
+# Throttle des emails d'alerte : max 1 email toutes les 5 minutes
+_EMAIL_COOLDOWN_SECONDS = 300
+_last_alert_email_time: float = 0.0
 
 
 class SafeMode(Enum):
@@ -92,19 +95,15 @@ class ErrorHandler:
         self.max_history = 50
     
     def send_alert_email(self, subject: str, body: str, error_details: Dict = None):
-        """Send immediate alert email"""
-        if not self.email_config.get('smtp_server'):
-            logger.warning("[ALERT] Email not configured - skipping notification")
+        """Send alert email via email_utils, throttled to 1 every 5 minutes."""
+        global _last_alert_email_time
+        now = _time.time()
+        if (now - _last_alert_email_time) < _EMAIL_COOLDOWN_SECONDS:
+            logger.info(f"[ALERT] Email throttled (cooldown {_EMAIL_COOLDOWN_SECONDS}s) — skipping: {subject}")
             return
-        
         try:
-            # Build email
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = f"[BOT ALERT] {subject}"
-            msg['From'] = self.email_config.get('sender_email')
-            msg['To'] = self.email_config.get('recipient_email')
+            from email_utils import send_email_alert
             
-            # Plain text version
             text_content = f"""
 ALERTE ERREUR DU BOT DE TRADING
 
@@ -125,17 +124,11 @@ Message automatique du Bot de Trading Crypto
             """
             
             if error_details:
-                text_content += f"\n\nDETAILS TECHNIQUES:\n{json.dumps(error_details, indent=2)}"
+                text_content += f"\n\nDETAILS TECHNIQUES:\n{json.dumps(error_details, indent=2, default=str)}"
             
-            part = MIMEText(text_content, 'plain')
-            msg.attach(part)
-            
-            # Send
-            with smtplib.SMTP(self.email_config.get('smtp_server'), int(self.email_config.get('smtp_port', 587))) as server:
-                server.starttls()
-                server.login(self.email_config.get('sender_email'), self.email_config.get('sender_password'))
-                server.send_message(msg)
-                logger.info("[ALERT] Email sent successfully")
+            send_email_alert(f"[BOT ALERT] {subject}", text_content)
+            _last_alert_email_time = _time.time()
+            logger.info("[ALERT] Email sent successfully")
         
         except Exception as e:
             logger.error(f"[ALERT] Failed to send email: {e}")

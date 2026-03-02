@@ -8,16 +8,19 @@ from dotenv import load_dotenv
 load_dotenv()  # charge automatiquement le fichier .env
 
 def send_email_alert(subject, body):
-    sender_email = "blackcypher1652@gmail.com"
-    receiver_email = "blockprodproject@gmail.com"
-    smtp_server = "smtp.gmail.com"
-    smtp_port = 587
+    sender_email = os.getenv('SENDER_EMAIL')
+    receiver_email = os.getenv('RECEIVER_EMAIL')
+    smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+    smtp_port = int(os.getenv('SMTP_PORT', '587'))
     smtp_user = sender_email
 
     # Récupère le mot de passe depuis la variable d’environnement
     smtp_password = os.getenv('GOOGLE_MAIL_PASSWORD')
 
     print("[DEBUG] Lecture de la variable d'environnement GOOGLE_MAIL_PASSWORD...")
+    if not sender_email or not receiver_email:
+        print("[ERREUR] SENDER_EMAIL ou RECEIVER_EMAIL non défini dans .env")
+        return
     if smtp_password is None:
         print("[ERREUR] La variable d’environnement GOOGLE_MAIL_PASSWORD n’est pas définie.")
         return

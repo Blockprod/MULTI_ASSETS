@@ -1,76 +1,117 @@
-# MULTI_ASSETS_BOT
+# MULTI_ASSETS — Bot de Trading Crypto Multi-Actifs
 
-Bot de trading multi-actifs pour crypto-monnaies.
+Bot de trading algorithmique Binance Spot capable de gérer plusieurs paires
+de crypto-monnaies simultanément, avec backtest intégré, gestion du risque
+avancée et alertes e-mail en temps réel.
 
-## Description
-Ce projet contient un bot de trading algorithmique capable d'exécuter des stratégies multi-actifs sur différents marchés crypto. Il inclut des modules pour le backtest, l'exécution en temps réel, la gestion des logs, la surveillance et l'automatisation via un service Windows.
+## Architecture
 
-## Structure du projet
+```
+code/src/
+├── MULTI_SYMBOLS.py      # Point d'entrée — orchestration principale
+├── bot_config.py          # Configuration centralisée (.env), décorateurs
+├── exchange_client.py     # Client Binance, ordres, filtres symboles
+├── position_sizing.py     # Calcul de taille de position (risk, fixed, vol-parity)
+├── email_utils.py         # Envoi d'alertes e-mail (SMTP)
+├── email_templates.py     # Templates d'e-mails (subject/body)
+├── state_manager.py       # Sauvegarde/chargement de l'état du bot (pickle)
+├── cache_manager.py       # Cache des données historiques (pickle + lock)
+├── indicators.py          # Indicateurs techniques (RSI, MACD, ADX, ATR)
+├── error_handler.py       # Circuit-breaker et gestion d'erreurs
+├── trade_journal.py       # Journal de trades (JSONL)
+├── walk_forward.py        # Walk-forward analysis pour les backtests
+├── watchdog.py            # Surveillance santé du bot (heartbeat)
+├── preload_data.py        # Pré-chargement des données historiques
+└── benchmark.py           # Benchmarking des performances
+```
 
-- `MULTI_SYMBOLS.py` : Script principal du bot (backtest, trading, gestion des signaux)
-- `service.log` : Fichier de log principal du bot
-- `requirements.txt` : Liste des dépendances Python
-- `install_service.bat` : Script d'installation du service Windows via NSSM
-- `cache/` : Dossier de cache pour les données de marché
-- `states/` : Dossier pour l'état du bot
-- `backup/` : Sauvegardes et historiques
+## Prérequis
+
+- **Python 3.11+**
+- Compte Binance avec clés API (Lecture + Spot Trading)
+- Compte Gmail avec mot de passe d'application (pour les alertes)
 
 ## Installation
 
-1. Cloner le dépôt ou copier le dossier sur votre machine.
-2. Créer et activer un environnement virtuel Python :
-   ```sh
-   python -m venv .venv
-   .\.venv\Scripts\Activate.ps1  # PowerShell
-   # ou
-   .\.venv\Scripts\activate.bat  # CMD
-   ```
-3. Installer les dépendances :
-   ```sh
-   pip install -r requirements.txt
-   ```
+```bash
+# 1. Cloner et aller dans le répertoire
+cd MULTI_ASSETS
 
-## Lancement du bot
+# 2. Créer un environnement virtuel
+python -m venv .venv
 
-- Pour lancer le bot en mode manuel :
-  ```sh
-  python MULTI_SYMBOLS.py
-  ```
-- Pour lancer le bot en tant que service Windows, utiliser NSSM (voir ci-dessous).
+# 3. Activer l'environnement
+.\.venv\Scripts\Activate.ps1   # PowerShell
+# ou
+.\.venv\Scripts\activate.bat   # CMD
 
-## Gestion du service Windows
+# 4. Installer les dépendances
+pip install -r requirements.txt
 
-Le bot peut être installé comme service Windows pour tourner en continu, même sans session ouverte.
-
-### Installation du service
-
-Utiliser le script `install_service.bat` ou configurer manuellement avec NSSM :
-
-- Chemin de l'exécutable : `C:\Users\averr\BIBOT\.venv\Scripts\python.exe`
-- Script à exécuter : `C:\Users\averr\BIBOT\MULTI_ASSETS_BOT\code\MULTI_SYMBOLS.py`
-- Répertoire de démarrage : `C:\Users\averr\BIBOT\MULTI_ASSETS_BOT\code`
-
-### Tips
-
-Pour éditer la configuration du service Windows lié au bot :
-
-```sh
-nssm edit CryptoBot_MultiAssets
+# 5. Configurer les variables d'environnement
+copy .env.example .env
+# Puis éditer .env avec vos clés API et identifiants e-mail
 ```
 
-## Logs
+## Configuration
 
-- Les logs d'exécution se trouvent dans `service.log`.
-- Les erreurs sont dans `service_error.log`.
+Toute la configuration passe par le fichier `.env` (voir `.env.example`).
 
-## Dépannage
+### Variables requises
 
-- Vérifiez que le service utilise le bon script et le bon environnement Python.
-- Synchronisez les dépendances avec `requirements.txt`.
-- Consultez les logs pour tout message d'erreur ou d'avertissement.
+| Variable              | Description                      |
+|-----------------------|----------------------------------|
+| `BINANCE_API_KEY`     | Clé API Binance                  |
+| `BINANCE_SECRET_KEY`  | Clé secrète Binance              |
+| `SENDER_EMAIL`        | E-mail expéditeur (Gmail)        |
+| `RECEIVER_EMAIL`      | E-mail destinataire des alertes  |
+| `GOOGLE_MAIL_PASSWORD`| Mot de passe d'application Gmail |
 
-## Auteur
-- averr
+### Variables optionnelles
+
+Les valeurs par défaut conviennent pour un usage standard. Voir `.env.example`
+pour la liste complète (frais, slippage, modes de sizing, seuils ATR, etc.).
+
+## Lancement
+
+```bash
+# Mode standard (backtest + trading live)
+cd code/src
+python MULTI_SYMBOLS.py
+```
+
+### En production avec PM2
+
+```bash
+pm2 start config/ecosystem.config.js
+pm2 save
+```
+
+## Tests
+
+```bash
+# Lancer tous les tests
+python -m pytest tests/ -v
+
+# Lancer un fichier de tests spécifique
+python -m pytest tests/test_core.py -v
+```
+
+78 tests couvrent : configuration, sizing, backtest, error handling, journal
+de trades, alertes e-mail, indicateurs et watchdog.
+
+## Fonctionnalités
+
+- **Multi-paires** : Trading simultané sur plusieurs paires (BTC, ETH, SOL, etc.)
+- **Backtest intégré** : Walk-forward analysis avec métriques détaillées
+- **Gestion du risque** : 4 modes de sizing (baseline, risk, fixed_notional, volatility_parity)
+- **Sorties partielles** : Prise de profit progressive à 2 seuils configurables
+- **Trailing stop** : Activation dynamique basée sur l'ATR
+- **Circuit-breaker** : Protection contre les cascades d'erreurs API
+- **Alertes e-mail** : Notifications pour trades, erreurs, déconnexions
+- **Cache intelligent** : Données historiques mises en cache avec mise à jour incrémentale
+- **État persistant** : Reprise automatique après redémarrage
 
 ## Licence
-Ce projet est privé et réservé à un usage personnel ou interne.
+
+Projet privé — usage personnel uniquement.

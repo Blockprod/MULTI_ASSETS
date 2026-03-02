@@ -18,18 +18,58 @@ import json
 import time
 import subprocess
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone
 
 # Configuration du logging
+_log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'logs', 'watchdog.log')
+os.makedirs(os.path.dirname(_log_file), exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - WATCHDOG - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('watchdog.log'),
+        RotatingFileHandler(_log_file, maxBytes=5*1024*1024, backupCount=3, encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
+
+import atexit
+def _close_logger_handlers():
+    for h in logger.handlers:
+        try:
+            h.flush()
+            h.close()
+        except Exception:
+            pass
+atexit.register(_close_logger_handlers)
+
+# Tentative d'import email (optionnel — watchdog reste fonctionnel sans)
+try:
+    import sys as _sys
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from email_utils import send_email_alert as _send_email_alert
+    _EMAIL_AVAILABLE = True
+except Exception:
+    _EMAIL_AVAILABLE = False
+
+def _notify_watchdog_stopped(restart_count: int, reason: str) -> None:
+    """Envoie un email d'alerte quand le watchdog abandonne definitvement."""
+    if not _EMAIL_AVAILABLE:
+        logger.warning("[WATCHDOG] Email non disponible, alerte non envoyée.")
+        return
+    try:
+        subject = "[BOT CRITIQUE] Watchdog arrêté — intervention manuelle requise"
+        body = (
+            f"Le watchdog a cessé de redémarrer le bot de trading.\n\n"
+            f"Raison : {reason}\n"
+            f"Nombre de redémarrages effectués : {restart_count}\n"
+            f"Le bot EST ARRÊTÉ. Intervention manuelle requise.\n"
+        )
+        _send_email_alert(subject, body)
+        logger.info("[WATCHDOG] Email d'alerte critique envoyé.")
+    except Exception as e:
+        logger.error(f"[WATCHDOG] Echec envoi email d'alerte: {e}")
 
 # Heartbeat staleness threshold (seconds). If heartbeat.json is older than
 # this, the bot is considered hung even if the process is still running.
@@ -112,21 +152,29 @@ class TradingBotWatchdog:
     def should_restart(self):
         """Vérifie si on peut redémarrer (limite de redémarrages)."""
         now = datetime.now()
+        # CORRECTIF: utiliser .total_seconds() et non .seconds
+        # (.seconds ne retourne que le composant 0-59, pas la durée totale)
         self.restart_times = [t for t in self.restart_times
-                              if (now - t).seconds < 3600]
+                              if (now - t).total_seconds() < 3600]
         if len(self.restart_times) >= self.max_restarts_per_hour:
             logger.error("Trop de redémarrages en 1 heure. Arrêt du watchdog.")
             return False
         return True
 
     def restart_bot(self, reason: str = "unknown"):
-        """Redémarre le bot."""
+        """Redémarre le bot avec backoff exponentiel entre les tentatives."""
         if not self.should_restart():
+            _notify_watchdog_stopped(
+                self.restart_count,
+                f"Limite de {self.max_restarts_per_hour} redémarrages/heure atteinte (dernière raison: {reason})"
+            )
             return False
 
-        logger.warning(f"Redémarrage du bot (raison: {reason})...")
+        # Backoff exponentiel: 5s, 10s, 20s, 40s, 80s (max 300s)
+        backoff_delay = min(5 * (2 ** len(self.restart_times)), 300)
+        logger.warning(f"Redémarrage du bot dans {backoff_delay}s (raison: {reason}, tentative #{len(self.restart_times) + 1})...")
         self.stop_bot()
-        time.sleep(5)
+        time.sleep(backoff_delay)
 
         if self.start_bot():
             self.restart_count += 1
@@ -151,11 +199,13 @@ class TradingBotWatchdog:
                     logger.warning("Bot arrêté détecté (process dead)")
                     if not self.restart_bot(reason="process_dead"):
                         logger.error("Impossible de redémarrer. Arrêt du watchdog.")
+                        _notify_watchdog_stopped(self.restart_count, "Echec du redémarrage après process_dead")
                         break
                 elif not self.is_heartbeat_fresh():
                     logger.warning("Bot bloqué détecté (heartbeat stale)")
                     if not self.restart_bot(reason="heartbeat_stale"):
                         logger.error("Impossible de redémarrer. Arrêt du watchdog.")
+                        _notify_watchdog_stopped(self.restart_count, "Echec du redémarrage après heartbeat_stale")
                         break
                 else:
                     logger.debug("Bot fonctionne normalement")
