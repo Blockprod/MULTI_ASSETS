@@ -53,7 +53,7 @@ class Config:
     slippage_buy: float = 0.0001
     slippage_sell: float = 0.0001
     initial_wallet: float = 10000.0
-    backtest_days: int = 1825
+    backtest_days: int = 1095  # 3 ans glissants (1 cycle bear+bull complet)
     max_workers: int = 4
     cache_dir: str = "cache"
     states_dir: str = "states"
@@ -104,7 +104,7 @@ class Config:
         config_data['api_timeout'] = int(os.getenv('API_TIMEOUT', '30'))
         config_data['max_workers'] = int(os.getenv('MAX_WORKERS', '4'))
         config_data['initial_wallet'] = float(os.getenv('INITIAL_WALLET', '10000.0'))
-        config_data['backtest_days'] = int(os.getenv('BACKTEST_DAYS', '1825'))
+        config_data['backtest_days'] = int(os.getenv('BACKTEST_DAYS', '1095'))  # 3 ans glissants (1 cycle bear+bull complet)
         # Chemins ancrés au répertoire du script (indépendant du cwd)
         # → résout le bug de cache différent selon le lanceur (bat vs terminal)
         _src_dir = os.path.dirname(os.path.abspath(__file__))
