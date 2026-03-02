@@ -3,6 +3,14 @@ import sys
 import locale
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+# Suppression du ChainedAssignmentError pandas 2.2 CoW — déclenché par le moteur
+# Cython indicators qui construit un DataFrame à partir de vues numpy de df.
+# Corrigé dans indicators.pyx (np.array copies), ce filtre est une sécurité.
+try:
+    import pandas as _pd
+    warnings.filterwarnings("ignore", category=_pd.errors.ChainedAssignmentError)
+except AttributeError:
+    pass  # pandas < 2.2 n'a pas ChainedAssignmentError
 
 # Ajout du dossier bin/ au sys.path pour les modules Cython
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'bin')))

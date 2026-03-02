@@ -257,11 +257,13 @@ def calculate_indicators(
             trix_histo[i] = np.nan
 
     # Création sécurisée du DataFrame résultat avec données disponibles
+    # Utiliser np.array() (copie) plutôt que .values (vue) pour éviter
+    # le ChainedAssignmentError pandas 2.2 Copy-on-Write.
     try:
         result_data = {
-            'high': df['high'].values, 
-            'low': df['low'].values,
-            'close': df['close'].values,
+            'high': np.array(df['high'], dtype=np.float64),
+            'low': np.array(df['low'], dtype=np.float64),
+            'close': np.array(df['close'], dtype=np.float64),
             'ema1': ema1,
             'ema2': ema2,
             'rsi': rsi,
@@ -271,7 +273,7 @@ def calculate_indicators(
         
         # Ajouter 'open' seulement si disponible
         if 'open' in df.columns:
-            result_data['open'] = df['open'].values
+            result_data['open'] = np.array(df['open'], dtype=np.float64)
             
         result_df = pd.DataFrame(result_data)
         
