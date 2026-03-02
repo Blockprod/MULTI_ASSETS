@@ -291,6 +291,6 @@ def calculate_indicators(
     except Exception as e:
         raise ValueError(f"Erreur ajout indicateurs optionnels: {e}")
 
-    result_df.dropna(inplace=True)
+    result_df = result_df.dropna()
 
     return result_df

@@ -698,7 +698,7 @@ def calculate_indicators(
         if CYTHON_INDICATORS_AVAILABLE and _cython_indicators is not None:
             try:
                 df_cython = _cython_indicators.calculate_indicators(
-                    df,
+                    df.copy(),  # copie explicite — pandas CoW (pandas 2.x) interdit les écritures sur df passé en argument
                     ema1_period,
                     ema2_period,
                     stoch_period,
