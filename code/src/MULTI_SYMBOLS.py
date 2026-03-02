@@ -91,8 +91,10 @@ import logging
 import numpy as np
 import pandas as pd
 import schedule
+import signal
 import socket
 import subprocess
+import threading
 from ta.momentum import RSIIndicator
 from ta.trend import ADXIndicator, MACD
 from ta.volatility import AverageTrueRange
@@ -140,6 +142,17 @@ except ImportError as e:
     CYTHON_BACKTEST_AVAILABLE = False
     logger.warning(f"Cython backtest_engine_standard not available ({e}), using Python fallback")
     backtest_engine = None  # Set to None to avoid NameError later
+
+# C-14: Import compiled Cython indicator engine as the single authoritative source.
+# Falls back to Python implementation in calculate_indicators() if unavailable.
+try:
+    import indicators as _cython_indicators  # type: ignore[import]
+    CYTHON_INDICATORS_AVAILABLE = True
+    logger.info("Cython indicators engine loaded (C-14).")
+except ImportError as _ind_import_err:
+    _cython_indicators = None  # type: ignore[assignment]
+    CYTHON_INDICATORS_AVAILABLE = False
+    logger.warning("Cython indicators not available (%s) — using Python fallback.", _ind_import_err)
 
 # --- Decorators ---
 # Décorateurs log_exceptions et retry_with_backoff importés depuis bot_config.py (Phase 4)
@@ -214,6 +227,13 @@ def get_cached_exchange_info(client) -> Dict:
 
 # etat du bot
 bot_state: Dict[str, Dict] = {}
+
+# ─── Thread-safety du bot_state (C-01) ────────────────────────────────────────
+# RLock global pour serialize save/load du bot_state
+_bot_state_lock = threading.RLock()
+# Locks par paire : empêchent deux exécutions simultanées sur la même paire
+_pair_execution_locks: Dict[str, threading.Lock] = {}
+_pair_locks_mutex = threading.Lock()
 
 # Paramètres par défaut des scénarios — constante partagée (3 emplacements)
 SCENARIO_DEFAULT_PARAMS: Dict[str, Dict] = {
@@ -309,27 +329,130 @@ def save_bot_state(force: bool = False):
     """Sauvegarde l'etat du bot (wrapper vers state_manager).
     
     Throttled à 1 écriture / 5s sauf si force=True (arrêt, crash).
+    Thread-safe via _bot_state_lock (C-01).
     """
     global _last_save_time
     now = time.time()
     if not force and (now - _last_save_time) < _SAVE_THROTTLE_SECONDS:
         return
-    save_state(bot_state)
+    with _bot_state_lock:
+        save_state(bot_state)
     _last_save_time = now
 
 @log_exceptions(default_return=None)
 def load_bot_state():
-    """Charge l'etat du bot (wrapper vers state_manager)."""
+    """Charge l'etat du bot (wrapper vers state_manager).
+    
+    Thread-safe via _bot_state_lock (C-01).
+    """
     global bot_state
     loaded = load_state()
     if loaded:
-        bot_state = loaded
+        with _bot_state_lock:
+            bot_state = loaded
 
 # get_symbol_filters: wrapper vers exchange_client.py (Phase 4)
 from exchange_client import get_symbol_filters as _get_symbol_filters_impl
 def get_symbol_filters(symbol: str) -> Dict:
     """Wrapper qui passe le client global."""
     return _get_symbol_filters_impl(client, symbol)
+
+
+def reconcile_positions_with_exchange(crypto_pairs_list: List[Dict]) -> None:
+    """Vérifie la cohérence entre bot_state et les positions réelles sur Binance.
+
+    Appelé UNE FOIS au démarrage après load_bot_state() pour détecter toute
+    position orpheline (ex: achat exécuté avant un crash, état non sauvegardé).
+    En cas de divergence, restaure l'état minimal et envoie une alerte CRITICAL. (C-03)
+    """
+    logger.info("[RECONCILE] Vérification de la cohérence des positions...")
+    for pair_info in crypto_pairs_list:
+        backtest_pair = pair_info.get('backtest_pair', '')
+        real_pair = pair_info.get('real_pair', '')
+        try:
+            coin_symbol, quote_currency = extract_coin_from_pair(real_pair)
+        except Exception as e:
+            logger.error(f"[RECONCILE] Impossible d'extraire coin/quote pour {real_pair}: {e}")
+            continue
+        try:
+            account_info = client.get_account()
+            coin_balance_obj = next((b for b in account_info['balances'] if b['asset'] == coin_symbol), None)
+            coin_balance = float(coin_balance_obj['free']) if coin_balance_obj else 0.0
+        except Exception as e:
+            logger.error(f"[RECONCILE] Impossible de récupérer le solde Binance pour {coin_symbol}: {e}")
+            continue
+        pair_state = bot_state.get(backtest_pair, {})
+        local_in_position = (
+            pair_state.get('in_position', False)
+            or pair_state.get('last_order_side') == 'BUY'
+        )
+        # Seuil minimal heuristique (0.001 USD-équivalent approximatif)
+        has_real_balance = coin_balance > 0.0001
+
+        if has_real_balance and not local_in_position:
+            logger.critical(
+                f"[RECONCILE] POSITION ORPHELINE pour {backtest_pair}: "
+                f"solde réel {coin_balance:.6f} {coin_symbol} NON enregistré dans bot_state!"
+            )
+            # Tenter de retrouver entry_price depuis l'historique Binance
+            entry_price_restored = None
+            try:
+                all_orders = client.get_all_orders(symbol=real_pair, limit=50)
+                filled_buys = [
+                    o for o in all_orders
+                    if o.get('side') == 'BUY' and o.get('status') == 'FILLED'
+                ]
+                if filled_buys:
+                    last_buy = filled_buys[-1]
+                    exec_qty = float(last_buy.get('executedQty', 0) or 1)
+                    cum_quote = float(last_buy.get('cummulativeQuoteQty', 0) or 0)
+                    price_field = float(last_buy.get('price', 0) or 0)
+                    entry_price_restored = price_field if price_field > 0 else (cum_quote / exec_qty if exec_qty > 0 else None)
+                    logger.info(f"[RECONCILE] entry_price restauré: {entry_price_restored}")
+            except Exception as e:
+                logger.error(f"[RECONCILE] Impossible de récupérer l'historique d'ordres: {e}")
+            # Restaurer l'état minimal
+            with _bot_state_lock:
+                bot_state.setdefault(backtest_pair, {})
+                bot_state[backtest_pair]['last_order_side'] = 'BUY'
+                bot_state[backtest_pair]['partial_taken_1'] = False
+                bot_state[backtest_pair]['partial_taken_2'] = False
+                if entry_price_restored:
+                    bot_state[backtest_pair]['entry_price'] = entry_price_restored
+            save_bot_state(force=True)
+            # Alerte immédiate
+            try:
+                send_trading_alert_email(
+                    subject=f"[CRITIQUE] Position orpheline détectée au démarrage: {backtest_pair}",
+                    body_main=(
+                        f"Position ouverte Binance ({coin_balance:.6f} {coin_symbol}) "
+                        f"non enregistrée dans bot_state.\n\n"
+                        f"entry_price restauré: {entry_price_restored}\n\n"
+                        f"ACTION REQUISE: vérifier les stops manuellement sur Binance."
+                    ),
+                    client=client,
+                )
+            except Exception as mail_err:
+                logger.error(f"[RECONCILE] Envoi email critique impossible: {mail_err}")
+
+        elif not has_real_balance and local_in_position:
+            logger.warning(
+                f"[RECONCILE] bot_state indique position ouverte pour {backtest_pair} "
+                f"mais solde {coin_symbol} est ~0 — réinitialisation de l'état."
+            )
+            with _bot_state_lock:
+                if backtest_pair in bot_state:
+                    bot_state[backtest_pair]['last_order_side'] = 'SELL'
+                    bot_state[backtest_pair]['entry_price'] = None
+                    bot_state[backtest_pair]['partial_taken_1'] = False
+                    bot_state[backtest_pair]['partial_taken_2'] = False
+            save_bot_state(force=True)
+        else:
+            logger.info(
+                f"[RECONCILE] {backtest_pair}: cohérent "
+                f"(balance={coin_balance:.6f} {coin_symbol}, in_position={local_in_position})"
+            )
+    logger.info("[RECONCILE] Vérification terminée.")
 
 # --- Data Fetching ---
 # get_cache_path, is_cache_expired, safe_cache_read, safe_cache_write,
@@ -472,7 +595,13 @@ def compute_stochrsi(rsi_series: pd.Series, period: int = 14) -> pd.Series:
 def get_optimal_ema_periods(df: pd.DataFrame, timeframe: str = '4h', symbol: str = 'TRXUSDC') -> tuple:
     """
     Optimisation EMA adaptative: Sélectionne les meilleures périodes EMA selon le timeframe.
-    
+
+    IMPORTANT (C-12 — anti-look-ahead-bias): ce calcul DOIT porter uniquement sur la
+    fenêtre In-Sample (IS). L'appelant est responsable de passer un slice IS:
+
+        is_df = df.iloc[:int(len(df) * 0.70)]
+        ema1, ema2 = get_optimal_ema_periods(is_df, timeframe=tf, symbol=pair)
+
     Basé sur l'analyse statistique de la volatilité et momentum par timeframe:
     - 1h: Volatilité haute, trending rapide → EMA courts (9/21)
     - 4h: Balance swing/trend → EMA moyens (14/26 ou 26/50)
@@ -563,7 +692,38 @@ def calculate_indicators(
         except (KeyError, AttributeError, TypeError):
             pass  # Cache corrompu ou indisponible -> recalcul
 
-        # Copie de travail
+        # C-14: Déléguer au moteur Cython centralisé quand disponible.
+        # Cela élimine la duplication Python/Cython et garantit que le live
+        # et le backtest utilisent exactement le même moteur d'indicateurs.
+        if CYTHON_INDICATORS_AVAILABLE and _cython_indicators is not None:
+            try:
+                df_cython = _cython_indicators.calculate_indicators(
+                    df,
+                    ema1_period,
+                    ema2_period,
+                    stoch_period,
+                    sma_long or 0,
+                    adx_period or 0,
+                    trix_length or 0,
+                    trix_signal or 0,
+                )
+                if df_cython is not None and not df_cython.empty:
+                    # Mise en cache LRU
+                    try:
+                        indicators_cache[cache_key] = df_cython.copy()
+                        indicators_cache.move_to_end(cache_key)
+                        while len(indicators_cache) > _INDICATORS_CACHE_MAX:
+                            indicators_cache.popitem(last=False)
+                    except Exception:
+                        pass
+                    logger.debug("Indicateurs calculés via Cython (C-14)")
+                    return df_cython
+            except Exception as _cython_ind_err:
+                logger.warning(
+                    "Cython indicators failed (%s) — fallback Python.", _cython_ind_err
+                )
+
+        # Copie de travail (Python fallback)
         df_work = df.copy()
         
         # Nettoyage minimal des NaN sur 'close'
@@ -846,7 +1006,8 @@ def backtest_from_dataframe(
                     'StochRSI',  # scenario
                     sma_long is not None,  # use_sma
                     adx_period is not None,  # use_adx
-                    trix_length is not None  # use_trix
+                    trix_length is not None,  # use_trix
+                    config.taker_fee,  # C-08: fee réel (synchronisé avec le live via get_binance_trading_fees)
                 )
                 
                 # Convertir le résultat Cython en format compatible
@@ -1233,7 +1394,10 @@ def run_all_backtests(backtest_pair: str, start_date: str, timeframes: List[str]
     extra_ema_pairs = [(18, 36), (20, 40), (30, 60)]
     for tf, df_tf in base_dataframes.items():
         if df_tf is not None and not df_tf.empty:
-            adaptive_ema = get_optimal_ema_periods(df_tf, timeframe=tf, symbol=backtest_pair)
+            # C-12: calculer la volatilité sur IS uniquement (premier 70 %) pour éviter
+            # le biais de look-ahead — les périodes EMA ne doivent pas «voir» l'OOS.
+            is_end = max(int(len(df_tf) * 0.70), 1)
+            adaptive_ema = get_optimal_ema_periods(df_tf.iloc[:is_end], timeframe=tf, symbol=backtest_pair)
         else:
             adaptive_ema = (26, 50)
         # Ajouter fallback historique + grid étendu
@@ -1847,8 +2011,42 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
                 _last_backtest_time[backtest_pair] = time.time()
                 logger.info(f"[SCHEDULED] {len(backtest_results)} resultats de backtest recus")
                 
-                # Identifier le meilleur résultat basé sur le profit
-                best_result = max(backtest_results, key=lambda x: x['final_wallet'] - x['initial_wallet'])
+                # C-07: sélectionner le meilleur résultat par ratio Calmar (ROI / max_drawdown)
+                # Plus robuste que le profit brut : pénalise les stratégies à fort drawdown
+                def _calmar_key(x):
+                    roi = (x['final_wallet'] - x['initial_wallet']) / max(x['initial_wallet'], 1.0)
+                    dd  = max(x.get('max_drawdown', 0.001), 0.001)
+                    return roi / dd
+
+                # C-13: OOS quality gates — filtrer d'abord les résultats qui passent
+                # les critères institutionnels (Sharpe > 0.5 & WinRate > 45 %).
+                # Si aucun résultat ne passe, on utilise tout le pool en mode dégradé.
+                try:
+                    from walk_forward import validate_oos_result as _validate_oos
+                    _oos_valid = [
+                        r for r in backtest_results
+                        if _validate_oos(
+                            r.get('sharpe_ratio', 0.0),
+                            r.get('win_rate', 0.0),
+                        )
+                    ]
+                    if _oos_valid:
+                        _selection_pool = _oos_valid
+                        logger.info(
+                            "[SCHEDULED C-13] %d/%d résultats passent les OOS gates — sélection restreinte.",
+                            len(_oos_valid), len(backtest_results),
+                        )
+                    else:
+                        _selection_pool = backtest_results
+                        logger.warning(
+                            "[SCHEDULED C-13] Aucun résultat ne passe les OOS gates "
+                            "(Sharpe > 0.5 & WR > 45 %%) — fallback full-pool."
+                        )
+                except Exception as _oos_err:
+                    logger.warning("[SCHEDULED C-13] validate_oos_result indisponible: %s", _oos_err)
+                    _selection_pool = backtest_results
+
+                best_result = max(_selection_pool, key=_calmar_key)
                 best_profit = best_result['final_wallet'] - best_result['initial_wallet']
                 
                 logger.info(f"[SCHEDULED] Meilleur resultat: {best_result['scenario']} sur {best_result['timeframe']} | Profit: ${best_profit:,.2f}")
@@ -1880,6 +2078,19 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
             else:
                 logger.warning(f"[SCHEDULED] Aucun resultat de backtest pour {backtest_pair}, utilisation des anciens parametres")
                 console.print(f"[yellow][SCHEDULED] Aucun résultat de backtest pour {backtest_pair} – affichage sauté[/yellow]")
+                # C-06: alerte email sur échec backtest — le bot continue avec anciens params
+                try:
+                    send_trading_alert_email(
+                        subject=f"[ALERTE] Backtest échoué pour {backtest_pair}",
+                        body_main=(
+                            f"Le backtest de {backtest_pair} n'a retourné aucun résultat.\n"
+                            f"Le bot continue avec les anciens paramètres: {best_params}\n\n"
+                            f"Vérifier les logs pour plus de détails."
+                        ),
+                        client=client,
+                    )
+                except Exception as _alert_err:
+                    logger.error(f"[SCHEDULED] Envoi alerte échec backtest impossible: {_alert_err}")
         
         # === AFFICHAGE PANEL - TRADING EN TEMPS REEL ===
         try:
@@ -1939,6 +2150,25 @@ def execute_real_trades(real_trading_pair: str, time_interval: str, best_params:
         sizing_mode: Position sizing strategy ('baseline', 'risk', 'fixed_notional', 'volatility_parity')
                     DEFAULT='baseline' (95% du capital par trade)
     """
+    # === PROTECTION CONTRE LES EXÉCUTIONS CONCURRENTES PAR PAIRE (C-01 / C-02) ===
+    # Non-blocking acquire : si une exécution est déjà en cours pour cette paire,
+    # on ignore silencieusement ce cycle pour éviter les double-partiels et les
+    # race conditions sur bot_state / pair_state.
+    with _pair_locks_mutex:
+        if backtest_pair not in _pair_execution_locks:
+            _pair_execution_locks[backtest_pair] = threading.Lock()
+    _pair_lock = _pair_execution_locks[backtest_pair]
+    if not _pair_lock.acquire(blocking=False):
+        logger.warning(f"[CONCURRENCE] Exécution concurrente détectée pour {backtest_pair} — cycle ignoré (C-02)")
+        return
+    try:
+        return _execute_real_trades_inner(real_trading_pair, time_interval, best_params, backtest_pair, sizing_mode)
+    finally:
+        _pair_lock.release()
+
+
+def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any], backtest_pair: str, sizing_mode: str = 'baseline'):
+    """Implémentation interne de execute_real_trades (appelée sous per-pair lock)."""
     # pair_state dérivé localement depuis bot_state (pas de global) — les mutations du dict
     # se propagent automatiquement dans bot_state[backtest_pair] par référence.
     pair_state = bot_state.setdefault(backtest_pair, {})
@@ -2878,8 +3108,34 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
     except Exception as wf_err:
         logger.warning(f"[WF] Walk-forward validation skipped: {wf_err}")
 
-    # Identifier le meilleur resultat
-    best_result = max(results, key=lambda x: x['final_wallet'] - x['initial_wallet'])
+    # Identifier le meilleur résultat — C-13: filtrer par OOS gates en priorité
+    try:
+        from walk_forward import validate_oos_result as _validate_oos_main
+        _oos_valid_main = [
+            r for r in results
+            if _validate_oos_main(r.get('sharpe_ratio', 0.0), r.get('win_rate', 0.0))
+        ]
+        if _oos_valid_main:
+            _pool_main = _oos_valid_main
+            logger.info(
+                "[MAIN C-13] %d/%d résultats passent les OOS gates.",
+                len(_oos_valid_main), len(results),
+            )
+        else:
+            _pool_main = results
+            logger.warning(
+                "[MAIN C-13] Aucun résultat ne passe les OOS gates — fallback full-pool."
+            )
+    except Exception as _oos_err_main:
+        logger.warning("[MAIN C-13] validate_oos_result indisponible: %s", _oos_err_main)
+        _pool_main = results
+
+    def _calmar_key_main_oos(x):
+        roi = (x['final_wallet'] - x['initial_wallet']) / max(x['initial_wallet'], 1.0)
+        dd  = max(x.get('max_drawdown', 0.001), 0.001)
+        return roi / dd
+
+    best_result = max(_pool_main, key=_calmar_key_main_oos)
     best_profit = best_result['final_wallet'] - best_result['initial_wallet']
 
     # Afficher les resultats
@@ -2993,6 +3249,13 @@ if __name__ == "__main__":
 
         # Chargement de l'etat du bot
         load_bot_state()
+
+        # C-03: Réconciliation positions au démarrage — détecte les positions orphelines
+        # (achat exécuté avant un crash, état non sauvegardé)
+        try:
+            reconcile_positions_with_exchange(crypto_pairs)
+        except Exception as reconcile_err:
+            logger.error(f"[RECONCILE] Erreur lors de la réconciliation: {reconcile_err}")
         
         logger.info("Script demarre. Planification initiale en cours...")
         # Purge préventive: supprimer toute planification résiduelle
@@ -3021,8 +3284,28 @@ if __name__ == "__main__":
                 console.print(f"[red]Aucun résultat pour {backtest_pair}[/red]")
                 continue
 
-            # Trouver le meilleur résultat
-            best_result = max(data['results'], key=lambda x: x['final_wallet'] - x['initial_wallet'])
+            # C-07 + C-13: sélectionner par Calmar dans les résultats OOS-validés
+            def _calmar_key_main(x):
+                roi = (x['final_wallet'] - x['initial_wallet']) / max(x['initial_wallet'], 1.0)
+                dd  = max(x.get('max_drawdown', 0.001), 0.001)
+                return roi / dd
+
+            try:
+                from walk_forward import validate_oos_result as _validate_oos_loop
+                _oos_valid_loop = [
+                    r for r in data['results']
+                    if _validate_oos_loop(r.get('sharpe_ratio', 0.0), r.get('win_rate', 0.0))
+                ]
+                _pool_loop = _oos_valid_loop if _oos_valid_loop else data['results']
+                if not _oos_valid_loop:
+                    logger.warning(
+                        "[MAIN-LOOP C-13] %s: aucun résultat OOS-valide — fallback full-pool.",
+                        backtest_pair,
+                    )
+            except Exception:
+                _pool_loop = data['results']
+
+            best_result = max(_pool_loop, key=_calmar_key_main)
             best_profit = best_result['final_wallet'] - best_result['initial_wallet']
 
             # Affichage des résultats via la fonction centralisée
@@ -3084,6 +3367,62 @@ if __name__ == "__main__":
         logger.info(f"Tâches planifiées actives: {len(schedule.jobs)}")
         
         # === BOUCLE PRINCIPALE ===
+        # C-04: Handler SIGTERM pour graceful shutdown (PM2, taskkill, systemd)
+        # Capturé ICI pour avoir accès à save_bot_state et error_handler dans la portée
+        def _graceful_shutdown(signum, frame):
+            logger.critical(f"[SHUTDOWN] Signal {signum} reçu — sauvegarde état et arrêt propre")
+            save_bot_state(force=True)
+
+            # C-11: Vérifier les stops actifs sur Binance avant de quitter
+            # Pour chaque paire en position BUY, s'assurer qu'un stop-loss est en place.
+            try:
+                pair_lookup = {p['backtest_pair']: p['real_pair'] for p in crypto_pairs}
+                for bp, ps in list(bot_state.items()):
+                    if ps.get('last_order_side') != 'BUY':
+                        continue
+                    real_sym = pair_lookup.get(bp, bp)
+                    try:
+                        open_orders = client.get_open_orders(symbol=real_sym)
+                        stop_types = {'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT',
+                                      'TAKE_PROFIT_LIMIT', 'OCO'}
+                        has_stop = any(o.get('type', '') in stop_types for o in open_orders)
+                        if not has_stop:
+                            logger.critical(
+                                "[SHUTDOWN C-11] AUCUN stop-loss actif sur Binance pour %s "
+                                "(%s) alors que la position est ouverte!",
+                                bp, real_sym,
+                            )
+                            try:
+                                send_trading_alert_email(
+                                    subject=f"[CRITIQUE] Stop manquant au shutdown: {bp}",
+                                    body_main=(
+                                        f"Le bot s'arrête sur signal {signum}.\n\n"
+                                        f"La paire {bp} ({real_sym}) est en position BUY "
+                                        f"mais AUCUN stop-loss n'a été trouvé parmi les ordres "
+                                        f"ouverts sur Binance.\n\n"
+                                        f"ACTION REQUISE: poser un stop manuellement."
+                                    ),
+                                    client=client,
+                                )
+                            except Exception as _mail_err:
+                                logger.error("[SHUTDOWN C-11] Email critique impossible: %s", _mail_err)
+                        else:
+                            logger.info("[SHUTDOWN C-11] Stop actif confirmé pour %s", bp)
+                    except Exception as _ord_err:
+                        logger.error(
+                            "[SHUTDOWN C-11] Impossible de récupérer les ordres pour %s: %s",
+                            real_sym, _ord_err,
+                        )
+            except Exception as _shutdown_check_err:
+                logger.error("[SHUTDOWN C-11] Erreur vérification stops: %s", _shutdown_check_err)
+
+            sys.exit(0)
+        try:
+            signal.signal(signal.SIGTERM, _graceful_shutdown)
+            logger.info("[SHUTDOWN] Handler SIGTERM enregistré (C-04)")
+        except (OSError, ValueError) as _sig_err:
+            logger.warning(f"[SHUTDOWN] Impossible d'enregistrer SIGTERM handler: {_sig_err}")
+
         display_bot_active_banner(len(schedule.jobs), schedule.next_run(), console)
         
         logger.info("Bot actif - Surveillance des signaux de trading...")

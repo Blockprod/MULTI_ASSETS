@@ -21,6 +21,39 @@ from exceptions import OrderError
 logger = logging.getLogger(__name__)
 
 
+# ─── Token-bucket rate limiter (C-05) ─────────────────────────────────────
+# Limite l'API Binance à 18 req/s (marge sur la limite Binance de 20 req/s / 1200 req/min).
+# Chaque appel à _request() consomme un token. Si le bucket est vide, on attend.
+class _TokenBucket:
+    """Token bucket thread-safe pour le rate limiting."""
+    def __init__(self, rate: float, capacity: float):
+        self._rate = rate           # Tokens ajoutés par seconde
+        self._capacity = capacity   # Capacité maximale du bucket
+        self._tokens: float = capacity
+        self._last: float = time.time()
+        self._lock = threading.Lock()
+
+    def acquire(self, timeout: float = 30.0) -> bool:
+        """Attend qu'un token soit disponible. Retourne False si timeout dépassé."""
+        deadline = time.time() + timeout
+        while True:
+            with self._lock:
+                now = time.time()
+                elapsed = now - self._last
+                self._tokens = min(self._capacity, self._tokens + elapsed * self._rate)
+                self._last = now
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return True
+            if time.time() > deadline:
+                logger.warning("[RATE LIMITER] Timeout en attendant un token API")
+                return False
+            time.sleep(0.05)
+
+# 18 req/s = 1080 req/min — marge de sécurité par rapport à la limite Binance (1200 req/min)
+_api_rate_limiter = _TokenBucket(rate=18.0, capacity=18.0)
+
+
 # ─── Client Binance robuste ────────────────────────────────────────────────
 class BinanceFinalClient(Client):
     """Client Binance ULTRA ROBUSTE - Correction définitive du timestamp -1021"""
@@ -82,6 +115,8 @@ class BinanceFinalClient(Client):
         max_retries = 3
         for attempt in range(max_retries):
             try:
+                # C-05: Rate limiting — acquérir un token avant tout appel réseau
+                _api_rate_limiter.acquire(timeout=30.0)
                 # Sanitize recvWindow to avoid duplicate-parameter errors
                 try:
                     if 'recvWindow' in kwargs:

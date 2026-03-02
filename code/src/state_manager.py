@@ -45,7 +45,14 @@ def save_state(bot_state: Dict):
         old_hash = None
         if os.path.exists(state_path):
             with open(state_path, 'rb') as f:
-                old_hash = hash(f.read())
+                raw_old = f.read()
+            # Extraire uniquement les bytes pickle pour comparaison correcte
+            header = _STATE_HEADER()
+            if raw_old.startswith(header):
+                old_state_bytes = raw_old[len(header) + 32:]
+            else:
+                old_state_bytes = raw_old
+            old_hash = hash(old_state_bytes)
         new_hash = hash(state_bytes)
         if old_hash != new_hash:
             # Signer les données avec HMAC avant écriture

@@ -16,7 +16,7 @@ logger = logging.getLogger('trading_bot')
 
 def compute_position_size_by_risk(
     equity: float,
-    atr_value: float,
+    atr_value: Optional[float],
     entry_price: float,
     risk_pct: Optional[float] = None,
     stop_atr_multiplier: Optional[float] = None,

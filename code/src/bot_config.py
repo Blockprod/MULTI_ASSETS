@@ -73,6 +73,19 @@ class Config:
     def __init__(self):
         pass
 
+    def __repr__(self) -> str:
+        """Représentation sûre — masque les credentials sensibles (C-10)."""
+        return (
+            f"Config(api_key=***MASKED***, secret_key=***MASKED***, "
+            f"sender_email={getattr(self, 'sender_email', '?')!r}, "
+            f"taker_fee={getattr(self, 'taker_fee', '?')}, "
+            f"sizing_mode={getattr(self, 'sizing_mode', '?')!r}, "
+            f"initial_wallet={getattr(self, 'initial_wallet', '?')})"
+        )
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
     @classmethod
     def from_env(cls) -> 'Config':
         """Charge la configuration depuis les variables d'environnement."""
@@ -176,6 +189,26 @@ class Config:
         # API timeout
         if self.api_timeout < 1:
             errors.append(f"api_timeout={self.api_timeout} doit être >= 1")
+
+        # C-15: Warn when config values diverge from Cython compile-time constants.
+        # backtest_engine_standard.pyx uses:
+        #   DEF ATR_MULTIPLIER      = 5.5   (trailing activation)
+        #   DEF ATR_STOP_MULTIPLIER = 3.0   (initial stop)
+        # If config differs, live trading behaviour won't match backtest outcomes.
+        _CYTHON_ATR_MULTIPLIER = 5.5
+        _CYTHON_ATR_STOP_MULTIPLIER = 3.0
+        if abs(self.atr_multiplier - _CYTHON_ATR_MULTIPLIER) > 1e-9:
+            logger.warning(
+                "[CONFIG C-15] atr_multiplier=%.4f diffère de la constante Cython "
+                "ATR_MULTIPLIER=%.4f — live et backtest ne seront pas alignés.",
+                self.atr_multiplier, _CYTHON_ATR_MULTIPLIER,
+            )
+        if abs(self.atr_stop_multiplier - _CYTHON_ATR_STOP_MULTIPLIER) > 1e-9:
+            logger.warning(
+                "[CONFIG C-15] atr_stop_multiplier=%.4f diffère de la constante Cython "
+                "ATR_STOP_MULTIPLIER=%.4f — live et backtest ne seront pas alignés.",
+                self.atr_stop_multiplier, _CYTHON_ATR_STOP_MULTIPLIER,
+            )
 
         if errors:
             msg = "Erreur(s) de configuration:\n  - " + "\n  - ".join(errors)

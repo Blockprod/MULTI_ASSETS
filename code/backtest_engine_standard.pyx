@@ -29,7 +29,7 @@ cdef struct PositionState:
 
 DEF ATR_MULTIPLIER = 5.5   # Restore best-performing ATR multiplier
 DEF ATR_STOP_MULTIPLIER = 3.0
-DEF TAKER_FEE = 0.0007
+# TAKER_FEE est maintenant un paramètre runtime (C-08) — voir signature de backtest_from_dataframe_fast
 DEF STOCH_THRESHOLD_BUY = 0.8
 DEF STOCH_THRESHOLD_SELL = 0.2
 DEF ADX_THRESHOLD = 25
@@ -53,7 +53,8 @@ def backtest_from_dataframe_fast(
     str scenario='StochRSI',
     bint use_sma=False,
     bint use_adx=False,
-    bint use_trix=False
+    bint use_trix=False,
+    double taker_fee=0.0007
 ) -> dict:
     """
     Moteur de backtest standard pour MULTI_SYMBOLS.py
@@ -140,7 +141,7 @@ def backtest_from_dataframe_fast(
             if sell_condition:
                 # VENTE au close (pas de open_prices dans cette version)
                 gross_proceeds = coin * current_price
-                fee = gross_proceeds * TAKER_FEE
+                fee = gross_proceeds * taker_fee
                 usd = gross_proceeds - fee
                 coin = 0.0
                 
@@ -186,7 +187,7 @@ def backtest_from_dataframe_fast(
             if buy_condition:
                 # ACHAT au close (pas de sniper)
                 gross_coin = usd / current_price
-                fee_in_coin = gross_coin * TAKER_FEE
+                fee_in_coin = gross_coin * taker_fee
                 coin = gross_coin - fee_in_coin
                 
                 position.entry_usd_invested = usd
