@@ -4,6 +4,7 @@ Script de test pour vérifier les clés API Binance
 """
 
 import os
+import pytest
 from dotenv import load_dotenv
 import requests
 import time
@@ -13,7 +14,11 @@ from urllib.parse import urlencode
 
 def test_api_keys():
     """Test simple des clés API Binance"""
-    
+
+    # Skippé en CI : requiert de vraies clés API Binance (GitHub Actions injecte CI=true)
+    if os.getenv('CI'):
+        pytest.skip("Test ignoré en CI — requiert de vraies clés API Binance")
+
     # Charger les variables d'environnement
     load_dotenv()
     
