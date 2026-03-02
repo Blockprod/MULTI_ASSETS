@@ -25,6 +25,10 @@ schedule==1.2.2
 rich==14.3.3
 tqdm==4.67.3
 
+# === TESTING ===
+pytest==8.3.5
+pytest-mock==3.14.0
+
 # === NETWORKING ===
 requests==2.32.5
 
