@@ -12,6 +12,26 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
 
 
 @pytest.fixture(autouse=True)
+def disable_error_notification_callback():
+    """Neutralise le callback d'erreur de log_exceptions pendant les tests.
+
+    Sans ce fixture, toute exception attrapée par @log_exceptions pendant
+    pytest déclencherait un envoi d'email vers le compte Binance réel.
+    """
+    try:
+        from bot_config import set_error_notification_callback
+        set_error_notification_callback(None)
+    except Exception:
+        pass
+    yield
+    try:
+        from bot_config import set_error_notification_callback
+        set_error_notification_callback(None)
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
 def cleanup_logger_handlers():
     yield
     # Cleanup all handlers for all loggers after each test
