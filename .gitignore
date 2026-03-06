@@ -41,3 +41,9 @@ Desktop.ini
 # Build artifacts
 code/build/
 build/
+
+# Rapports d'analyse statique et sorties de tests
+reports/
+
+# Couverture de code
+.coverage
