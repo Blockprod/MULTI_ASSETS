@@ -9,11 +9,14 @@ Couvre :
 - can_execute_partial_safely : logique de validation notionnelle
 Tous les appels Binance sont mockés — aucune connexion réseau réelle.
 """
-import os, sys, time, threading
+import os
+import sys
+import time
+import threading
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
 
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 class TestTokenBucket:

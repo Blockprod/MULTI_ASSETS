@@ -6,7 +6,7 @@ Script de test pour vérifier les clés API Binance
 import os
 import pytest
 from dotenv import load_dotenv
-import requests
+import requests  # type: ignore[import-untyped]
 import time
 import hmac
 import hashlib
@@ -53,7 +53,7 @@ def test_api_keys():
             server_time = response.json()['serverTime']
             local_time = int(time.time() * 1000)
             diff = server_time - local_time
-            print(f"Temps serveur recupere")
+            print("Temps serveur recupere")
             print(f"   Difference: {diff} ms")
         else:
             print(f"Temps serveur echoue: {response.status_code}")
@@ -80,7 +80,7 @@ def test_api_keys():
             hashlib.sha256
         ).hexdigest()
         
-        params['signature'] = signature
+        params['signature'] = signature  # type: ignore[assignment]
         
         # Headers
         headers = {

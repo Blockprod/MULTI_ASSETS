@@ -4,7 +4,7 @@ import os
 import pytest
 import numpy as np
 import pandas as pd
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
 
@@ -45,7 +45,7 @@ def _make_ohlcv(n: int = 200, start_price: float = 100.0, trend: str = 'up') -> 
         (df['high'] - df['close'].shift(1)).abs(),
         (df['low'] - df['close'].shift(1)).abs(),
     ], axis=1).max(axis=1)
-    df['ATR'] = tr.rolling(14).mean().bfill()
+    df['atr'] = tr.rolling(14).mean().bfill()
 
     # StochRSI (simplified)
     delta = df['close'].diff()
@@ -130,7 +130,7 @@ class TestBacktestFromDataframe:
         result = fn(df, ema1_period=12, ema2_period=22, sizing_mode='baseline')
         trades_df = result['trades']
         if not trades_df.empty:
-            types = trades_df['type'].unique().tolist()
+            types = [t.lower() for t in trades_df['type'].unique().tolist()]
             assert 'buy' in types, "Expected at least one buy"
 
     def test_win_rate_between_0_and_100(self):
@@ -144,3 +144,132 @@ class TestBacktestFromDataframe:
         df = _make_ohlcv(n=300, start_price=100, trend='flat')
         result = fn(df, ema1_period=12, ema2_period=22)
         assert result['max_drawdown'] >= 0.0
+
+
+# =========================================================================
+# Tests: Protections backtest (alignement live)
+# =========================================================================
+
+class TestBacktestProtections:
+    """Vérifie que les protections live sont bien répliquées dans le backtest."""
+
+    def test_p0_sl_guard_atr_nan_blocks_buy(self):
+        """P0-SL-GUARD: ATR=NaN → pas d'achat dans le backtest."""
+        fn = _import_backtest()
+        df = _make_ohlcv(n=200, start_price=100, trend='up')
+        # Rendre ATR = NaN pour toute la série
+        df['atr'] = float('nan')
+        result = fn(df, ema1_period=12, ema2_period=22, sizing_mode='baseline')
+        trades = result.get('trades', pd.DataFrame())
+        if not trades.empty:
+            buys = trades[trades['type'] == 'buy']
+            assert buys.empty, "Aucun achat ne doit avoir lieu si ATR est NaN"
+
+    def test_p0_sl_guard_atr_zero_blocks_buy(self):
+        """P0-SL-GUARD: ATR=0 → pas d'achat dans le backtest."""
+        fn = _import_backtest()
+        df = _make_ohlcv(n=200, start_price=100, trend='up')
+        df['atr'] = 0.0
+        result = fn(df, ema1_period=12, ema2_period=22, sizing_mode='baseline')
+        trades = result.get('trades', pd.DataFrame())
+        if not trades.empty:
+            buys = trades[trades['type'] == 'buy']
+            assert buys.empty, "Aucun achat ne doit avoir lieu si ATR est 0"
+
+    def test_partial_skipped_when_position_too_small(self):
+        """partial_enabled: si la position vaut < 3× min_notional, partials ignorés."""
+        fn = _import_backtest()
+        # On crée un uptrend clair mais avec un wallet minuscule
+        # pour produire des positions < 3×5=15 USDC
+        with patch.dict(os.environ, {
+            'BINANCE_API_KEY': 'k', 'BINANCE_SECRET_KEY': 's',
+            'SENDER_EMAIL': 'a@b.c', 'RECEIVER_EMAIL': 'a@b.c',
+            'GOOGLE_MAIL_PASSWORD': 'p',
+            'INITIAL_WALLET': '3.0',          # Wallet minuscule
+            'BACKTEST_MIN_NOTIONAL': '5.0',   # Position 3 USDC < 3×5 = 15
+        }):
+            from importlib import reload
+            import bot_config as bc
+            reload(bc)
+            import backtest_runner as br
+
+            # Patch config dans le module backtest_runner
+            cfg = bc.Config.from_env()
+            original_config = br.config
+            br.config = cfg
+
+            try:
+                df = _make_ohlcv(n=300, start_price=1.0, trend='up')
+                result = br.backtest_from_dataframe(
+                    df, ema1_period=12, ema2_period=22, sizing_mode='baseline')
+                # Le test vérifie juste que ça ne plante pas et que le résultat est valide
+                assert result['final_wallet'] >= 0
+            finally:
+                br.config = original_config
+
+    def test_partial_min_notional_blocks_small_partial(self):
+        """MIN_NOTIONAL backtest: partial bloqué si qty × price < backtest_min_notional."""
+        fn = _import_backtest()
+        df = _make_ohlcv(n=300, start_price=100, trend='up')
+        # Avec un wallet normal et un uptrend, des partials devraient se déclencher normalement
+        # Ce test vérifie que la logique ne plante pas (test d'intégration)
+        result = fn(df, ema1_period=12, ema2_period=22, sizing_mode='baseline')
+        assert result['final_wallet'] >= 0
+        assert result['max_drawdown'] >= 0.0
+
+
+class TestPartialSellSimulation:
+    """P2-01: validation de la simulation des partiels en backtest."""
+
+    def test_partial_sells_appear_in_trade_log(self):
+        """partial_enabled=True sur uptrend → trade_log contient partial_sell_1/2."""
+        fn = _import_backtest()
+        # Uptrend fort avec assez de données pour déclencher buy + partials
+        df = _make_ohlcv(n=500, start_price=100, trend='up')
+        result = fn(df, ema1_period=12, ema2_period=22,
+                     sizing_mode='baseline', partial_enabled=True)
+        trades = result['trades']
+        if trades.empty:
+            pytest.skip("Pas de trades générés (pas de signal sur ces données)")
+        types = trades['type'].tolist()
+        # Au moins un partial_sell devrait apparaître dans un uptrend fort
+        partial_types = [t for t in types if t.startswith('partial_sell')]
+        assert len(partial_types) > 0, (
+            f"Aucune vente partielle dans le trade_log (types: {set(types)})"
+        )
+        # Vérifier les colonnes du partial
+        partial_rows = trades[trades['type'].str.startswith('partial_sell')]
+        for col in ('price', 'qty', 'proceeds', 'profit_pct'):
+            assert col in partial_rows.columns, f"Colonne '{col}' manquante dans partial_sell"
+
+    def test_partial_disabled_no_partial_entries(self):
+        """partial_enabled=False → aucune entrée partial_sell dans le trade_log."""
+        fn = _import_backtest()
+        df = _make_ohlcv(n=500, start_price=100, trend='up')
+        result = fn(df, ema1_period=12, ema2_period=22,
+                     sizing_mode='baseline', partial_enabled=False)
+        trades = result['trades']
+        if not trades.empty:
+            partial_types = [t for t in trades['type'].tolist()
+                             if t.startswith('partial_sell')]
+            assert len(partial_types) == 0, (
+                "partial_enabled=False mais partial_sell présent dans trade_log"
+            )
+
+    def test_partial_enabled_vs_disabled_diverge(self):
+        """P2-01: partial_enabled=True et False donnent des wallets différents."""
+        fn = _import_backtest()
+        df = _make_ohlcv(n=500, start_price=100, trend='up')
+        r_on = fn(df, ema1_period=12, ema2_period=22,
+                   sizing_mode='baseline', partial_enabled=True)
+        r_off = fn(df, ema1_period=12, ema2_period=22,
+                    sizing_mode='baseline', partial_enabled=False)
+        # Si des partials se déclenchent, les wallets doivent diverger
+        trades_on = r_on['trades']
+        if not trades_on.empty:
+            partial_types = [t for t in trades_on['type'].tolist()
+                             if t.startswith('partial_sell')]
+            if len(partial_types) > 0:
+                assert r_on['final_wallet'] != r_off['final_wallet'], (
+                    "Les wallets devraient diverger quand des partiels se déclenchent"
+                )

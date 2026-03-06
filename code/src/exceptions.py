@@ -47,6 +47,15 @@ class InsufficientFundsError(ExchangeError):
     pass
 
 
+class BalanceUnavailableError(ExchangeError):
+    """Account balance could not be retrieved from the exchange (P0-02).
+
+    Raised by get_spot_balance_usdc when the API call fails. Callers should
+    skip the current trading cycle rather than operating on a zero balance.
+    """
+    pass
+
+
 class OrderError(ExchangeError):
     """Order placement, modification, or cancellation failure."""
 
@@ -82,6 +91,15 @@ class InsufficientDataError(DataError):
 # ── Strategy ────────────────────────────────────────────────
 class StrategyError(TradingBotError):
     """Indicator or signal calculation error."""
+    pass
+
+
+class SizingError(StrategyError):
+    """Position sizing calculation failure (P0-05).
+
+    Raised when compute_position_size_* encounters an unexpected error.
+    Callers should skip the trade rather than silently using qty=0.
+    """
     pass
 
 

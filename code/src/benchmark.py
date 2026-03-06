@@ -7,7 +7,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 import numpy as np
 import time
-import ta
+from ta.momentum import RSIIndicator as _RSIIndicator
+from ta.volatility import AverageTrueRange as _AverageTrueRange
 from indicators import calculate_indicators as cython_calculate_indicators
 
 def python_calculate_indicators(df, ema1_period, ema2_period, stoch_period=14):
@@ -19,7 +20,7 @@ def python_calculate_indicators(df, ema1_period, ema2_period, stoch_period=14):
     df_work['ema2'] = df_work['close'].ewm(span=ema2_period, adjust=False).mean()
     
     # RSI
-    df_work['rsi'] = ta.momentum.RSIIndicator(df_work['close'], window=14).rsi()
+    df_work['rsi'] = _RSIIndicator(df_work['close'], window=14).rsi()
     
     # Stochastic RSI
     rsi_rolling = df_work['rsi'].rolling(window=stoch_period)
@@ -29,7 +30,7 @@ def python_calculate_indicators(df, ema1_period, ema2_period, stoch_period=14):
     df_work['stoch_rsi'] = (df_work['rsi'] - df_work['lowest_rsi']) / rsi_range.replace(0, 1)
     
     # ATR
-    df_work['atr'] = ta.volatility.AverageTrueRange(
+    df_work['atr'] = _AverageTrueRange(
         high=df_work['high'], 
         low=df_work['low'], 
         close=df_work['close'], 
@@ -57,12 +58,14 @@ for size in sizes:
     df = pd.DataFrame(data)
     
     # Benchmark Python
+    result_python = pd.DataFrame()
     start_time = time.time()
     for _ in range(3):  # 3 répétitions
         result_python = python_calculate_indicators(df, 14, 26, 14)
     python_time = (time.time() - start_time) / 3
-    
+
     # Benchmark Cython
+    result_cython = pd.DataFrame()
     start_time = time.time()
     for _ in range(3):  # 3 répétitions
         result_cython = cython_calculate_indicators(df, 14, 26, 14, 0, 0, 0, 0)

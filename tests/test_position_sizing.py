@@ -6,7 +6,8 @@ Couvre :
 - compute_position_size_fixed_notional : cas nominaux et cas limites
 - Entrées invalides → 0.0 sans exception
 """
-import os, sys
+import os
+import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
 
 import pytest
@@ -118,3 +119,40 @@ class TestPositionSizeFixedNotional:
             equity=10000.0, entry_price=200.0
         )
         assert qty > 0.0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Exception branch coverage — C-07
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestExceptionBranches:
+    """Tests forçant les branches `except Exception` → SizingError (P0-05)."""
+
+    def test_risk_exception_on_non_numeric_equity(self):
+        """Objet non-numérique comme equity → except → SizingError."""
+        from position_sizing import compute_position_size_by_risk
+        from exceptions import SizingError
+        with pytest.raises(SizingError):
+            compute_position_size_by_risk(
+                equity="not_a_number", atr_value=2.0, entry_price=100.0,  # type: ignore[arg-type]
+                risk_pct=0.01, stop_atr_multiplier=3.0,
+            )
+
+    def test_fixed_notional_exception_on_non_numeric(self):
+        """Objet non-numérique comme notional → except → SizingError."""
+        from position_sizing import compute_position_size_fixed_notional
+        from exceptions import SizingError
+        with pytest.raises(SizingError):
+            compute_position_size_fixed_notional(
+                equity="bad", notional_per_trade_usd="bad", entry_price=100.0,  # type: ignore[arg-type]
+            )
+
+    def test_volatility_parity_exception_on_non_numeric(self):
+        """Objet non-numérique comme equity → except → SizingError."""
+        from position_sizing import compute_position_size_volatility_parity
+        from exceptions import SizingError
+        with pytest.raises(SizingError):
+            compute_position_size_volatility_parity(
+                equity="bad", atr_value=2.0, entry_price=100.0,  # type: ignore[arg-type]
+                target_volatility_pct=0.02,
+            )

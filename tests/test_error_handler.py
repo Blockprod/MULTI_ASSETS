@@ -162,3 +162,116 @@ class TestGlobalErrorHandler:
         handler = ErrorHandler(email_config={})
         handler.send_alert_email("test subject", "test body")
         mock_send.assert_called_once()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# C-11 — Tests complémentaires pour couverture complète
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestC11Complements:
+    """Tests ciblant les branches manquantes."""
+
+    @patch('email_utils.send_email_alert', side_effect=Exception("SMTP down"))
+    def test_send_alert_email_exception_logged_not_raised(self, _mock):
+        """Si l'envoi email échoue, l'exception est loggée mais pas propagée."""
+        import error_handler as eh
+        eh._last_alert_email_time = 0.0
+        handler = ErrorHandler()
+        # Ne doit pas lever
+        handler.send_alert_email("subject", "body")
+
+    @patch('email_utils.send_email_alert', new_callable=MagicMock)
+    def test_handle_error_fallback_failure_records_failure(self, _mock_email):
+        """Si le fallback échoue aussi, record_failure est appelé."""
+        handler = ErrorHandler()
+
+        def bad_fallback():
+            raise RuntimeError("fallback also crashed")
+
+        should_continue, result = handler.handle_error(
+            ValueError("original"),
+            context="test_ctx",
+            safe_fallback=bad_fallback,
+        )
+        # Fallback a échoué → failure enregistrée
+        assert handler.circuit_breaker.failure_count >= 1
+
+    @patch('email_utils.send_email_alert', new_callable=MagicMock)
+    def test_get_status_returns_valid_json(self, _mock_email):
+        """get_status retourne un JSON valide avec circuit_breaker et historique."""
+        import json
+        handler = ErrorHandler()
+        handler.handle_error(ValueError("err"), context="ctx")
+        status = json.loads(handler.get_status())
+        assert "circuit_breaker" in status
+        assert "recent_errors" in status
+        assert status["recent_errors"] >= 1
+        assert "last_error" in status
+        assert status["last_error"]["context"] == "ctx"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# P2-10 — Tests supplémentaires pour couverture ≥ 60%
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestP210Coverage:
+    """P2-10: branches manquantes dans error_handler.py."""
+
+    @patch('email_utils.send_email_alert', new_callable=MagicMock)
+    def test_send_alert_email_throttled_skip(self, mock_send):
+        """Deuxième appel rapproché est throttled → email non envoyé."""
+        import error_handler as eh
+        eh._last_alert_email_time = 0.0  # Reset
+        handler = ErrorHandler()
+        handler.send_alert_email("first", "body")
+        assert mock_send.call_count == 1
+        # Deuxième appel immédiat → throttled
+        handler.send_alert_email("second", "body")
+        assert mock_send.call_count == 1  # pas d'appel supplémentaire
+
+    def test_safe_execute_failure_no_fallback(self):
+        """safe_execute sans fallback: erreur enregistrée, CB still available → continue."""
+        handler = ErrorHandler()
+
+        def failing_func():
+            raise RuntimeError("boom")
+
+        success, result = handler.safe_execute(failing_func, context="no_fallback")
+        # CB still available → should_continue = True
+        assert success is True
+        assert result is None
+        assert len(handler.error_history) >= 1
+
+    def test_safe_execute_with_kwargs(self):
+        """safe_execute avec func_kwargs transmet les arguments."""
+        handler = ErrorHandler()
+
+        def adder(a, b=0):
+            return a + b
+
+        success, result = handler.safe_execute(
+            adder, context="kwargs_test", func_args=(10,), func_kwargs={"b": 5}
+        )
+        assert success is True
+        assert result == 15
+
+    def test_clear_history_resets_circuit_breaker_count(self):
+        """clear_history remet failure_count du circuit breaker à 0."""
+        handler = ErrorHandler()
+        handler.circuit_breaker.record_failure()
+        handler.circuit_breaker.record_failure()
+        assert handler.circuit_breaker.failure_count == 2
+        handler.error_history.append({"error": "test"})  # Simulate
+        handler.clear_history()
+        assert handler.circuit_breaker.failure_count == 0
+        assert len(handler.error_history) == 0
+
+    def test_handle_error_non_critical_returns_true(self):
+        """Erreur non-critique (failure_count < threshold) → should_continue=True."""
+        handler = ErrorHandler()
+        handler.circuit_breaker = CircuitBreaker(failure_threshold=5, timeout_seconds=60)
+        success, result = handler.handle_error(
+            ValueError("minor"), context="test"
+        )
+        assert success is True
+        assert handler.circuit_breaker.failure_count == 1

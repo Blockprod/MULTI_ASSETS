@@ -2,7 +2,6 @@
 import sys
 import os
 import json
-import tempfile
 import threading
 import pytest
 
@@ -148,3 +147,76 @@ class TestConcurrency:
         assert len(errors) == 0
         records = read_journal(temp_logs_dir)
         assert len(records) == 20
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# P2-10 — Tests supplémentaires
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestP210TradeJournal:
+    """P2-10: branches manquantes dans trade_journal.py."""
+
+    def test_log_trade_returns_false_on_write_error(self, temp_logs_dir):
+        """log_trade retourne False si l'écriture échoue."""
+        # Utiliser un chemin invalide pour provoquer une erreur d'écriture
+        bad_dir = os.path.join(temp_logs_dir, "\x00invalid")
+        result = log_trade(
+            logs_dir=bad_dir, pair="BTCUSDC", side="buy",
+            quantity=1.0, price=100.0,
+        )
+        assert result is False
+
+    def test_log_trade_with_optional_fields(self, temp_logs_dir):
+        """log_trade avec tous les champs optionnels."""
+        result = log_trade(
+            logs_dir=temp_logs_dir, pair="ETHUSDC", side="sell",
+            quantity=10.0, price=3000.0, fee=3.0,
+            slippage=0.0001, scenario="StochRSI", timeframe="4h",
+            ema1=12, ema2=26, atr_value=50.0, stop_price=2900.0,
+            pnl=150.0, pnl_pct=5.0,
+            equity_before=10000.0, equity_after=10150.0,
+        )
+        assert result is True
+        records = read_journal(temp_logs_dir)
+        rec = records[-1]
+        assert rec["pair"] == "ETHUSDC"
+        assert rec["scenario"] == "StochRSI"
+        assert rec["timeframe"] == "4h"
+        assert rec["pnl"] == 150.0
+
+    def test_read_journal_skips_corrupt_line(self, temp_logs_dir):
+        """read_journal s'arrête à la première ligne corrompue (exception capturée)."""
+        journal_path = os.path.join(temp_logs_dir, "trade_journal.jsonl")
+        with open(journal_path, "w") as f:
+            f.write('{"pair":"BTCUSDC","side":"buy","qty":1,"price":100}\n')
+            f.write('NOT VALID JSON\n')
+            f.write('{"pair":"ETHUSDC","side":"sell","qty":2,"price":200}\n')
+        records = read_journal(temp_logs_dir)
+        # La ligne corrompue provoque une exception → seules les lignes avant sont retournées
+        assert len(records) == 1
+        assert records[0]["pair"] == "BTCUSDC"
+
+    def test_journal_summary_avg_win_and_avg_loss(self, temp_logs_dir):
+        """journal_summary calcule bien avg_win et avg_loss."""
+        log_trade(logs_dir=temp_logs_dir, pair="A", side="sell", quantity=1, price=110, pnl=10)
+        log_trade(logs_dir=temp_logs_dir, pair="A", side="sell", quantity=1, price=120, pnl=30)
+        log_trade(logs_dir=temp_logs_dir, pair="A", side="sell", quantity=1, price=80, pnl=-20)
+        summary = journal_summary(temp_logs_dir)
+        assert summary["avg_win"] == pytest.approx(20.0)  # (10+30)/2
+        assert summary["avg_loss"] == pytest.approx(-20.0)  # -20/1
+
+    def test_journal_summary_pnl_zero_is_loss(self, temp_logs_dir):
+        """Un sell avec pnl=0 est compté comme une perte (pas un gain)."""
+        log_trade(logs_dir=temp_logs_dir, pair="A", side="sell", quantity=1, price=100, pnl=0)
+        summary = journal_summary(temp_logs_dir)
+        assert summary["win_count"] == 0
+        assert summary["loss_count"] == 1
+
+    def test_journal_summary_buys_only(self, temp_logs_dir):
+        """journal_summary avec uniquement des buys → total_sells=0, win_rate=0."""
+        log_trade(logs_dir=temp_logs_dir, pair="A", side="buy", quantity=1, price=100)
+        log_trade(logs_dir=temp_logs_dir, pair="B", side="buy", quantity=2, price=200)
+        summary = journal_summary(temp_logs_dir)
+        assert summary["total_trades"] == 2
+        assert summary["total_sells"] == 0
+        assert summary["win_rate"] == 0.0

@@ -76,6 +76,9 @@ def calculate_indicators(
     cdef DTYPE_t gain, loss, avg_gain, avg_loss, rs
     cdef DTYPE_t high_rsi, low_rsi
     cdef DTYPE_t tr, plus_dm, minus_dm, tr_sum, plus_dm_sum, minus_dm_sum
+    cdef DTYPE_t raw_plus_dm, raw_minus_dm  # P3-DUP: ADX mutual exclusion
+    cdef DTYPE_t atr_tr_sum  # P3-DUP: ATR SMA seeding
+    cdef int atr_period  # P3-DUP: parameterized ATR period
     cdef DTYPE_t trix_pct, trix_signal_val
     cdef np.ndarray[DTYPE_t, ndim=1] temp_trix = np.empty(n, dtype=DTYPE) if trix_length > 0 else None
     cdef np.ndarray[DTYPE_t, ndim=1] temp_trix_signal = np.empty(n, dtype=DTYPE) if trix_length > 0 else None
@@ -111,16 +114,23 @@ def calculate_indicators(
             rsi[i] = np.nan
 
     # Stochastic RSI optimisé avec min/max tracking (évite O(n²))
+    # P3-DUP: RSI a NaN pour les indices 0..13 (warm-up Wilder).
+    # On démarre le StochRSI à partir du premier RSI valide (index 14)
+    # pour éviter la propagation de NaN dans min/max.
     cdef DTYPE_t[:] rsi_view = rsi
     cdef DTYPE_t[:] stoch_view = stoch_rsi
+    cdef Py_ssize_t rsi_start = 14  # premier index RSI non-NaN
+    cdef Py_ssize_t stoch_start = rsi_start + stoch_period - 1  # premier StochRSI valide
     
-    if stoch_period < n:
-        # Initialiser le premier min/max
-        min_rsi = rsi[0]
-        max_rsi = rsi[0]
-        
-        # Glissant window avec tracking O(n)
-        for i in range(1, stoch_period):
+    # Initialiser tout à NaN
+    for i in range(n):
+        stoch_rsi[i] = np.nan
+
+    if stoch_start < n:
+        # Initialiser le premier min/max sur la fenêtre [rsi_start, stoch_start]
+        min_rsi = rsi[rsi_start]
+        max_rsi = rsi[rsi_start]
+        for i in range(rsi_start + 1, stoch_start + 1):
             if rsi[i] < min_rsi:
                 min_rsi = rsi[i]
             if rsi[i] > max_rsi:
@@ -128,10 +138,10 @@ def calculate_indicators(
         
         # Première fenêtre complète
         rsi_range = max_rsi - min_rsi
-        stoch_rsi[stoch_period - 1] = (rsi[stoch_period - 1] - min_rsi) / rsi_range if rsi_range != 0 else 0.5
+        stoch_rsi[stoch_start] = (rsi[stoch_start] - min_rsi) / rsi_range if rsi_range != 0 else 0.5
         
         # Fenêtres glissantes suivantes (O(n) au lieu de O(n²))
-        for i in range(stoch_period, n):
+        for i in range(stoch_start + 1, n):
             # Ajouter le nouvel élément
             new_val = rsi[i]
             if new_val < min_rsi:
@@ -151,20 +161,25 @@ def calculate_indicators(
             
             rsi_range = max_rsi - min_rsi
             stoch_rsi[i] = (rsi[i] - min_rsi) / rsi_range if rsi_range != 0 else 0.5
-        
-        # Marquer les premiers éléments comme NaN
-        for i in range(stoch_period - 1):
-            stoch_rsi[i] = np.nan
 
+    # ATR — P3-DUP: utilise SMA des N premiers TRs comme seed (standard Wilder),
+    # et respecte le paramètre atr_period au lieu de hardcoder 14.
+    atr_period = 14  # TODO: ajouter en paramètre de la fonction
+    atr_tr_sum = 0.0
     for i in range(n):
         if i == 0:
+            tr = high[i] - low[i]
             atr[i] = 0.0
         else:
             tr = max(high[i] - low[i], abs(high[i] - close[i - 1]), abs(low[i] - close[i - 1]))
-            if i <= 14:
-                atr[i] = tr if i == 14 else 0.0
+            if i < atr_period:
+                atr_tr_sum += tr
+                atr[i] = 0.0
+            elif i == atr_period:
+                atr_tr_sum += tr
+                atr[i] = atr_tr_sum / atr_period  # SMA seed (standard Wilder)
             else:
-                atr[i] = (atr[i - 1] * 13 + tr) / 14
+                atr[i] = (atr[i - 1] * (atr_period - 1) + tr) / atr_period
 
     # SMA optimisé avec fenêtre glissante (O(n) au lieu de O(n²))
     if sma_long > 0:
@@ -195,8 +210,25 @@ def calculate_indicators(
             high_close = abs(high[i] - close[i - 1])
             low_close = abs(low[i] - close[i - 1])
             tr = max(high_low, high_close, low_close)
-            plus_dm = high[i] - high[i - 1] if high[i] - high[i - 1] > low[i - 1] - low[i] else 0.0
-            minus_dm = low[i - 1] - low[i] if low[i - 1] - low[i] > high[i] - high[i - 1] else 0.0
+            # P3-DUP: Standard Wilder +DM/-DM with mutual exclusion
+            # +DM = max(high - prev_high, 0) si > -DM, sinon 0
+            # -DM = max(prev_low - low, 0) si > +DM, sinon 0
+            raw_plus_dm = high[i] - high[i - 1]
+            raw_minus_dm = low[i - 1] - low[i]
+            if raw_plus_dm < 0:
+                raw_plus_dm = 0.0
+            if raw_minus_dm < 0:
+                raw_minus_dm = 0.0
+            # Mutual exclusion: only the larger one survives
+            if raw_plus_dm > raw_minus_dm:
+                plus_dm = raw_plus_dm
+                minus_dm = 0.0
+            elif raw_minus_dm > raw_plus_dm:
+                plus_dm = 0.0
+                minus_dm = raw_minus_dm
+            else:
+                plus_dm = 0.0
+                minus_dm = 0.0
             if i <= adx_period:
                 tr_sum += tr
                 plus_dm_sum += plus_dm

@@ -38,7 +38,7 @@ def _ok(condition: bool) -> str:
 
 def display_buy_signal_panel(
     row, usdc_balance, best_params, scenario, buy_condition,
-    console: Console, pair_state: Optional[Dict] = None, buy_reason=None,
+    console: Console, pair_state: Optional[Dict[str, Any]] = None, buy_reason=None,
 ):
     """
     Panneau d'analyse des signaux d'achat avec détails des conditions
@@ -181,14 +181,14 @@ def display_sell_signal_panel(
         partial_2_reached = current_price >= partial_2_threshold and partial_taken_1
 
         partial_1_status = (
-            f"[bold green]\u2714 OK[/bold green]"
+            "[bold green]\u2714 OK[/bold green]"
             if partial_1_reached else
-            f"[bold red]\u2718 NOK[/bold red]"
+            "[bold red]\u2718 NOK[/bold red]"
         )
         partial_2_status = (
-            f"[bold green]\u2714 OK[/bold green]"
+            "[bold green]\u2714 OK[/bold green]"
             if partial_2_reached else
-            f"[bold red]\u2718 NOK[/bold red]"
+            "[bold red]\u2718 NOK[/bold red]"
         )
         partial_1_taken = "[yellow]\u2713 DEJA PRISE[/yellow]" if partial_taken_1 else "[grey62]En attente[/grey62]"
         partial_2_taken = "[yellow]\u2713 DEJA PRISE[/yellow]" if partial_taken_2 else "[grey62]En attente[/grey62]"
@@ -204,8 +204,8 @@ def display_sell_signal_panel(
     if entry_price is not None and current_price is not None and coin_balance is not None:
         try:
             pnl_value = (current_price - entry_price) * coin_balance
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug("[UI] Calcul PnL impossible: %s", _e)
 
     # Trailing activation display
     qc = pair_state.get('quote_currency', 'USDC')
@@ -276,7 +276,7 @@ _last_balance_panel_hash: Optional[int] = None
 
 def display_account_balances_panel(
     account_info, coin_symbol, quote_currency, client,
-    console: Console, pair_state: Dict,
+    console: Console, pair_state: Dict[str, Any],
     last_buy_price=None, atr_at_entry=None,
 ):
     """
@@ -291,7 +291,11 @@ def display_account_balances_panel(
     usdc_balance = float(usdc_balance_obj['free']) if usdc_balance_obj else 0.0
 
     coin_balance_obj = next((b for b in account_info['balances'] if b['asset'] == coin_symbol), None)
-    coin_balance = float(coin_balance_obj['free']) if coin_balance_obj else 0.0
+    # Inclure les coins verrouillés (ordres STOP_LOSS_LIMIT en attente) dans l'affichage
+    # sinon le panel montre 0.00057 SOL au lieu de 2.967 SOL quand un SL est actif.
+    _coin_free = float(coin_balance_obj['free']) if coin_balance_obj else 0.0
+    _coin_locked = float(coin_balance_obj.get('locked', '0') or '0') if coin_balance_obj else 0.0
+    coin_balance = _coin_free + _coin_locked
 
     # Spot price
     try:
@@ -429,16 +433,15 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict], console: O
         header_style="bold white on dark_blue",
         border_style="bright_blue",
         row_styles=["", "dim"],
-        width=PANEL_WIDTH,
+        expand=True,
         pad_edge=True,
         show_lines=False,
     )
     table.add_column("#", style="bold white", justify="center", ratio=2, no_wrap=True)
     table.add_column("TF", style="cyan", justify="center", ratio=3, no_wrap=True)
     table.add_column("EMA", style="cyan", justify="center", ratio=4, no_wrap=True)
-    table.add_column("Scenario", style="magenta", justify="left", ratio=9, no_wrap=True)
-    table.add_column("Profit ($)", justify="right", ratio=8, no_wrap=True)
-    table.add_column("Wallet ($)", justify="right", ratio=8, no_wrap=True)
+    table.add_column("Scenario", style="magenta", justify="left", ratio=10, no_wrap=True)
+    table.add_column("Profit ($)", justify="right", ratio=9, no_wrap=True)
     table.add_column("Trades", style="white", justify="center", ratio=4, no_wrap=True)
     table.add_column("DD %", justify="right", ratio=5, no_wrap=True)
     table.add_column("WR %", justify="right", ratio=5, no_wrap=True)
@@ -446,7 +449,7 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict], console: O
     for i, result in enumerate(display_results, 1):
         profit = result['final_wallet'] - result['initial_wallet']
         profit_color = "bold bright_green" if profit > 0 else "bold red"
-        rank = f"\u2605" if i == 1 else str(i)
+        rank = "\u2605" if i == 1 else str(i)
         row_style = "on dark_green" if i == 1 else ""
         table.add_row(
             f"[bold yellow]{rank}[/bold yellow]" if i == 1 else rank,
@@ -454,7 +457,6 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict], console: O
             f"{result['ema_periods'][0]}/{result['ema_periods'][1]}",
             result['scenario'],
             f"[{profit_color}]{profit:,.2f}[/{profit_color}]",
-            f"[yellow]{result['final_wallet']:,.2f}[/yellow]",
             str(len(result['trades'])),
             f"[red]{result['max_drawdown']*100:.2f}%[/red]",
             f"[cyan]{result['win_rate']:.2f}%[/cyan]",
@@ -581,7 +583,7 @@ def display_trading_panel(real_trading_pair: str, best_params: Dict[str, Any], c
 
 # ─── Tracking Panel (deduplicated) ─────────────────────────────────────────
 
-def build_tracking_panel(pair_state: Dict, current_run_time: str) -> Panel:
+def build_tracking_panel(pair_state: Dict[str, Any], current_run_time: str) -> Panel:
     """
     Construit le panel «SUIVI D'EXÉCUTION & PLANIFICATION AUTOMATIQUE».
     Retourne un Panel Rich prêt à être imprimé.
@@ -604,8 +606,8 @@ def build_tracking_panel(pair_state: Dict, current_run_time: str) -> Panel:
         tracking_grid.add_row("[bold bright_green]Premiere execution[/bold bright_green]", "[bold bright_green]Systeme de trading automatise[/bold bright_green]")
 
     tracking_grid.add_row("", "")
-    tracking_grid.add_row("Mode de planification", "[dim]Homogene et reactif - 2 minutes[/dim]")
-    tracking_grid.add_row("Prochaine execution", "[bright_green]Toutes les 2 min (720 exec/jour)[/bright_green]")
+    tracking_grid.add_row("Mode de planification", "[dim]Live: 2 min | Backtest+WF: 1 heure[/dim]")
+    tracking_grid.add_row("Prochaine execution", "[bright_green]Live toutes les 2 min (720 exec/jour)[/bright_green]")
 
     return Panel(
         tracking_grid,
@@ -667,11 +669,11 @@ def display_bot_active_banner(num_jobs: int, next_run, console: Console):
     bot_grid = Table(box=None, show_header=False, pad_edge=False, show_edge=False, padding=(0, 2))
     bot_grid.add_column("label", style="bold white", width=24, no_wrap=True)
     bot_grid.add_column("value")
-    bot_grid.add_row(f"[bold bright_green]\u2714 Surveillance 24/7[/bold bright_green]", f"[bold bright_green]demarree a {datetime.now().strftime('%H:%M:%S')}[/bold bright_green]")
+    bot_grid.add_row("[bold bright_green]\u2714 Surveillance 24/7[/bold bright_green]", f"[bold bright_green]demarree a {datetime.now().strftime('%H:%M:%S')}[/bold bright_green]")
     bot_grid.add_row("", "")
     bot_grid.add_row("Taches planifiees", f"[bright_cyan]{num_jobs}[/bright_cyan]")
     bot_grid.add_row("Prochaine execution", f"[bright_yellow]{next_run_str}[/bright_yellow]")
-    bot_grid.add_row("Frequence", "[dim]Toutes les 2 minutes (720 exec/jour)[/dim]")
+    bot_grid.add_row("Frequence", "[dim]Live: 2 min (720/jour) | Backtest+WF: 1 heure[/dim]")
 
     console.print()
     console.print(Panel(

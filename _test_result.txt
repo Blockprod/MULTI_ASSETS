@@ -1,0 +1,23 @@
+t.py", line 11673, in close_connection
+      if self.session:
+         ^^^^^^^^^^^^
+  AttributeError: 'BinanceFinalClient' object has no attribute 'session'
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+40 passed, 6 warnings in 6.50s
+
+---STDERR---
+1677, in __del__
+    self.close_connection()
+  File "C:\Users\averr\MULTI_ASSETS\.venv\Lib\site-packages\binance\client.py", line 11673, in close_connection
+    if self.session:
+       ^^^^^^^^^^^^
+AttributeError: 'BinanceFinalClient' object has no attribute 'session'
+
+Enable tracemalloc to get traceback where the object was allocated.
+See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+  warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))

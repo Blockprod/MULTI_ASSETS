@@ -7,9 +7,11 @@ Contient les 3 modes de sizing:
 - volatility parity (volatilité cible du P&L)
 """
 import logging
+import math
 from typing import Optional
 
 from bot_config import config
+from exceptions import SizingError
 
 logger = logging.getLogger('trading_bot')
 
@@ -41,6 +43,8 @@ def compute_position_size_by_risk(
 
         if atr_value is None or atr_value <= 0 or entry_price is None or entry_price <= 0:
             return 0.0
+        if not math.isfinite(equity) or not math.isfinite(entry_price) or not math.isfinite(atr_value):
+            return 0.0
 
         stop_distance = stop_atr_multiplier * float(atr_value)
         if stop_distance <= 0:
@@ -52,8 +56,8 @@ def compute_position_size_by_risk(
 
         qty_coin = risk_amount / stop_distance
         return float(qty_coin) if qty_coin > 0 else 0.0
-    except Exception:
-        return 0.0
+    except Exception as e:
+        raise SizingError(f"risk sizing error: {e}") from e
 
 
 def compute_position_size_fixed_notional(
@@ -74,21 +78,23 @@ def compute_position_size_fixed_notional(
     try:
         if entry_price is None or entry_price <= 0:
             return 0.0
+        if not math.isfinite(equity) or not math.isfinite(entry_price):
+            return 0.0
         if notional_per_trade_usd is None:
             notional_per_trade_usd = max(100.0, equity * 0.1)
         if notional_per_trade_usd <= 0:
             return 0.0
         qty_coin = float(notional_per_trade_usd) / float(entry_price)
         return float(qty_coin) if qty_coin > 0 else 0.0
-    except Exception:
-        return 0.0
+    except Exception as e:
+        raise SizingError(f"fixed_notional sizing error: {e}") from e
 
 
 def compute_position_size_volatility_parity(
     equity: float,
-    atr_value: float,
-    entry_price: float,
-    target_volatility_pct: float = 0.02,
+    atr_value: Optional[float],
+    entry_price: Optional[float],
+    target_volatility_pct: Optional[float] = 0.02,
 ) -> float:
     """Calcule la taille de position pour maintenir une volatilité fixe du P&L.
 
@@ -106,11 +112,13 @@ def compute_position_size_volatility_parity(
     try:
         if atr_value is None or atr_value <= 0 or entry_price is None or entry_price <= 0:
             return 0.0
+        if not math.isfinite(equity) or not math.isfinite(entry_price) or not math.isfinite(atr_value):
+            return 0.0
         if target_volatility_pct is None or target_volatility_pct <= 0:
             target_volatility_pct = 0.02
 
         volatility_amount = float(equity) * float(target_volatility_pct)
         qty_coin = volatility_amount / (float(atr_value) * float(entry_price))
         return float(qty_coin) if qty_coin > 0 else 0.0
-    except Exception:
-        return 0.0
+    except Exception as e:
+        raise SizingError(f"volatility_parity sizing error: {e}") from e

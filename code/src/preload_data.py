@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 
 import pandas as pd
 import ta
+from ta.momentum import RSIIndicator as _RSIIndicator
 from binance.client import Client
 import joblib
 from datetime import datetime, timedelta
@@ -42,7 +43,7 @@ def calculate_all_indicators(df):
     df_work['ema2'] = df_work['close'].ewm(span=26, adjust=False).mean()
 
     # RSI
-    df_work['rsi'] = ta.momentum.RSIIndicator(df_work['close'], window=14).rsi()
+    df_work['rsi'] = _RSIIndicator(df_work['close'], window=14).rsi()
 
     # Stochastic RSI
     rsi_roll = df_work['rsi'].rolling(window=14)
@@ -59,7 +60,6 @@ def calculate_all_indicators(df):
     high_close = abs(df_work['high'] - df_work['close'].shift(1))
     low_close = abs(df_work['low'] - df_work['close'].shift(1))
     df_work['tr'] = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    tr_smooth = df_work['tr'].rolling(window=14).mean()
     df_work['adx'] = ta.trend.ADXIndicator(
         df_work['high'], df_work['low'], df_work['close'], window=14
     ).adx()

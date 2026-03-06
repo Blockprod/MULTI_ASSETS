@@ -2,7 +2,7 @@
 """
 Standalone check for RSI + StochRSI using the same method as the bot.
 Run from workspace root:
-  python MULTI_INDICATORS_USDC\local_stoch_check.py
+  python MULTI_INDICATORS_USDC\\local_stoch_check.py
 """
 import os
 import sys
@@ -35,14 +35,14 @@ def fetch_klines(pair, interval, limit=1000):
 
 def compute_stochrsi_from_rsi_series(rsi_series: pd.Series, stoch_period: int = 14):
     # vector loop equivalent to the bot: for each i compute rolling min/max over last stoch_period RSI values
-    rsi_vals = rsi_series.values
+    rsi_vals = rsi_series.to_numpy(dtype=float)
     n = len(rsi_vals)
     stoch = np.full(n, np.nan)
     if n >= stoch_period:
         for i in range(stoch_period - 1, n):
             window = rsi_vals[i - stoch_period + 1: i + 1]
-            rsi_low = np.min(window)
-            rsi_high = np.max(window)
+            rsi_low: float = np.min(window)
+            rsi_high: float = np.max(window)
             rsi_range = rsi_high - rsi_low
             if rsi_range > 0:
                 stoch[i] = (rsi_vals[i] - rsi_low) / rsi_range
@@ -52,7 +52,7 @@ def compute_stochrsi_from_rsi_series(rsi_series: pd.Series, stoch_period: int = 
 
 
 def compute_rsi_wilder_series(prices: pd.Series, period: int = 14) -> pd.Series:
-    prices = prices.astype('float64').values
+    prices = prices.astype('float64').values  # type: ignore[assignment]
     n = len(prices)
     if n <= period:
         return pd.Series([np.nan] * n, index=pd.RangeIndex(n))
@@ -83,7 +83,7 @@ if __name__ == '__main__':
     df = fetch_klines(PAIR, INTERVAL, LIMIT)
     print(f'Retrieved {len(df)} candles from {df.index[0]} to {df.index[-1]}')
 
-    df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
+    df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()  # type: ignore[attr-defined]
     # Also compute Wilder RSI for comparison
     try:
         rsi_wilder = compute_rsi_wilder_series(df['close'], period=14)
@@ -107,13 +107,13 @@ if __name__ == '__main__':
     df['stoch_d_wilder_ema'] = df['stoch_k_wilder_ema'].ewm(span=3, adjust=False).mean()
     # Variant: compute StochRSI using previous period (exclude current) for min/max
     def stoch_exclusive(series: pd.Series, period: int = STOCH_PERIOD):
-        vals = series.values
+        vals = series.to_numpy(dtype=float)
         n = len(vals)
         out = np.full(n, np.nan)
         for i in range(period, n):
             window = vals[i - period:i]  # exclude current
-            low = np.min(window)
-            high = np.max(window)
+            low: float = np.min(window)
+            high: float = np.max(window)
             denom = high - low
             out[i] = (series.iloc[i] - low) / denom if denom != 0 else 0.5
         return pd.Series(out, index=series.index)

@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 import traceback
 import json
 import logging
+import threading
 from datetime import datetime
 from typing import Dict, Callable, Any, Optional, Tuple
 from enum import Enum
@@ -19,9 +20,20 @@ import time as _time
 
 logger = logging.getLogger(__name__)
 
-# Throttle des emails d'alerte : max 1 email toutes les 5 minutes
+# Throttle des emails d'alerte : max 1 email toutes les N secondes
+# P2-07: valeur par défaut, surchargée par config.email_cooldown_seconds
 _EMAIL_COOLDOWN_SECONDS = 300
 _last_alert_email_time: float = 0.0
+_email_throttle_lock = threading.Lock()  # P1-02: protège _last_alert_email_time
+
+
+def _get_email_cooldown():
+    """P2-07: Charge le cooldown depuis la config si disponible."""
+    try:
+        from bot_config import config
+        return config.email_cooldown_seconds
+    except Exception:
+        return _EMAIL_COOLDOWN_SECONDS
 
 
 class SafeMode(Enum):
@@ -32,8 +44,12 @@ class SafeMode(Enum):
 
 
 class CircuitBreaker:
-    """Simple circuit breaker to prevent cascading failures"""
-    
+    """Simple circuit breaker to prevent cascading failures.
+
+    Thread-safe (P0-05): all state mutations are protected by an RLock so that
+    concurrent per-pair trading threads cannot corrupt shared counters.
+    """
+
     def __init__(self, failure_threshold: int = 3, timeout_seconds: int = 300):
         self.failure_count = 0
         self.failure_threshold = failure_threshold
@@ -41,38 +57,44 @@ class CircuitBreaker:
         self.last_failure_time = None
         self.is_open = False
         self.mode = SafeMode.RUNNING
-    
+        self._lock = threading.RLock()  # P0-05: protects all mutable attributes
+
     def record_success(self):
-        """Reset on successful execution"""
-        self.failure_count = 0
-        self.is_open = False
-        self.mode = SafeMode.RUNNING
-        logger.info("[CIRCUIT] Reset - Normal operation resumed")
-    
-    def record_failure(self):
-        """Record failure and possibly trip circuit"""
-        self.failure_count += 1
-        self.last_failure_time = datetime.now()
-        if self.failure_count >= self.failure_threshold:
-            self.is_open = True
-            self.mode = SafeMode.PAUSED
-            logger.warning(f"[CIRCUIT] TRIPPED - {self.failure_count} failures detected. Bot paused.")
-    
-    def is_available(self) -> bool:
-        """Check if circuit allows execution"""
-        if not self.is_open:
-            return True
-        
-        # Check if timeout expired
-        time_since_failure = (datetime.now() - self.last_failure_time).total_seconds()
-        if time_since_failure > self.timeout_seconds:
+        """Reset on successful execution."""
+        with self._lock:
             self.failure_count = 0
             self.is_open = False
             self.mode = SafeMode.RUNNING
-            logger.info("[CIRCUIT] Timeout expired - Attempting recovery")
-            return True
-        
-        return False
+        logger.info("[CIRCUIT] Reset - Normal operation resumed")
+
+    def record_failure(self):
+        """Record failure and possibly trip circuit."""
+        with self._lock:
+            self.failure_count += 1
+            self.last_failure_time = datetime.now()
+            if self.failure_count >= self.failure_threshold:
+                self.is_open = True
+                self.mode = SafeMode.PAUSED
+                logger.warning(f"[CIRCUIT] TRIPPED - {self.failure_count} failures detected. Bot paused.")
+
+    def is_available(self) -> bool:
+        """Check if circuit allows execution."""
+        with self._lock:
+            if not self.is_open:
+                return True
+
+            # Check if timeout expired
+            if self.last_failure_time is None:
+                return True
+            time_since_failure = (datetime.now() - self.last_failure_time).total_seconds()
+            if time_since_failure > self.timeout_seconds:
+                self.failure_count = 0
+                self.is_open = False
+                self.mode = SafeMode.RUNNING
+                logger.info("[CIRCUIT] Timeout expired - Attempting recovery")
+                return True
+
+            return False
     
     def get_status(self) -> str:
         """Get circuit breaker status"""
@@ -86,21 +108,32 @@ class CircuitBreaker:
 
 
 class ErrorHandler:
-    """Central error handling with auto-pause and alerting"""
-    
+    """Central error handling with auto-pause and alerting."""
+
     def __init__(self, email_config: Optional[Dict[str, str]] = None):
         self.circuit_breaker = CircuitBreaker(failure_threshold=3, timeout_seconds=300)
-        self.error_history = []
+        self.error_history: list[dict] = []
         self.email_config = email_config or {}
         self.max_history = 50
+        self._history_lock = threading.Lock()  # P0-05: protects error_history list
     
-    def send_alert_email(self, subject: str, body: str, error_details: Dict = None):
-        """Send alert email via email_utils, throttled to 1 every 5 minutes."""
+    def send_alert_email(self, subject: str, body: str, error_details: Optional[Dict] = None, critical: bool = False):
+        """Send alert email via email_utils, throttled to 1 every 5 minutes.
+
+        Les alertes critiques (critical=True) bypasse le throttle pour garantir
+        que les alertes P0/EMERGENCY ne soient jamais silencieusement supprimées.
+        """
         global _last_alert_email_time
         now = _time.time()
-        if (now - _last_alert_email_time) < _EMAIL_COOLDOWN_SECONDS:
-            logger.info(f"[ALERT] Email throttled (cooldown {_EMAIL_COOLDOWN_SECONDS}s) — skipping: {subject}")
-            return
+        if not critical:
+            with _email_throttle_lock:  # P1-02: atomic check-and-set
+                _cooldown = _get_email_cooldown()  # P2-07
+                if (now - _last_alert_email_time) < _cooldown:
+                    logger.info(f"[ALERT] Email throttled (cooldown {_cooldown}s) — skipping: {subject}")
+                    return
+                _last_alert_email_time = now
+        else:
+            logger.info(f"[ALERT] Email critique — throttle bypassé : {subject}")
         try:
             from email_utils import send_email_alert
             
@@ -127,7 +160,6 @@ Message automatique du Bot de Trading Crypto
                 text_content += f"\n\nDETAILS TECHNIQUES:\n{json.dumps(error_details, indent=2, default=str)}"
             
             send_email_alert(f"[BOT ALERT] {subject}", text_content)
-            _last_alert_email_time = _time.time()
             logger.info("[ALERT] Email sent successfully")
         
         except Exception as e:
@@ -161,28 +193,30 @@ Message automatique du Bot de Trading Crypto
             "traceback": traceback.format_exc(),
             "circuit_mode": self.circuit_breaker.mode.value
         }
-        self.error_history.append(error_record)
-        if len(self.error_history) > self.max_history:
-            self.error_history.pop(0)
-        
+        with self._history_lock:  # P0-05: thread-safe list append
+            self.error_history.append(error_record)
+            if len(self.error_history) > self.max_history:
+                self.error_history.pop(0)
+
         # Log
         logger.error(f"[ERROR] {context}: {type(error).__name__}: {str(error)}")
         logger.debug(f"[TRACEBACK]\n{traceback.format_exc()}")
-        
-        # Update circuit breaker
-        self.circuit_breaker.record_failure()
-        
-        # Try fallback if provided
+
+        # P1-07: Try fallback FIRST — only record_failure if fallback also fails.
+        # Previous order (record_failure then fallback) caused spurious PAUSED state.
         fallback_result = None
         if safe_fallback:
             try:
                 logger.info(f"[RECOVERY] Attempting safe fallback for {context}")
                 fallback_result = safe_fallback()
-                logger.info(f"[RECOVERY] Fallback successful")
+                logger.info("[RECOVERY] Fallback successful")
                 self.circuit_breaker.record_success()
                 return True, fallback_result
             except Exception as fallback_error:
                 logger.error(f"[RECOVERY] Fallback failed: {fallback_error}")
+
+        # Record failure only when no fallback succeeded
+        self.circuit_breaker.record_failure()
         
         # Send alert
         alert_body = f"""
@@ -199,18 +233,19 @@ Nombre d'erreurs: {self.circuit_breaker.failure_count}
             self.send_alert_email(
                 f"ERREUR CRITIQUE - {context}",
                 alert_body,
-                error_details=error_record
+                error_details=error_record,
+                critical=True,
             )
         else:
             self.send_alert_email(
                 f"Erreur détectée - {context}",
                 alert_body,
-                error_details=error_record
+                error_details=error_record,
             )
         
         # Return based on circuit state
         if self.circuit_breaker.is_available():
-            logger.warning(f"[CONTINUE] Continuing despite error (circuit still available)")
+            logger.warning("[CONTINUE] Continuing despite error (circuit still available)")
             return True, None
         else:
             logger.critical(f"[PAUSE] Bot paused - Circuit breaker tripped. Recovery in {self.circuit_breaker.timeout_seconds}s")
@@ -220,7 +255,7 @@ Nombre d'erreurs: {self.circuit_breaker.failure_count}
         self,
         func: Callable,
         func_args: tuple = (),
-        func_kwargs: dict = None,
+        func_kwargs: Optional[dict] = None,
         context: str = "unknown",
         safe_fallback: Optional[Callable] = None,
         critical: bool = False
@@ -263,9 +298,11 @@ Nombre d'erreurs: {self.circuit_breaker.failure_count}
         return json.dumps(status, indent=2)
     
     def clear_history(self):
-        """Clear error history"""
-        self.error_history = []
-        self.circuit_breaker.failure_count = 0
+        """Clear error history (P1-03: thread-safe)."""
+        with self._history_lock:
+            self.error_history = []
+        with self.circuit_breaker._lock:
+            self.circuit_breaker.failure_count = 0
         logger.info("[HANDLER] Error history cleared")
 
 

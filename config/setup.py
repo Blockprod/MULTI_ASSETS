@@ -6,19 +6,19 @@ from Cython.Build import cythonize
 extensions = [
     Extension(
         "indicators",
-        ["indicators.pyx"],
+        ["../code/indicators.pyx"],
         include_dirs=[np.get_include()],
         language="c++",
     ),
     Extension(
         "backtest_engine",
-        ["backtest_engine.pyx"],
+        ["../code/backtest_engine.pyx"],
         include_dirs=[np.get_include()],
         language="c++",
     ),
     Extension(
         "backtest_engine_standard",
-        ["backtest_engine_standard.pyx"],
+        ["../code/backtest_engine_standard.pyx"],
         include_dirs=[np.get_include()],
         language="c++",
     ),

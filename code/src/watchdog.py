@@ -41,17 +41,21 @@ def _close_logger_handlers():
             h.flush()
             h.close()
         except Exception:
-            pass
+            pass  # intentional: cannot log safely while closing log handlers
 atexit.register(_close_logger_handlers)
 
 # Tentative d'import email (optionnel — watchdog reste fonctionnel sans)
+def _send_email_alert(subject: str, body: str) -> bool:  # noqa: default no-op if import fails
+    return False
+
+_EMAIL_AVAILABLE = False
 try:
     import sys as _sys
     _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from email_utils import send_email_alert as _send_email_alert
+    from email_utils import send_email_alert as _send_email_alert  # type: ignore[no-redef]
     _EMAIL_AVAILABLE = True
 except Exception:
-    _EMAIL_AVAILABLE = False
+    pass  # _EMAIL_AVAILABLE stays False, _send_email_alert stays no-op
 
 def _notify_watchdog_stopped(restart_count: int, reason: str) -> None:
     """Envoie un email d'alerte quand le watchdog abandonne definitvement."""

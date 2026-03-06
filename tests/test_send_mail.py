@@ -43,7 +43,7 @@ def send_email_alert(subject, body):
         server.ehlo()
 
         print("[DEBUG] Connexion en cours avec les identifiants...")
-        server.login(smtp_user, smtp_password)
+        server.login(smtp_user, smtp_password)  # type: ignore[arg-type]
 
         print("[DEBUG] Envoi du message...")
         server.sendmail(sender_email, receiver_email, msg.as_string())

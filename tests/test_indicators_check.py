@@ -47,10 +47,10 @@ def calc_indicators_standard(df):
     low = df['low']
 
     # RSI 14
-    out['rsi_14'] = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
+    out['rsi_14'] = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]  # type: ignore[attr-defined]
 
     # StochRSI 14 (using RSI series)
-    rsi = ta.momentum.RSIIndicator(close, window=14).rsi()
+    rsi = ta.momentum.RSIIndicator(close, window=14).rsi()  # type: ignore[attr-defined]
     stoch_period = 14
     if len(rsi) >= stoch_period:
         lowest = rsi.rolling(window=stoch_period).min()
@@ -61,11 +61,11 @@ def calc_indicators_standard(df):
         out['stochrsi_14'] = np.nan
 
     # ATR 14
-    out['atr_14'] = ta.volatility.AverageTrueRange(high=high, low=low, close=close, window=14).average_true_range().iloc[-1]
+    out['atr_14'] = ta.volatility.AverageTrueRange(high=high, low=low, close=close, window=14).average_true_range().iloc[-1]  # type: ignore[attr-defined]
 
     # ADX 14
     try:
-        out['adx_14'] = ta.trend.ADXIndicator(high=high, low=low, close=close, window=14).adx().iloc[-1]
+        out['adx_14'] = ta.trend.ADXIndicator(high=high, low=low, close=close, window=14).adx().iloc[-1]  # type: ignore[attr-defined]
     except Exception:
         out['adx_14'] = np.nan
 

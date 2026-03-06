@@ -26,9 +26,33 @@ logger = logging.getLogger("walk_forward")
 # ──────────────────────────────────────────────────────────────
 # Constants & OOS Quality Gates
 # ──────────────────────────────────────────────────────────────
-OOS_SHARPE_MIN = 0.5       # Minimum OOS annualized Sharpe
-OOS_WIN_RATE_MIN = 45.0    # Minimum OOS win rate (%)
-RISK_FREE_RATE = 0.04      # Annual risk-free rate (≈ US T-bills 2024)
+# Seuils calibrés pour le crypto trend-following :
+#   - Le Sharpe d'une bonne stratégie crypto est rarement > 1.0 en OOS
+#   - Le WinRate est structurellement bas (25-45%) sur des stratégies
+#     qui laissent courir les profits (profit factor élevé compense)
+# P1-THRESH: valeurs par défaut, surchargées par config.oos_sharpe_min / config.oos_win_rate_min
+OOS_SHARPE_MIN = 0.8       # Minimum OOS annualized Sharpe (default)
+OOS_WIN_RATE_MIN = 30.0    # Minimum OOS win rate (%) (default)
+OOS_DECAY_MIN = 0.15       # Minimum OOS/FS Sharpe ratio (anti-overfit gate)
+RISK_FREE_RATE = 0.04      # Annual risk-free rate (default, P2-03: surchargé par config)
+
+
+def _get_risk_free_rate():
+    """P2-03: Charge le taux sans risque depuis la config si disponible."""
+    try:
+        from bot_config import config
+        return config.risk_free_rate
+    except Exception:
+        return RISK_FREE_RATE
+
+
+def _get_oos_thresholds():
+    """P1-THRESH: Charge les seuils OOS depuis la config si disponible."""
+    try:
+        from bot_config import config
+        return getattr(config, 'oos_sharpe_min', OOS_SHARPE_MIN), getattr(config, 'oos_win_rate_min', OOS_WIN_RATE_MIN)
+    except Exception:
+        return OOS_SHARPE_MIN, OOS_WIN_RATE_MIN
 
 
 # ──────────────────────────────────────────────────────────────
@@ -66,6 +90,7 @@ _DEFAULT_METRICS: Dict[str, Any] = {
     'total_return_pct': 0.0,
     'annual_return_pct': 0.0,
     'annual_volatility': 0.0,
+    'max_drawdown': 0.0,
 }
 
 
@@ -78,7 +103,8 @@ def compute_risk_metrics(
     equity_curve: np.ndarray,
     trades_df: Optional[pd.DataFrame] = None,
     periods_per_year: int = 8766,
-    risk_free_rate: float = RISK_FREE_RATE,
+    risk_free_rate: float = RISK_FREE_RATE,  # P2-03: default surchargé en prod
+    n_bars_total: Optional[int] = None,  # total bars when equity is trade-level
 ) -> Dict[str, Any]:
     """
     Compute institutional risk-adjusted performance metrics from a bar-level
@@ -115,27 +141,80 @@ def compute_risk_metrics(
     if len(returns) < 2:
         return metrics
 
+    # ---- Anti-dilution: trade-level annualization correction ----
+    # When in-position % << 100% (few trades on many bars), bar-level returns
+    # have near-zero std → inflated Sharpe/Sortino via sqrt(ppy).
+    # Two correctable cases:
+    #   A) trade-point equity (Cython path): n_bars_total >> len(equity)
+    #      → effective_ppy = actual trades/year
+    #   B) bar-level equity with dilution ratio > 20 (Python path):
+    #      → rebuild trade-point equity from trades_df profits, then apply A.
+    _n_orig_bars = len(equity)  # original equity length for year calculations
+    _effective_ppy = float(periods_per_year)  # default: unchanged behaviour
+    # Bug #4 fix: utiliser n_bars_total quand fourni pour le span réel des données.
+    # Sans ça, le fallback Python (equity = bars in-position ~7000) calcule
+    # _years ≈ 0.8 ans au lieu de 3 ans → annual_return et Calmar gonflés 4×.
+    if n_bars_total is not None:
+        _years = max(n_bars_total / periods_per_year, 1e-6)
+    else:
+        _years = max(_n_orig_bars / periods_per_year, 1e-6)
+
+    if n_bars_total is not None and n_bars_total > _n_orig_bars * 5:
+        # Case A: trade-point equity — correct annualization to trades/year.
+        # _years must use the ACTUAL data span (n_bars_total), NOT the number of
+        # trade points (_n_orig_bars), otherwise annual_return is wildly inflated.
+        _t_years = max(n_bars_total / periods_per_year, 1e-6)
+        _effective_ppy = max((_n_orig_bars - 1) / _t_years, 1.0)
+        _years = _t_years  # ← fix: use actual data span for Calmar/annual_return
+    elif (
+        trades_df is not None
+        and not trades_df.empty
+        and 'profit' in trades_df.columns
+    ):
+        _sell_rows = trades_df[trades_df['type'].str.lower() == 'sell']
+        _n_sell = len(_sell_rows)
+        if _n_sell >= 10 and (_n_orig_bars / max(_n_sell, 1)) > 20:
+            # Case B: bar-level diluted — rebuild trade-point equity from profits
+            _profs = np.asarray(_sell_rows['profit'].values, dtype=np.float64)
+            _cur = float(equity[0])
+            _pts = [_cur]
+            for _p in _profs:
+                _cur += float(_p)
+                _pts.append(_cur)
+            equity = np.asarray(_pts, dtype=np.float64)
+            returns = np.diff(equity) / equity[:-1]
+            returns = returns[np.isfinite(returns)]
+            if len(returns) < 2:
+                return metrics
+            _t_years = max(_n_orig_bars / periods_per_year, 1e-6)
+            _effective_ppy = max(_n_sell / _t_years, 1.0)
+            # _years stays as _n_orig_bars/ppy (already set as default) — correct
+
     # ---- Total & Annual Return ----
     total_return = (equity[-1] / equity[0]) - 1.0
-    n_bars = len(equity)
-    years = max(n_bars / periods_per_year, 1e-6)
+    years = _years
 
     if total_return > -1.0:
-        annual_return = (1.0 + total_return) ** (1.0 / years) - 1.0
+        with np.errstate(over='ignore'):
+            annual_return = (1.0 + total_return) ** (1.0 / years) - 1.0
+        if not np.isfinite(annual_return):
+            # Very large compounded return over a short window (e.g. 1h backtests);
+            # fall back to a linear approximation to avoid inf Calmar/Sharpe.
+            annual_return = total_return / max(years, 1.0)
     else:
         annual_return = -1.0
 
     # ---- Annualized Volatility ----
     bar_vol = np.std(returns, ddof=1)
-    annual_vol = bar_vol * np.sqrt(periods_per_year)
+    annual_vol = bar_vol * np.sqrt(_effective_ppy)
 
     # ---- Sharpe Ratio (annualized, excess over risk-free) ----
-    rf_per_bar = (1.0 + risk_free_rate) ** (1.0 / periods_per_year) - 1.0
+    rf_per_bar = (1.0 + risk_free_rate) ** (1.0 / _effective_ppy) - 1.0
     excess = returns - rf_per_bar
     excess_mean = np.mean(excess)
     excess_std = np.std(excess, ddof=1)
     sharpe = (
-        (excess_mean / excess_std) * np.sqrt(periods_per_year)
+        (excess_mean / excess_std) * np.sqrt(_effective_ppy)
         if excess_std > 1e-12
         else 0.0
     )
@@ -147,7 +226,7 @@ def compute_risk_metrics(
     else:
         downside_std = excess_std  # fallback
     sortino = (
-        (excess_mean / downside_std) * np.sqrt(periods_per_year)
+        (excess_mean / downside_std) * np.sqrt(_effective_ppy)
         if downside_std > 1e-12
         else 0.0
     )
@@ -165,7 +244,8 @@ def compute_risk_metrics(
     max_consec_losses = 0
 
     if trades_df is not None and not trades_df.empty and 'profit' in trades_df.columns:
-        sell_trades = trades_df[trades_df['type'] == 'sell']
+        # Bug #2 fix: case-insensitive (Cython émet 'SELL', Python émet 'sell')
+        sell_trades = trades_df[trades_df['type'].str.lower() == 'sell']
         if not sell_trades.empty:
             profits = np.asarray(sell_trades['profit'].values, dtype=np.float64)
             gross_profit = float(np.sum(profits[profits > 0]))
@@ -192,6 +272,9 @@ def compute_risk_metrics(
     metrics['total_return_pct'] = round(float(total_return * 100), 4)
     metrics['annual_return_pct'] = round(float(annual_return * 100), 4)
     metrics['annual_volatility'] = round(float(annual_vol * 100), 4)
+    # Exposer le max_drawdown calculé sur l'equity curve (utilisé pour Calmar)
+    # Permet aux callers d'unifier avec leur DD inline.
+    metrics['max_drawdown'] = round(float(max_dd), 6)
 
     return metrics
 
@@ -278,14 +361,18 @@ def split_walk_forward_folds(
 # ──────────────────────────────────────────────────────────────
 def validate_oos_result(sharpe: float, win_rate: float) -> bool:
     """
-    Check if out-of-sample results pass institutional quality gates.
+    Check if out-of-sample results pass quality gates calibrated for
+    crypto trend-following.
+
+    P1-THRESH: seuils chargés depuis config.oos_sharpe_min / config.oos_win_rate_min.
 
     Gates
     -----
-    - OOS annualized Sharpe  > 0.5
-    - OOS Win Rate           > 45 %
+    - OOS annualized Sharpe  > config.oos_sharpe_min  (défaut 0.3)
+    - OOS Win Rate           > config.oos_win_rate_min (défaut 30 %)
     """
-    return sharpe > OOS_SHARPE_MIN and win_rate > OOS_WIN_RATE_MIN
+    sharpe_min, wr_min = _get_oos_thresholds()
+    return sharpe > sharpe_min and win_rate > wr_min
 
 
 # ──────────────────────────────────────────────────────────────
@@ -343,13 +430,20 @@ def run_walk_forward_validation(
         ``all_wf_results`` : list of per-config WF results
         ``any_passed``     : whether any config passed OOS gates
     """
-    # 1. Rank by full-sample Sharpe and take top-N
-    ranked = sorted(
-        full_sample_results,
-        key=lambda x: x.get('sharpe_ratio', 0.0),
-        reverse=True,
-    )
-    top_configs = ranked[:top_n]
+    # 1. Select top-N candidates with timeframe diversity.
+    # Rank by profit (final_wallet) — unambiguous and immune to the Calmar bias
+    # toward low-frequency configs (fewer trades → lower DD → inflated Calmar
+    # regardless of OOS quality).  Cap at top-2 per timeframe, then take global
+    # top_n.  This guarantees 1h/4h/1d candidates all get WF-tested with fold
+    # windows sized for their own granularity (1h folds have ~6500 bars vs
+    # 1d folds with only 272 bars, giving far better OOS statistics for 1h).
+    _tf_buckets: Dict[str, List] = {}
+    for _r in sorted(full_sample_results, key=lambda x: x.get('final_wallet', 0.0), reverse=True):
+        _tf = _r.get('timeframe', '')
+        if len(_tf_buckets.get(_tf, [])) < 2:
+            _tf_buckets.setdefault(_tf, []).append(_r)
+    _all_candidates = [c for _bucket in _tf_buckets.values() for c in _bucket]
+    top_configs = sorted(_all_candidates, key=lambda x: x.get('final_wallet', 0.0), reverse=True)[:top_n]
 
     if not top_configs:
         logger.warning("No full-sample results to validate")
@@ -359,6 +453,13 @@ def run_walk_forward_validation(
     scenario_params_map = {s['name']: s['params'] for s in scenarios}
 
     wf_results: List[Dict[str, Any]] = []
+
+    # Load FS/OOS decay gate threshold from config (anti-overfit filter)
+    try:
+        from bot_config import config as _bot_cfg
+        _oos_decay_min = getattr(_bot_cfg, 'oos_decay_min', OOS_DECAY_MIN)
+    except Exception:
+        _oos_decay_min = OOS_DECAY_MIN
 
     for cfg in top_configs:
         tf = cfg['timeframe']
@@ -436,6 +537,20 @@ def run_walk_forward_validation(
         avg_oos_sharpe = float(np.mean(oos_sharpes)) if oos_sharpes else 0.0
         avg_oos_wr = float(np.mean(oos_win_rates)) if oos_win_rates else 0.0
         passed = validate_oos_result(avg_oos_sharpe, avg_oos_wr)
+
+        # FS/OOS decay gate: reject if OOS Sharpe collapses vs full-sample
+        # Ratio < oos_decay_min indicates memorisation of the in-sample pattern
+        if passed:
+            full_sharpe = cfg.get('sharpe_ratio', 0.0)
+            if full_sharpe > 0.5:
+                _decay_ratio = avg_oos_sharpe / full_sharpe
+                if _decay_ratio < _oos_decay_min:
+                    passed = False
+                    logger.info(
+                        f"  [DECAY-GATE] {scenario_name} EMA({ema1},{ema2}) {tf}: "
+                        f"OOS/FS={_decay_ratio:.2f} < {_oos_decay_min:.2f} → FAIL (overfit)"
+                    )
+
         pass_rate = float(np.mean([f['oos_passed'] for f in fold_details])) if fold_details else 0.0
 
         wf_results.append({
@@ -462,10 +577,12 @@ def run_walk_forward_validation(
     if passed_configs:
         best = max(passed_configs, key=lambda x: x['avg_oos_sharpe'])
     elif wf_results:
-        best = max(wf_results, key=lambda x: x['avg_oos_sharpe'])
+        # P1-WF: Ne PAS retourner un "meilleur" non-validé — retourner None
+        # pour forcer le caller à utiliser des paramètres conservatifs par défaut.
+        best = None
         logger.warning(
             "⚠ No config passed OOS gates (Sharpe > %.1f & WR > %.0f%%). "
-            "Using best OOS Sharpe as fallback.",
+            "Returning best_wf_config=None — caller should use conservative defaults.",
             OOS_SHARPE_MIN, OOS_WIN_RATE_MIN,
         )
     else:

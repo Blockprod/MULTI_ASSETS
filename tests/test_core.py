@@ -14,7 +14,6 @@ import sys
 import os
 import json
 import tempfile
-import time
 import unittest
 import numpy as np
 from datetime import timezone

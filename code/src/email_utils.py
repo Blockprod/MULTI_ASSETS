@@ -17,12 +17,19 @@ logger = logging.getLogger('trading_bot')
 
 @retry_with_backoff(max_retries=3, base_delay=2.0)
 def send_email_alert(subject: str, body: str) -> bool:
-    """Envoie une alerte par email avec retry automatique."""
+    """Envoie une alerte par email avec retry automatique.
+
+    Le sujet est automatiquement préfixé par ``[<project_name>]`` issu de
+    ``config.project_name`` (env var ``BOT_PROJECT_NAME``, défaut
+    ``MULTI_ASSETS``) pour distinguer les alertes entre projets.
+    """
     try:
+        project = getattr(config, 'project_name', 'MULTI_ASSETS')
+        prefixed_subject = f"[{project}] {subject}"
         msg = MIMEMultipart()
         msg['From'] = config.sender_email
         msg['To'] = config.receiver_email
-        msg['Subject'] = subject
+        msg['Subject'] = prefixed_subject
         msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
         with smtplib.SMTP(config.smtp_server, config.smtp_port) as server:
@@ -49,6 +56,6 @@ def send_trading_alert_email(
             from exchange_client import get_spot_balance_usdc
             spot_balance_usdc = get_spot_balance_usdc(client)
             body += f"\n\nSolde SPOT global : {spot_balance_usdc:.2f} USDC"
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.warning("[EMAIL] Solde SPOT USDC indisponible: %s", _e)
     return send_email_alert(subject, body)

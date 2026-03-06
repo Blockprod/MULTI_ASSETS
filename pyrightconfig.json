@@ -2,5 +2,26 @@
   "extraPaths": [
     "./code/bin",
     "./code/src"
-  ]
+  ],
+  "include": [
+    "code/src",
+    "tests"
+  ],
+  "exclude": [
+    "code/bin",
+    "cache",
+    "**/__pycache__",
+    "**/*.pyx",
+    "**/*.pxd",
+    "config/build",
+    "**/node_modules",
+    "**/.git",
+    "**/.venv",
+    "**/.*"
+  ],
+  "stubPath": "code/bin",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "error",
+  "reportUndefinedVariable": "error",
+  "reportMissingModuleSource": "warning"
 }

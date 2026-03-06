@@ -287,8 +287,8 @@ def backtest_from_dataframe_fast(
                 # Exécution au prochain open (proxy) : next_open
                 optimized_price = next_open
                 
-                # ACHAT - Calculate entry with fees
-                gross_coin = usd / optimized_price
+                # ACHAT - Calculate entry with fees (98% coefficient for capital slippage/safety buffer)
+                gross_coin = (usd * 0.98) / optimized_price
                 fee_in_coin = gross_coin * TAKER_FEE
                 coin = gross_coin - fee_in_coin
                 
@@ -374,7 +374,7 @@ def vectorized_rsi(np.ndarray[DTYPE_t, ndim=1] prices) -> np.ndarray:
     avg_loss /= 14.0
     
     # Lissage exponentiel
-    rsi[14] = 100.0 - (100.0 / (1.0 + (avg_gain / avg_loss if avg_loss > 0 else 0.0)))
+    rsi[14] = 100.0 - (100.0 / (1.0 + (avg_gain / avg_loss if avg_loss > 0 else 100.0)))
     
     for i in range(15, n):
         diff = prices[i] - prices[i-1]
@@ -384,7 +384,7 @@ def vectorized_rsi(np.ndarray[DTYPE_t, ndim=1] prices) -> np.ndarray:
         avg_gain = (avg_gain * 13.0 + gain) / 14.0
         avg_loss = (avg_loss * 13.0 + loss) / 14.0
         
-        rs = avg_gain / avg_loss if avg_loss > 0 else 0.0
+        rs = avg_gain / avg_loss if avg_loss > 0 else 100.0
         rsi[i] = 100.0 - (100.0 / (1.0 + rs))
     
     return rsi

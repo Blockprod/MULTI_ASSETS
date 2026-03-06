@@ -6,7 +6,7 @@ import hashlib
 import hmac
 import logging
 import random
-import requests
+import requests  # type: ignore[import-untyped]
 import threading
 import time
 import uuid
@@ -15,8 +15,8 @@ from typing import Any, Dict, Optional, Union
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 
-from bot_config import log_exceptions, retry_with_backoff
-from exceptions import OrderError
+from bot_config import log_exceptions, retry_with_backoff, config as _config
+from exceptions import BalanceUnavailableError, OrderError
 
 logger = logging.getLogger(__name__)
 
@@ -71,30 +71,45 @@ class BinanceFinalClient(Client):
         logger.info("Client Binance ULTRA ROBUSTE initialisé")
         self._perform_ultra_robust_sync()
 
+    def close_connection(self):
+        """Fermeture sécurisée — protège contre AttributeError si __init__ a
+        échoué ou n'a pas été appelé (ex. instanciation via __new__).
+
+        Le ``Client.__del__`` de python-binance accède à ``self.session`` sans
+        vérifier son existence, ce qui lève ``AttributeError`` lorsque
+        ``__init__`` n'a pas terminé.  Ce guard corrige ce défaut.
+        """
+        session = getattr(self, 'session', None)
+        if session:
+            session.close()
+
     def _perform_ultra_robust_sync(self):
-        """Synchronisation radicale avec compensation complète."""
+        """Synchronisation avec compensation du décalage horloge locale/Binance.
+
+        L'offset est calculé précisément :
+          offset = serverTime - localTime - latence/2
+        On ajoute ensuite une marge de sécurité de -500 ms pour absorber les
+        petites dérives sans jamais envoyer un timestamp trop ancien.
+        recvWindow=60000 dans les ordres couvre le reste.
+        """
         try:
             local_before = int(time.time() * 1000)
             server_time = self.get_server_time()['serverTime']
             local_after = int(time.time() * 1000)
             latency = (local_after - local_before) // 2
             real_offset = server_time - (local_before + latency)
-            if real_offset > -2000:
-                forced_offset = -5000
-            else:
-                forced_offset = real_offset
-            test_local = int(time.time() * 1000)
-            test_timestamp = test_local + forced_offset
-            test_diff = test_timestamp - server_time
-            if test_diff > 800:
-                forced_offset = -8000
-            self._server_time_offset = forced_offset
+            # Marge de sécurité conservatrice : -500 ms (ni trop négatif, ni positif)
+            # Évite l'ancien forcing à -5000 ms qui envoyait des timestamps trop anciens.
+            SAFETY_MARGIN_MS = -500
+            adjusted_offset = real_offset + SAFETY_MARGIN_MS
+            # Clamp : jamais plus de -10 s ni plus de +1 s
+            self._server_time_offset = max(-10000, min(1000, adjusted_offset))
             self._last_sync = time.time()
             self._error_count = 0
-            logger.info(f"SYNCHRO OK: offset={self._server_time_offset}ms")
+            logger.info(f"SYNCHRO OK: offset={self._server_time_offset}ms (real={real_offset}ms, latency={latency}ms)")
         except Exception as e:
             logger.error(f"Echec synchronisation: {e}")
-            self._server_time_offset = -10000
+            self._server_time_offset = -2000  # fallback conservateur
 
     def _get_ultra_safe_timestamp(self):
         """Génère un timestamp garanti correct.
@@ -196,12 +211,15 @@ def _direct_market_order(client, symbol: str, side: str,
     """
     client._sync_server_time()
     timestamp = int(time.time() * 1000) + client._server_time_offset
+    # recvWindow : centralisé dans config (P1-11)
     params_order = [
         ('symbol', symbol),
         ('side', side),
         ('type', 'MARKET'),
         ('quantity', f"{quantity}" if quantity is not None else None),
         ('quoteOrderQty', f"{float(quoteOrderQty):.2f}" if quoteOrderQty is not None else None),
+        ('newClientOrderId', client_id),  # P0-IDEM: idempotence — même ID sur chaque retry
+        ('recvWindow', _config.recv_window),
         ('timestamp', int(timestamp)),
     ]
     params_order = [(k, v) for k, v in params_order if v is not None]
@@ -236,7 +254,9 @@ def _direct_market_order(client, symbol: str, side: str,
         result = response.json()
         if send_alert:
             # Ne pas inclure params_order (contient la signature HMAC)
-            order_summary = f"Symbol: {symbol}, Side: {side}, Qty: {quantity or quoteOrderQty}"
+            # Utiliser executedQty (quantité base asset réelle) plutôt que quoteOrderQty (USDC dépensés)
+            _display_qty = result.get('executedQty') or quantity or quoteOrderQty
+            order_summary = f"Symbol: {symbol}, Side: {side}, Qty: {_display_qty}"
             send_alert(
                 subject=f"[BOT CRYPTO] {side.upper()} ORDER EXECUTE",
                 body_main=f"Ordre {side.upper()} exécuté avec succès.\n\n{order_summary}\nOrderId: {result.get('orderId', 'N/A')}\nStatus: {result.get('status', 'N/A')}",
@@ -265,7 +285,6 @@ def safe_market_buy(client, symbol: str, quoteOrderQty: float,
     last_exc = None
     # Min notional check
     try:
-        current_price = float(client.get_symbol_ticker(symbol=symbol)['price'])
         exchange_info = client.get_exchange_info()
         symbol_info = next((s for s in exchange_info['symbols'] if s['symbol'] == symbol), None)
         notional_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'MIN_NOTIONAL'), None) if symbol_info else None
@@ -277,6 +296,18 @@ def safe_market_buy(client, symbol: str, quoteOrderQty: float,
         logger.error(f"[ORDER CHECK] Impossible de vérifier min_notional pour {symbol}: {e}")
         raise
     for attempt in range(max_retries):
+        # P2-A: avant chaque retry, vérifier si l'ordre précédent a déjà été exécuté
+        if attempt > 0:
+            try:
+                existing = client.get_order(symbol=symbol, origClientOrderId=client_id)
+                if existing.get('status') in ('FILLED', 'PARTIALLY_FILLED'):
+                    logger.info(
+                        "[IDEM P2-A] BUY %s déjà %s (clientId=%s) — retry annulé",
+                        symbol, existing['status'], client_id,
+                    )
+                    return existing
+            except Exception as _lookup_err:
+                logger.debug("[IDEM P2-A] Ordre BUY introuvable, retry normal: %s", _lookup_err)
         try:
             client._sync_server_time()
             res = _direct_market_order(
@@ -302,6 +333,18 @@ def safe_market_sell(client, symbol: str, quantity: Union[float, str],
     client_id = _generate_client_order_id('sell')
     last_exc = None
     for attempt in range(max_retries):
+        # P2-A: avant chaque retry, vérifier si l'ordre précédent a déjà été exécuté
+        if attempt > 0:
+            try:
+                existing = client.get_order(symbol=symbol, origClientOrderId=client_id)
+                if existing.get('status') in ('FILLED', 'PARTIALLY_FILLED'):
+                    logger.info(
+                        "[IDEM P2-A] SELL %s déjà %s (clientId=%s) — retry annulé",
+                        symbol, existing['status'], client_id,
+                    )
+                    return existing
+            except Exception as _lookup_err:
+                logger.debug("[IDEM P2-A] Ordre SELL introuvable, retry normal: %s", _lookup_err)
         try:
             client._sync_server_time()
             res = _direct_market_order(
@@ -456,6 +499,143 @@ _tickers_lock = threading.Lock()
 _tickers_cache: Dict[str, Any] = {'data': None, 'timestamp': 0.0}
 
 
+def place_exchange_stop_loss(
+    client,
+    symbol: str,
+    quantity: str,
+    stop_price: float,
+    limit_slippage: float = 0.005,
+    send_alert=None,
+) -> Dict[str, Any]:
+    """Place un ordre STOP_LOSS (market trigger) sur Binance Spot après un achat.
+
+    C-02: Utilise STOP_LOSS au lieu de STOP_LOSS_LIMIT pour garantir le fill
+    même en cas de flash crash ou de gap de prix. Un ordre STOP_LOSS déclenche
+    un market sell dès que stopPrice est atteint — pas de risque de non-fill.
+
+    Args:
+        client: Instance BinanceFinalClient
+        symbol: Paire Binance (ex. 'BTCUSDC')
+        quantity: Quantité à vendre (chaîne déjà arrondie selon lot-size)
+        stop_price: Prix de déclenchement du stop
+        limit_slippage: Ignoré (conservé pour backward compat)
+        send_alert: Callable(subject, body_main, client) pour alertes email
+
+    Returns:
+        Dict de la réponse Binance incluant 'orderId' et 'status'
+
+    Raises:
+        OrderError: Si le placement échoue après retry
+    """
+    client._sync_server_time()
+    timestamp = int(time.time() * 1000) + client._server_time_offset
+    client_id = _generate_client_order_id('sl')
+
+    # Snapper stop_price au tickSize Binance (fix PRICE_FILTER -1013)
+    from decimal import Decimal as _PriceD
+    try:
+        _sym_info = client.get_symbol_info(symbol)
+        _price_filter = next(
+            (f for f in _sym_info['filters'] if f['filterType'] == 'PRICE_FILTER'), None
+        ) if _sym_info else None
+        _tick = _PriceD(str(_price_filter['tickSize'])) if _price_filter else _PriceD('0.01')
+        _tick_decs = max(0, -int(_tick.as_tuple().exponent))
+    except Exception:
+        _tick = _PriceD('0.01')
+        _tick_decs = 2
+
+    stop_price_snapped = float((_PriceD(str(stop_price)) // _tick) * _tick)
+    stop_price_str = f"{stop_price_snapped:.{_tick_decs}f}"
+    logger.debug(
+        "[SL-ORDER] C-02 STOP_LOSS tick=%s stop_raw=%.8f→%s",
+        _tick, stop_price, stop_price_str,
+    )
+
+    params = [
+        ('symbol', symbol),
+        ('side', 'SELL'),
+        ('type', 'STOP_LOSS'),
+        ('quantity', quantity),
+        ('stopPrice', stop_price_str),
+        ('newClientOrderId', client_id),
+        ('recvWindow', _config.recv_window),  # P1-11
+        ('timestamp', int(timestamp)),
+    ]
+    query_string = '&'.join([f"{k}={v}" for k, v in params])
+    signature = hmac.new(
+        client.api_secret.encode('utf-8'),
+        query_string.encode('utf-8'),
+        hashlib.sha256,
+    ).hexdigest()
+    query_string_with_sig = query_string + f"&signature={signature}"
+    headers = {
+        'X-MBX-APIKEY': client.api_key,
+        'Content-Type': 'application/x-www-form-urlencoded',
+    }
+    url = 'https://api.binance.com/api/v3/order'
+
+    # Jusqu'à 3 tentatives avec backoff
+    last_exc: Optional[Exception] = None
+    for attempt in range(3):
+        try:
+            _api_rate_limiter.acquire(timeout=30.0)
+            response = requests.post(
+                url, data=query_string_with_sig, headers=headers, timeout=10
+            )
+            if response.status_code != 200:
+                error_data = response.json()
+                error_code = error_data.get('code', 'UNKNOWN')
+                error_msg = error_data.get('msg', 'Unknown error')
+                logger.error(
+                    "[SL-ORDER] Erreur Binance: code=%s, msg=%s", error_code, error_msg
+                )
+                if send_alert:
+                    send_alert(
+                        subject=f"[BOT] ERREUR STOP-LOSS {symbol}",
+                        body_main=(
+                            f"Placement stop-loss échoué: {error_code} - {error_msg}\n"
+                            f"Symbol: {symbol}, Qty: {quantity}, Stop: {stop_price}"
+                        ),
+                        client=client,
+                    )
+                raise OrderError(
+                    f"STOP_LOSS échoué: {error_code} - {error_msg}",
+                    symbol=symbol,
+                )
+            result = response.json()
+            logger.info(
+                "[SL-ORDER] Stop-loss exchange placé: %s qty=%s stop=%s orderId=%s",
+                symbol, quantity, stop_price, result.get('orderId'),
+            )
+            if send_alert:
+                send_alert(
+                    subject=f"[BOT] Stop-loss placé {symbol}",
+                    body_main=(
+                        f"STOP_LOSS (market trigger) placé avec succès.\n"
+                        f"Symbol: {symbol}  Qty: {quantity}\n"
+                        f"Stop: {stop_price}\n"
+                        f"OrderId: {result.get('orderId')}"
+                    ),
+                    client=client,
+                )
+            return result
+        except OrderError:
+            raise  # ne pas retry sur erreur métier
+        except Exception as exc:
+            last_exc = exc
+            wait = 1.5 * (2 ** attempt) + random.uniform(0.0, 1.0)
+            logger.warning(
+                "[SL-ORDER] Tentative %d/%d échouée pour %s: %s. Retry dans %.1fs",
+                attempt + 1, 3, symbol, exc, wait,
+            )
+            time.sleep(wait)
+
+    raise OrderError(
+        f"place_exchange_stop_loss: {3} tentatives échouées pour {symbol}: {last_exc}",
+        symbol=symbol,
+    )
+
+
 def get_all_tickers_cached(client, cache_ttl: int = 10) -> dict:
     """Récupère tous les tickers Binance avec cache local (TTL configurable)."""
     now = time.time()
@@ -468,9 +648,13 @@ def get_all_tickers_cached(client, cache_ttl: int = 10) -> dict:
         return tickers
 
 
-@log_exceptions(default_return=0.0)
 def get_spot_balance_usdc(client) -> float:
-    """Retourne le solde SPOT global converti en USDC (y compris coins)."""
+    """Retourne le solde SPOT global converti en USDC (y compris coins).
+
+    P0-02: lève BalanceUnavailableError si l'API échoue au lieu de retourner 0.0
+    silencieusement, ce qui bloquerait tous les achats sans avertissement.
+    Ne décore PAS avec @log_exceptions pour laisser l'exception se propager.
+    """
     try:
         account_info = client.get_account()
         tickers = get_all_tickers_cached(client)
@@ -492,5 +676,8 @@ def get_spot_balance_usdc(client) -> float:
                 elif symbol2 in tickers and tickers[symbol2] > 0:
                     spot_balance_usdc += total * (1.0 / tickers[symbol2])
         return spot_balance_usdc
-    except Exception:
-        return 0.0
+    except Exception as exc:
+        logger.error("[P0-02] get_spot_balance_usdc: %s — cycle skippé.", exc)
+        raise BalanceUnavailableError(
+            f"Impossible de récupérer le solde USDC depuis l'exchange: {exc}"
+        ) from exc

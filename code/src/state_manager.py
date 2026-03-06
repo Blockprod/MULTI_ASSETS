@@ -2,23 +2,35 @@
 state_manager.py — Gestion de l'état persistant du bot.
 
 Contient:
-- save_state / load_state (pickle) — fonctions pures acceptant des paramètres
+- save_state / load_state (JSON) — fonctions pures acceptant des paramètres
 - Intégrité HMAC pour protéger contre la corruption/falsification
+- C-17: Migration pickle → JSON avec validation de schéma
+- Migration automatique des anciens fichiers pickle (HMAC_V1 / non-signé)
 """
 import os
+import json
 import hmac as hmac_mod
 import hashlib
 import pickle
 import logging
-from typing import Dict
+from datetime import datetime, date
+from decimal import Decimal
+from typing import Any, Dict, Set
 
-from bot_config import config, log_exceptions
+from bot_config import config
 from exceptions import StateError
 
 logger = logging.getLogger('trading_bot')
 
-# Clé HMAC dérivée du secret API (ou fallback fixe si absent)
-_HMAC_KEY = os.environ.get('BINANCE_SECRET_KEY', 'multi_assets_state_integrity_key').encode('utf-8')
+# Clé HMAC dérivée du secret API — P0-04: aucun fallback hardcodé permis.
+# Si BINANCE_SECRET_KEY est absent, le bot ne doit pas démarrer.
+_secret_key_env = os.environ.get('BINANCE_SECRET_KEY')
+if not _secret_key_env:
+    raise EnvironmentError(
+        "[P0-04] Variable d'environnement BINANCE_SECRET_KEY manquante. "
+        "Le bot ne peut pas démarrer sans une clé HMAC sécurisée pour l'état."
+    )
+_HMAC_KEY = _secret_key_env.encode('utf-8')
 
 
 def _compute_hmac(data: bytes) -> bytes:
@@ -27,29 +39,109 @@ def _compute_hmac(data: bytes) -> bytes:
 
 
 def _STATE_HEADER() -> bytes:
-    """Marqueur de format pour distinguer les fichiers signés."""
+    """Marqueur de format pickle signé (legacy)."""
     return b'HMAC_V1:'
 
 
-@log_exceptions(default_return=None)
+def _JSON_HEADER() -> bytes:
+    """Marqueur de format JSON signé (C-17)."""
+    return b'JSON_V1:'
+
+
+# ─── C-17: Schema validation ─────────────────────────────────────────────────
+# Clés connues de PairState (C-16). Les clés absentes ne sont pas un problème
+# (total=False), mais les clés inconnues sont loguées en warning.
+_KNOWN_PAIR_KEYS: Set[str] = {
+    'last_run_time', 'last_best_params', 'execution_count', 'last_execution',
+    'last_order_side', 'entry_price', 'initial_position_size', 'in_position',
+    'atr_at_entry', 'stop_loss', 'stop_loss_at_entry',
+    'trailing_activation_price_at_entry', 'trailing_activation_price',
+    'trailing_stop_activated', 'trailing_stop', 'max_price', 'sl_order_id',
+    'sl_exchange_placed',
+    'partial_enabled', 'partial_taken_1', 'partial_taken_2',
+    'breakeven_triggered',
+    'entry_scenario', 'entry_timeframe', 'entry_ema1', 'entry_ema2',
+    'buy_timestamp',
+    '_stop_loss_cooldown_until',
+    'oos_blocked', 'oos_blocked_since',
+    'quote_currency', 'ticker_spot_price', 'latest_best_params',
+}
+
+# Clés globales connues de BotStateDict (C-16).
+_KNOWN_GLOBAL_KEYS: Set[str] = {
+    'emergency_halt', 'emergency_halt_reason',
+    '_daily_pnl_tracker', '_state_version',
+}
+
+
+def validate_bot_state(state: Dict) -> None:
+    """Valide le schéma de bot_state et logue les clés inconnues (C-17).
+
+    Ne lève jamais d'exception — validation informative uniquement.
+    """
+    for key, value in state.items():
+        if key in _KNOWN_GLOBAL_KEYS:
+            continue
+        if isinstance(value, dict):
+            # Clé dynamique = nom de paire → valider les sous-clés
+            unknown = set(value.keys()) - _KNOWN_PAIR_KEYS
+            if unknown:
+                logger.warning(
+                    "[STATE C-17] Paire '%s' contient des clés inconnues: %s "
+                    "(migration ou version future ?)",
+                    key, sorted(unknown),
+                )
+        else:
+            # Clé scalaire non reconnue au top-level
+            logger.warning(
+                "[STATE C-17] Clé globale inconnue dans bot_state: '%s' (type=%s)",
+                key, type(value).__name__,
+            )
+
+
+# ─── C-17: JSON encoder pour types non-natifs ────────────────────────────────
+
+class _StateEncoder(json.JSONEncoder):
+    """Encode datetime, date et Decimal pour la sérialisation JSON."""
+
+    def default(self, o: Any) -> Any:
+        if isinstance(o, datetime):
+            return o.isoformat()
+        if isinstance(o, date):
+            return o.isoformat()
+        if isinstance(o, Decimal):
+            return float(o)
+        return super().default(o)
+
+
 def save_state(bot_state: Dict):
-    """Sauvegarde l'état du bot sur disque.
+    """Sauvegarde l'état du bot sur disque au format JSON signé (C-17).
+
+    P0-SAVE: pas de @log_exceptions — les erreurs doivent remonter au caller
+    pour déclencher les alertes et le kill-switch si nécessaire.
 
     Args:
         bot_state: dictionnaire d'état à persister.
+
+    Raises:
+        StateError: si la sauvegarde échoue (disque, permissions, sérialisation).
     """
     try:
         os.makedirs(config.states_dir, exist_ok=True)
         state_path = os.path.join(config.states_dir, config.state_file)
-        state_bytes = pickle.dumps(bot_state)
+        state_bytes = json.dumps(bot_state, cls=_StateEncoder,
+                                 ensure_ascii=False, indent=2).encode('utf-8')
         old_hash = None
         if os.path.exists(state_path):
             with open(state_path, 'rb') as f:
                 raw_old = f.read()
-            # Extraire uniquement les bytes pickle pour comparaison correcte
-            header = _STATE_HEADER()
-            if raw_old.startswith(header):
-                old_state_bytes = raw_old[len(header) + 32:]
+            # Extraire uniquement les bytes de données pour comparaison
+            json_header = _JSON_HEADER()
+            pickle_header = _STATE_HEADER()
+            if raw_old.startswith(json_header):
+                old_state_bytes = raw_old[len(json_header) + 32:]
+            elif raw_old.startswith(pickle_header):
+                old_state_bytes = raw_old[len(pickle_header) + 32:]
             else:
                 old_state_bytes = raw_old
             old_hash = hash(old_state_bytes)
@@ -57,7 +149,7 @@ def save_state(bot_state: Dict):
         if old_hash != new_hash:
             # Signer les données avec HMAC avant écriture
             mac = _compute_hmac(state_bytes)
-            signed_data = _STATE_HEADER() + mac + state_bytes
+            signed_data = _JSON_HEADER() + mac + state_bytes
             tmp_path = state_path + '.tmp'
             try:
                 with open(tmp_path, 'wb') as f:
@@ -70,46 +162,92 @@ def save_state(bot_state: Dict):
                     except Exception:
                         pass
                 raise
-            logger.debug("État du bot sauvegardé (modifié)")
+            logger.debug("État du bot sauvegardé (JSON, modifié)")
         else:
             logger.debug("État du bot inchangé, pas de sauvegarde")
-    except (OSError, pickle.PicklingError) as e:
+    except (OSError, TypeError, ValueError) as e:
         raise StateError(f"Erreur lors de la sauvegarde de l'état: {e}") from e
     except Exception as e:
+        # P1-06: re-raise au lieu de swallow — le caller doit savoir que la sauvegarde a échoué
         logger.error(f"Erreur inattendue lors de la sauvegarde: {e}")
+        raise StateError(f"Erreur inattendue lors de la sauvegarde: {e}") from e
 
 
-@log_exceptions(default_return={})
+# P1-06: pas de @log_exceptions — les erreurs doivent remonter au caller
 def load_state() -> Dict:
     """Charge l'état du bot depuis le disque.
+
+    C-17: Supporte trois formats (détection automatique) :
+    1. JSON signé (JSON_V1: header) — format actuel
+    2. Pickle signé (HMAC_V1: header) — migration automatique
+    3. Pickle non signé (ancien format) — migration silencieuse
 
     Returns:
         Dictionnaire d'état chargé, ou {} si aucun fichier.
     """
     try:
         state_path = os.path.join(config.states_dir, config.state_file)
-        if os.path.exists(state_path):
-            with open(state_path, 'rb') as f:
-                raw = f.read()
-            header = _STATE_HEADER()
-            if raw.startswith(header):
-                # Format signé : header (8 octets) + HMAC (32 octets) + pickle
-                mac_stored = raw[len(header):len(header) + 32]
-                state_bytes = raw[len(header) + 32:]
-                mac_computed = _compute_hmac(state_bytes)
-                if not hmac_mod.compare_digest(mac_stored, mac_computed):
-                    raise StateError("Intégrité du fichier d'état compromise (HMAC invalide). "
-                                     "Le fichier a été modifié ou corrompu.")
-                loaded = pickle.loads(state_bytes)
+        if not os.path.exists(state_path):
+            return {}
+
+        with open(state_path, 'rb') as f:
+            raw = f.read()
+
+        json_header = _JSON_HEADER()
+        pickle_header = _STATE_HEADER()
+
+        if raw.startswith(json_header):
+            # ── Format JSON signé (actuel) ──
+            mac_stored = raw[len(json_header):len(json_header) + 32]
+            state_bytes = raw[len(json_header) + 32:]
+            mac_computed = _compute_hmac(state_bytes)
+            if not hmac_mod.compare_digest(mac_stored, mac_computed):
+                raise StateError("Intégrité du fichier d'état compromise (HMAC invalide). "
+                                 "Le fichier a été modifié ou corrompu.")
+            loaded = json.loads(state_bytes.decode('utf-8'))
+
+        elif raw.startswith(pickle_header):
+            # ── Format pickle signé (HMAC_V1) — migration C-17 ──
+            mac_stored = raw[len(pickle_header):len(pickle_header) + 32]
+            state_bytes = raw[len(pickle_header) + 32:]
+            mac_computed = _compute_hmac(state_bytes)
+            if not hmac_mod.compare_digest(mac_stored, mac_computed):
+                raise StateError("Intégrité du fichier d'état compromise (HMAC invalide). "
+                                 "Le fichier a été modifié ou corrompu.")
+            loaded = pickle.loads(state_bytes)
+            logger.warning(
+                "[STATE C-17] Ancien format pickle signé détecté — "
+                "migration automatique vers JSON au prochain save."
+            )
+
+        else:
+            # ── Format sans header — détecter JSON vs pickle ──
+            stripped = raw.lstrip()
+            if stripped and stripped[0:1] in (b'{', b'['):
+                # Plain JSON (pas de header JSON_V1) — ex: fichier édité à la main
+                logger.warning(
+                    "État chargé en JSON sans signature HMAC. "
+                    "Il sera re-signé au prochain save."
+                )
+                loaded = json.loads(raw.decode('utf-8'))
             else:
-                # Ancien format non signé — migration silencieuse
-                logger.warning("État chargé sans HMAC (ancien format). Il sera re-signé au prochain save.")
+                # Pickle non signé (ancien format)
+                logger.warning(
+                    "État chargé sans HMAC (ancien format pickle). "
+                    "Il sera re-signé au prochain save."
+                )
                 loaded = pickle.loads(raw)
-            logger.info("État du bot chargé")
-            return loaded
-        return {}
-    except (OSError, pickle.UnpicklingError, EOFError) as e:
+
+        # C-17: Validation de schéma (informative, non-bloquante)
+        if isinstance(loaded, dict):
+            validate_bot_state(loaded)
+
+        logger.info("État du bot chargé")
+        return loaded
+
+    except (OSError, json.JSONDecodeError, pickle.UnpicklingError, EOFError) as e:
         raise StateError(f"Erreur lors du chargement de l'état: {e}") from e
     except Exception as e:
+        # P1-06: re-raise — un fichier corrompu ne doit pas être masqué
         logger.error(f"Erreur inattendue lors du chargement: {e}")
-        return {}
+        raise StateError(f"Erreur inattendue lors du chargement: {e}") from e

@@ -19,6 +19,7 @@ from typing import Dict, Optional, Tuple
 import pandas as pd
 
 from bot_config import config, log_exceptions, retry_with_backoff
+from email_utils import send_email_alert
 
 logger = logging.getLogger('trading_bot')
 
@@ -106,8 +107,8 @@ def safe_cache_read(cache_file: str) -> Optional[pd.DataFrame]:
     except Exception:
         try:
             os.remove(cache_file)
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug("[CACHE] Suppression cache corrompu impossible: %s", _e)
         return None
 
 
@@ -259,7 +260,6 @@ def cleanup_expired_cache():
         if cleaned > 0:
             logger.info(f"[CACHE] {cleaned} fichiers de cache expirés supprimés")
             try:
-                from email_utils import send_email_alert
                 send_email_alert(
                     "[BOT CRYPTO] Cache nettoyé",
                     f"{cleaned} fichiers de cache expirés ont été supprimés.",

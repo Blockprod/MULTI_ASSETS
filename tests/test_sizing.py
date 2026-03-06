@@ -174,3 +174,60 @@ class TestComputePositionSizeVolatilityParity:
             equity=10000, atr_value=0, entry_price=1000
         )
         assert qty == 0.0
+
+
+class TestSizingErrorRaised:
+    """P0-05: Unexpected errors must raise SizingError, not silently return 0."""
+
+    def test_risk_string_equity_raises(self):
+        """String equity triggers ValueError → SizingError."""
+        with patch.dict(os.environ, {
+            'BINANCE_API_KEY': 'test', 'BINANCE_SECRET_KEY': 'test',
+            'SENDER_EMAIL': 'a@b.c', 'RECEIVER_EMAIL': 'a@b.c',
+            'GOOGLE_MAIL_PASSWORD': 'test'
+        }):
+            try:
+                from position_sizing import compute_position_size_by_risk
+                from exceptions import SizingError
+            except Exception:
+                pytest.skip("Cannot import")
+        with pytest.raises(SizingError):
+            compute_position_size_by_risk(
+                equity="not_a_number", atr_value=100, entry_price=50000,  # type: ignore[arg-type]
+                risk_pct=0.05, stop_atr_multiplier=3.0,
+            )
+
+    def test_fixed_notional_string_price_raises(self):
+        """String entry_price triggers TypeError → SizingError."""
+        with patch.dict(os.environ, {
+            'BINANCE_API_KEY': 'test', 'BINANCE_SECRET_KEY': 'test',
+            'SENDER_EMAIL': 'a@b.c', 'RECEIVER_EMAIL': 'a@b.c',
+            'GOOGLE_MAIL_PASSWORD': 'test'
+        }):
+            try:
+                from position_sizing import compute_position_size_fixed_notional
+                from exceptions import SizingError
+            except Exception:
+                pytest.skip("Cannot import")
+        with pytest.raises(SizingError):
+            compute_position_size_fixed_notional(
+                equity=10000, notional_per_trade_usd=1000, entry_price="bad",  # type: ignore[arg-type]
+            )
+
+    def test_volatility_parity_list_equity_raises(self):
+        """List equity triggers TypeError → SizingError."""
+        with patch.dict(os.environ, {
+            'BINANCE_API_KEY': 'test', 'BINANCE_SECRET_KEY': 'test',
+            'SENDER_EMAIL': 'a@b.c', 'RECEIVER_EMAIL': 'a@b.c',
+            'GOOGLE_MAIL_PASSWORD': 'test'
+        }):
+            try:
+                from position_sizing import compute_position_size_volatility_parity
+                from exceptions import SizingError
+            except Exception:
+                pytest.skip("Cannot import")
+        with pytest.raises(SizingError):
+            compute_position_size_volatility_parity(
+                equity=[1, 2], atr_value=50, entry_price=1000,  # type: ignore[arg-type]
+                target_volatility_pct=0.02,
+            )

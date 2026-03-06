@@ -4,8 +4,7 @@ import sys
 import pytest
 import numpy as np
 import pandas as pd
-from unittest.mock import MagicMock, patch
-from decimal import Decimal
+from unittest.mock import MagicMock
 
 # Ensure code/src is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
@@ -29,6 +28,18 @@ def disable_error_notification_callback():
         set_error_notification_callback(None)
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _block_all_emails(monkeypatch):
+    """Empêche tout envoi d'email réel pendant les tests.
+
+    Neutralise ``email_utils.send_email_alert`` et ``send_trading_alert_email``
+    à la source : tous les modules qui les importent seront bloqués.
+    P1-09: ajouter send_trading_alert_email pour couvrir les alertes OOS/SL/P1-04.
+    """
+    monkeypatch.setattr('email_utils.send_email_alert', lambda *a, **kw: False)
+    monkeypatch.setattr('email_utils.send_trading_alert_email', lambda *a, **kw: False)
 
 
 @pytest.fixture(autouse=True)
@@ -68,6 +79,8 @@ def sample_config():
         smtp_port = 587
         taker_fee = 0.0007
         maker_fee = 0.0002
+        backtest_taker_fee = 0.0007   # P3-03: frais figés pour le backtest
+        backtest_maker_fee = 0.0002   # P3-03: frais figés pour le backtest
         slippage_buy = 0.0001
         slippage_sell = 0.0001
         initial_wallet = 10000.0
@@ -75,10 +88,11 @@ def sample_config():
         max_workers = 2
         cache_dir = "cache"
         states_dir = "states"
-        state_file = "bot_state.pkl"
+        state_file = "bot_state.json"
         atr_period = 14
         atr_multiplier = 5.5
         atr_stop_multiplier = 3.0
+        recv_window = 60000
         risk_per_trade = 0.05
         sizing_mode = "baseline"
         partial_threshold_1 = 0.02
@@ -87,6 +101,20 @@ def sample_config():
         partial_pct_2 = 0.30
         trailing_activation_pct = 0.03
         target_volatility_pct = 0.02
+        backtest_min_notional = 5.0
+        oos_sharpe_min = 0.8
+        oos_win_rate_min = 30.0
+        oos_decay_min = 0.15
+        schedule_interval_minutes = 2
+        risk_free_rate = 0.04
+        email_cooldown_seconds = 300
+        stoch_rsi_buy_max = 0.8
+        stoch_rsi_buy_min = 0.05
+        stoch_rsi_sell_exit = 0.2
+        adx_threshold = 25.0
+        max_parallel_pairs = 5
+        backtest_throttle_seconds = 3600.0
+        project_name = "MULTI_ASSETS"
     return TestConfig()
 
 
@@ -137,7 +165,11 @@ def sample_ohlcv_df():
 
 @pytest.fixture
 def mock_binance_client():
-    """Mock de BinanceFinalClient avec les méthodes utilisées."""
+    """Mock de BinanceFinalClient avec les méthodes utilisées.
+    
+    P2-06: get_exchange_info et get_symbol_info acceptent n'importe quel symbole
+    au lieu de hardcoder BTCUSDC.
+    """
     mock = MagicMock()
     mock.api_key = "mock_api_key"
     mock.api_secret = "mock_api_secret"
@@ -150,28 +182,35 @@ def mock_binance_client():
             {'asset': 'USDC', 'free': '10000.00', 'locked': '0.00'},
             {'asset': 'BTC', 'free': '0.5', 'locked': '0.0'},
             {'asset': 'ETH', 'free': '10.0', 'locked': '0.0'},
+            {'asset': 'SOL', 'free': '50.0', 'locked': '0.0'},
         ]
     }
     
-    # get_exchange_info
-    mock.get_exchange_info.return_value = {
-        'symbols': [{
-            'symbol': 'BTCUSDC',
-            'filters': [
-                {'filterType': 'LOT_SIZE', 'minQty': '0.00001', 'stepSize': '0.00001'},
-                {'filterType': 'MIN_NOTIONAL', 'minNotional': '10.0'},
+    # P2-06: filtre LOT_SIZE + MIN_NOTIONAL générique, utilisable pour tout symbole
+    _default_filters = [
+        {'filterType': 'LOT_SIZE', 'minQty': '0.00001', 'stepSize': '0.00001'},
+        {'filterType': 'MIN_NOTIONAL', 'minNotional': '10.0'},
+    ]
+
+    def _make_symbol_info(symbol='BTCUSDC'):
+        return {'symbol': symbol, 'filters': list(_default_filters)}
+
+    # get_exchange_info — retourne les symboles demandés dynamiquement
+    def _exchange_info(*args, **kwargs):
+        # Si quelqu'un passe symbol=, on l'utilise ; sinon default multi-paires
+        return {
+            'symbols': [
+                _make_symbol_info('BTCUSDC'),
+                _make_symbol_info('ETHUSDC'),
+                _make_symbol_info('SOLUSDC'),
             ]
-        }]
-    }
-    
-    # get_symbol_info
-    mock.get_symbol_info.return_value = {
-        'symbol': 'BTCUSDC',
-        'filters': [
-            {'filterType': 'LOT_SIZE', 'minQty': '0.00001', 'stepSize': '0.00001'},
-            {'filterType': 'MIN_NOTIONAL', 'minNotional': '10.0'},
-        ]
-    }
+        }
+    mock.get_exchange_info.side_effect = _exchange_info
+
+    # get_symbol_info — retourne les infos pour le symbole demandé
+    def _symbol_info(symbol='BTCUSDC'):
+        return _make_symbol_info(symbol)
+    mock.get_symbol_info.side_effect = _symbol_info
     
     # get_server_time
     mock.get_server_time.return_value = {'serverTime': 1700000000000}

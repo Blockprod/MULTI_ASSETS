@@ -1,4 +1,3 @@
-import os
 import pytest
 from email_utils import send_email_alert
 
