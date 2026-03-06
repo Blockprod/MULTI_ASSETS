@@ -138,7 +138,8 @@ def display_sell_signal_panel(
     sell_grid.add_column("detail", style="dim")
 
     sell_grid.add_row("EMA2 > EMA1", _ok(row['ema2'] > row['ema1']), "")
-    sell_grid.add_row("StochRSI > 20%", _ok(row['stoch_rsi'] > 0.2), "")
+    _stoch_exit = getattr(config, 'stoch_rsi_sell_exit', 0.4)
+    sell_grid.add_row(f"StochRSI > {_stoch_exit * 100:.0f}%", _ok(row['stoch_rsi'] > _stoch_exit), "")
     sell_grid.add_row(f"Solde {coin_symbol} > 0", _ok(coin_balance > 0), "")
 
     # Sell reason
