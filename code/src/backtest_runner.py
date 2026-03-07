@@ -999,6 +999,16 @@ def run_all_backtests(
         for pair in ema_periods:
             if pair not in ema_periods_unique:
                 ema_periods_unique.append(pair)
+        # Pre-compute ALL EMA columns on is_df before spawning threads
+        # to avoid race condition (concurrent writes → duplicate columns).
+        _all_ema_periods: set = set()
+        for _e1, _e2 in ema_periods_unique:
+            _all_ema_periods.add(_e1)
+            _all_ema_periods.add(_e2)
+        for _ema_p in _all_ema_periods:
+            _col = f'ema_{_ema_p}'
+            if _col not in is_df.columns:
+                is_df[_col] = is_df['close'].ewm(span=_ema_p, adjust=False).mean()
         for ema1, ema2 in ema_periods_unique:
             for scenario in scenarios:
                 tasks.append(
