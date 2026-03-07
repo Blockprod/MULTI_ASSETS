@@ -288,11 +288,12 @@ class TestLoadBotState:
 class TestReconcile:
     """Teste reconcile_positions_with_exchange — 160 lignes de code."""
 
-    def _make_client(self, balances, orders=None, open_orders=None):
+    def _make_client(self, balances, orders=None, open_orders=None, ticker_price=100.0):
         mock = MagicMock()
         mock.get_account.return_value = {'balances': balances}
         mock.get_all_orders.return_value = orders or []
         mock.get_open_orders.return_value = open_orders or []
+        mock.get_symbol_ticker.return_value = {'price': str(ticker_price)}
         return mock
 
     def test_orphan_position_detected(self, monkeypatch):

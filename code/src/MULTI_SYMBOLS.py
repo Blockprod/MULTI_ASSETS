@@ -641,11 +641,38 @@ def reconcile_positions_with_exchange(crypto_pairs_list: List[Dict]) -> None:
             pair_state.get('in_position', False)
             or pair_state.get('last_order_side') == 'BUY'
         )
-        # Seuil minimal : 0.001 est au-dessus du dust typique (~0.0004 SOL après SL)
-        # mais en dessous du min_qty tradeable (~0.01 SOL pour SOLUSDC).
-        # Cela évite que C-11 tente de placer un STOP_LOSS_LIMIT pour du dust
-        # et provoque l'erreur Binance -1013 (Invalid quantity).
-        has_real_balance = coin_balance >= 0.001
+
+        # Récupérer le prix courant pour évaluer la valeur du solde en USDC
+        try:
+            _ticker = client.get_symbol_ticker(symbol=real_pair)
+            _current_price = float(_ticker.get('price', 0))
+        except Exception:
+            _current_price = 0.0
+
+        # Récupérer min_qty et min_notional pour cette paire
+        _min_qty_reconcile = 0.01  # fallback
+        _min_notional_reconcile = 5.0  # fallback
+        try:
+            _exchange_info_r = get_cached_exchange_info(client)
+            _sym_info_r = next(
+                (s for s in _exchange_info_r['symbols'] if s['symbol'] == real_pair), None
+            )
+            if _sym_info_r:
+                _lot_f = next((f for f in _sym_info_r['filters'] if f['filterType'] == 'LOT_SIZE'), None)
+                if _lot_f:
+                    _min_qty_reconcile = float(_lot_f.get('minQty', 0.01))
+                _not_f = next((f for f in _sym_info_r['filters'] if f['filterType'] == 'NOTIONAL'), None)
+                if _not_f:
+                    _min_notional_reconcile = float(_not_f.get('minNotional', 5.0))
+        except Exception:
+            pass
+
+        # Position réelle : doit avoir assez de coins ET une valeur au-dessus de MIN_NOTIONAL
+        _balance_value_usdc = coin_balance * _current_price if _current_price > 0 else 0.0
+        has_real_balance = (
+            coin_balance >= _min_qty_reconcile
+            and _balance_value_usdc >= _min_notional_reconcile
+        )
 
         if has_real_balance and not local_in_position:
             logger.critical(
@@ -696,20 +723,145 @@ def reconcile_positions_with_exchange(crypto_pairs_list: List[Dict]) -> None:
         elif not has_real_balance and local_in_position:
             logger.warning(
                 f"[RECONCILE] bot_state indique position ouverte pour {backtest_pair} "
-                f"mais solde {coin_symbol} est ~0 — réinitialisation de l'état."
+                f"mais solde {coin_symbol} est ~0 (balance={coin_balance:.8f}, "
+                f"valeur={_balance_value_usdc:.2f} USDC) — réconciliation complète."
             )
+
+            # Vérifier si le SL exchange a été FILLED (cause la plus probable)
+            _sl_oid = pair_state.get('sl_order_id')
+            _sl_fill_price = _current_price  # fallback
+            _sl_exec_qty = 0.0
+            _sl_was_filled = False
+            if _sl_oid:
+                try:
+                    _sl_info = client.get_order(symbol=real_pair, orderId=_sl_oid)
+                    if _sl_info.get('status') == 'FILLED':
+                        _sl_was_filled = True
+                        _eq = float(_sl_info.get('executedQty', 0))
+                        _cq = float(_sl_info.get('cummulativeQuoteQty', 0))
+                        if _eq > 0:
+                            _sl_exec_qty = _eq
+                        if _eq > 0 and _cq > 0:
+                            _sl_fill_price = _cq / _eq
+                        logger.info(
+                            "[RECONCILE] SL exchange %s FILLED — prix %.4f, qty %.8f",
+                            _sl_oid, _sl_fill_price, _sl_exec_qty,
+                        )
+                except Exception as _sl_err:
+                    logger.warning("[RECONCILE] Impossible de vérifier SL %s: %s", _sl_oid, _sl_err)
+            else:
+                # Pas de sl_order_id → on ne peut pas confirmer un SL fill
+                _sl_was_filled = False
+                logger.info("[RECONCILE] Aucun sl_order_id pour %s — reset état sans email", backtest_pair)
+
+            # Email d'alerte si SL a été filled
+            if _sl_was_filled:
+                _entry_px = pair_state.get('entry_price') or 0
+                _pnl_pct = ((_sl_fill_price / _entry_px) - 1) * 100 if _entry_px > 0 else None
+                _stop_loss_at = pair_state.get('stop_loss_at_entry')
+                _is_ts = pair_state.get('trailing_stop_activated', False)
+                _ts = pair_state.get('trailing_stop')
+                if _is_ts and _ts:
+                    _stop_type = "TRAILING-STOP (dynamique)"
+                    _stop_desc = (
+                        f"Prix max atteint : {pair_state.get('max_price', 0):.4f} USDC\n"
+                        f"Trailing stop : {_ts:.4f} USDC"
+                    )
+                else:
+                    _stop_type = "STOP-LOSS (fixe à 3×ATR)"
+                    _stop_desc = f"Stop-loss fixe : {_stop_loss_at:.4f} USDC" if _stop_loss_at else "N/A"
+
+                extra = (
+                    f"DETAILS DU STOP (ordre exchange natif — détecté au redémarrage):\n"
+                    f"{_stop_desc}\n"
+                    f"Prix d'entree : {_entry_px:.4f} USDC\n"
+                    f"Timeframe : {pair_state.get('entry_timeframe', 'N/A')}\n"
+                    f"EMA : {pair_state.get('entry_ema1', '?')}/{pair_state.get('entry_ema2', '?')}\n"
+                    f"Scenario : {pair_state.get('entry_scenario', 'N/A')}"
+                )
+                subj, body = sell_executed_email(
+                    pair=real_pair, qty=_sl_exec_qty,
+                    price=_sl_fill_price,
+                    usdc_received=_sl_exec_qty * _sl_fill_price,
+                    sell_reason=_stop_type, pnl_pct=_pnl_pct,
+                    extra_details=extra,
+                )
+                try:
+                    send_trading_alert_email(subject=subj, body_main=body, client=client)
+                    logger.info("[RECONCILE] Email SL exchange envoyé pour %s", backtest_pair)
+                except Exception as _email_err:
+                    logger.error("[RECONCILE] Échec envoi email SL: %s", _email_err)
+
+                # Journal de trading
+                try:
+                    _saved_entry = pair_state.get('entry_price') or 0.0
+                    _pnl = (_sl_fill_price - _saved_entry) * _sl_exec_qty if _saved_entry else None
+                    _pnl_pct_j = ((_sl_fill_price / _saved_entry) - 1) if _saved_entry else None
+                    logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+                    log_trade(
+                        logs_dir=logs_dir, pair=real_pair, side='sell',
+                        quantity=_sl_exec_qty, price=_sl_fill_price,
+                        fee=_sl_exec_qty * config.taker_fee * _sl_fill_price,
+                        scenario=pair_state.get('entry_scenario') or '',
+                        timeframe=pair_state.get('entry_timeframe') or '',
+                        pnl=_pnl, pnl_pct=_pnl_pct_j,
+                        extra={'sell_reason': f'{_stop_type} (reconcile at startup)'},
+                    )
+                except Exception as _j_err:
+                    logger.error("[RECONCILE] Erreur journal: %s", _j_err)
+
+            # Reset complet du pair_state
             with _bot_state_lock:
                 if backtest_pair in bot_state:
-                    bot_state[backtest_pair]['last_order_side'] = 'SELL'
-                    bot_state[backtest_pair]['entry_price'] = None
-                    bot_state[backtest_pair]['partial_taken_1'] = False
-                    bot_state[backtest_pair]['partial_taken_2'] = False
+                    bot_state[backtest_pair].update({
+                        'entry_price': None, 'max_price': None, 'stop_loss': None,
+                        'trailing_stop': None, 'trailing_stop_activated': False,
+                        'atr_at_entry': None, 'stop_loss_at_entry': None,
+                        'trailing_activation_price_at_entry': None,
+                        'initial_position_size': None,
+                        'last_order_side': 'SELL',
+                        'partial_taken_1': False, 'partial_taken_2': False,
+                        'breakeven_triggered': False,
+                        'entry_scenario': None, 'entry_timeframe': None,
+                        'entry_ema1': None, 'entry_ema2': None,
+                        'sl_order_id': None, 'sl_exchange_placed': False,
+                    })
+                    # A-3: cooldown post-SL si configuré
+                    _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
+                    if _cd_candles > 0 and _sl_was_filled:
+                        _tf = pair_state.get('entry_timeframe') or '1h'
+                        _TF_SEC: dict[str, int] = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800,
+                                   '1h': 3600, '4h': 14400, '1d': 86400}
+                        _candle_sec = _TF_SEC.get(_tf, 3600)
+                        bot_state[backtest_pair]['_stop_loss_cooldown_until'] = (
+                            time.time() + (_cd_candles * _candle_sec)
+                        )
             save_bot_state(force=True)
+            logger.info("[RECONCILE] État réinitialisé pour %s — prêt pour nouvel achat", backtest_pair)
         else:
             logger.info(
                 f"[RECONCILE] {backtest_pair}: cohérent "
                 f"(balance={coin_balance:.6f} {coin_symbol}, in_position={local_in_position})"
             )
+            # Nettoyer les champs d'entrée stales quand pas de position réelle
+            if not local_in_position and backtest_pair in bot_state:
+                _ps = bot_state[backtest_pair]
+                if _ps.get('entry_price') is not None or _ps.get('stop_loss_at_entry') is not None:
+                    logger.info("[RECONCILE] Nettoyage des champs d'entrée stales pour %s", backtest_pair)
+                    with _bot_state_lock:
+                        _ps.update({
+                            'entry_price': None, 'max_price': None, 'stop_loss': None,
+                            'trailing_stop': None, 'trailing_stop_activated': False,
+                            'atr_at_entry': None, 'stop_loss_at_entry': None,
+                            'trailing_activation_price_at_entry': None,
+                            'initial_position_size': None,
+                            'partial_taken_1': False, 'partial_taken_2': False,
+                            'breakeven_triggered': False,
+                            'entry_scenario': None, 'entry_timeframe': None,
+                            'entry_ema1': None, 'entry_ema2': None,
+                            'sl_order_id': None, 'sl_exchange_placed': False,
+                        })
+                    save_bot_state(force=True)
             # C-11: Position ouverte sans stop-loss sur Binance → repose automatique du SL
             if local_in_position:
                 sl_price = pair_state.get('stop_loss_at_entry')
@@ -1158,15 +1310,6 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
                 except Exception as _alert_err:
                     logger.error(f"[SCHEDULED] Envoi alerte échec backtest impossible: {_alert_err}")
         
-        # === AFFICHAGE PANEL - TRADING EN TEMPS REEL ===
-        try:
-            logger.info("[SCHEDULED] Affichage panel trading...")
-            display_trading_panel(real_trading_pair, best_params, console)
-            logger.info("[SCHEDULED] Panel trading affiché, appel execute_real_trades...")
-            sys.stdout.flush()
-        except Exception as panel_trading_err:
-            logger.error(f"[SCHEDULED] Erreur affichage panel trading: {str(panel_trading_err)}")
-        
         # Exécuter le trading avec les paramètres mis à jour
         try:
             logger.info(f"[SCHEDULED] Appel execute_real_trades avec {best_params['scenario']} sur {best_params['timeframe']} + sizing_mode='{sizing_mode}'...")
@@ -1260,7 +1403,6 @@ def execute_live_trading_only(real_trading_pair: str, backtest_pair: str, sizing
             tf,
         )
 
-        display_trading_panel(real_trading_pair, current_params, console)
         execute_real_trades(real_trading_pair, tf, current_params, backtest_pair, sizing_mode=sizing_mode)
 
         pair_state: PairState = bot_state.setdefault(backtest_pair, {})  # type: ignore[assignment]
@@ -1635,6 +1777,22 @@ def _execute_one_partial(ctx: '_TradeCtx', *, partial_number: int, sell_pct: flo
                 logger.error(f"[JOURNAL] Erreur écriture vente partielle: {journal_err}")
         else:
             logger.warning(f"[{label}] Ordre de vente non FILLED — tentative échouée")
+            try:
+                _status = sell_order.get('status', 'UNKNOWN') if sell_order else 'None'
+                send_trading_alert_email(
+                    subject=f"[ALERTE] {label} NON FILLED — {ctx.real_trading_pair}",
+                    body_main=(
+                        f"Ordre de vente partielle {label} non exécuté.\n\n"
+                        f"Paire : {ctx.real_trading_pair}\n"
+                        f"Quantité : {qty_str}\n"
+                        f"Statut : {_status}\n"
+                        f"Prix courant : {ctx.current_price:.4f} USDC\n\n"
+                        f"Action : le bot réessaiera au prochain cycle."
+                    ),
+                    client=client,
+                )
+            except Exception as _email_err:
+                logger.error(f"[{label}] Échec envoi email vente non-filled: {_email_err}")
 
     except Exception as e:
         logger.error(f"[{label}] Erreur lors de l'exécution de la vente partielle: {e}")
@@ -1663,12 +1821,162 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx') -> bool:
     # === Prix <= effective_stop — exécuter le stop-loss ===
     # Si les coins sont verrouillés dans un ordre SL exchange (STOP_LOSS_LIMIT pending),
     # Binance gère la vente automatiquement — ne pas tenter un market-sell en doublon.
+    # MAIS il faut vérifier si l'ordre a DÉJÀ été FILLED pour réconcilier l'état.
     if ctx.coin_balance_free < ctx.min_qty:
-        logger.info(
-            "[STOP-LOSS SOFTWARE] Coins verrouillés dans l'ordre SL exchange (%s) — "
-            "vente gérée automatiquement par Binance.",
-            ps.get('sl_order_id', '?'),
-        )
+        sl_oid = ps.get('sl_order_id')
+        _sl_filled = False
+        _sl_fill_price = ctx.current_price  # fallback
+        _sl_exec_qty = 0.0
+
+        # Vérifier le statut réel de l'ordre SL sur l'exchange
+        if sl_oid:
+            try:
+                _sl_info = client.get_order(
+                    symbol=ctx.real_trading_pair, orderId=sl_oid,
+                )
+                _sl_status = _sl_info.get('status', '')
+                if _sl_status == 'FILLED':
+                    _sl_filled = True
+                    _eq = float(_sl_info.get('executedQty', 0))
+                    _cq = float(_sl_info.get('cummulativeQuoteQty', 0))
+                    if _eq > 0:
+                        _sl_exec_qty = _eq
+                    if _eq > 0 and _cq > 0:
+                        _sl_fill_price = _cq / _eq
+                    logger.info(
+                        "[SL-EXCHANGE] Ordre SL %s FILLED — prix moyen %.4f USDC, qty %.8f",
+                        sl_oid, _sl_fill_price, _sl_exec_qty,
+                    )
+                else:
+                    logger.info(
+                        "[STOP-LOSS SOFTWARE] Ordre SL exchange %s statut=%s — "
+                        "vente gérée automatiquement par Binance.",
+                        sl_oid, _sl_status,
+                    )
+            except Exception as _sl_check_err:
+                logger.warning(
+                    "[SL-EXCHANGE] Impossible de vérifier l'ordre SL %s: %s",
+                    sl_oid, _sl_check_err,
+                )
+        else:
+            # Pas de sl_order_id — vérifier si balance indique une clôture
+            if ctx.coin_balance_locked < ctx.min_qty:
+                _sl_filled = True
+                logger.warning(
+                    "[SL-EXCHANGE] Aucun sl_order_id mais coins absents "
+                    "(free=%.8f, locked=%.8f) — SL probablement FILLED.",
+                    ctx.coin_balance_free, ctx.coin_balance_locked,
+                )
+
+        if not _sl_filled:
+            return True
+
+        # === SL exchange FILLED — réconciliation complète ===
+        executed_price = _sl_fill_price
+        total_usdc_received = _sl_exec_qty * executed_price if _sl_exec_qty else 0.0
+
+        if is_trailing_stop:
+            stop_type = "TRAILING-STOP (dynamique)"
+            stop_desc = (
+                f"Prix max atteint : {ps.get('max_price', 0):.4f} USDC\n"
+                f"Trailing stop : {trailing_stop:.4f} USDC"
+            )
+        else:
+            stop_type = "STOP-LOSS (fixe à 3×ATR)"
+            stop_desc = f"Stop-loss fixe : {stop_loss_fixed:.4f} USDC"
+
+        # Email d'alerte SL exchange
+        _entry_px_sl = ps.get('entry_price') or 0
+        _pnl_pct_sl = ((executed_price / _entry_px_sl) - 1) * 100 if _entry_px_sl > 0 else None
+        if is_valid_stop_loss_order(ctx.real_trading_pair, str(_sl_exec_qty or 1), executed_price):
+            extra = (
+                f"DETAILS DU STOP (ordre exchange natif):\n{stop_desc}\n"
+                f"Prix d'entree : {_entry_px_sl:.4f} USDC\n"
+                f"Timeframe : {ctx.time_interval}\n"
+                f"EMA : {ctx.ema1_period}/{ctx.ema2_period}\n"
+                f"Scenario : {ctx.scenario}"
+            )
+            subj, body = sell_executed_email(
+                pair=ctx.real_trading_pair, qty=_sl_exec_qty or 0,
+                price=executed_price, usdc_received=total_usdc_received,
+                sell_reason=stop_type, pnl_pct=_pnl_pct_sl,
+                extra_details=extra,
+            )
+            try:
+                send_trading_alert_email(subject=subj, body_main=body, client=client)
+                logger.info("[SL-EXCHANGE] E-mail d'alerte envoyé pour SL exchange")
+            except Exception as _email_err:
+                logger.error("[SL-EXCHANGE] Échec envoi e-mail: %s", _email_err)
+        else:
+            logger.warning(
+                "[SL-EXCHANGE] Email NON ENVOYÉ : paramètres invalides "
+                "(symbol=%s, qty=%s, price=%s)",
+                ctx.real_trading_pair, _sl_exec_qty, executed_price,
+            )
+
+        # Capturer entry_price AVANT le reset pour le journal PnL
+        _saved_entry_price = ps.get('entry_price') or 0.0
+
+        # Reset complet de l'état — identique au path SL software
+        ps.update({
+            'entry_price': None, 'max_price': None, 'stop_loss': None,
+            'trailing_stop': None, 'trailing_stop_activated': False,
+            'atr_at_entry': None, 'stop_loss_at_entry': None,
+            'trailing_activation_price_at_entry': None,
+            'initial_position_size': None,
+            'last_order_side': 'SELL',
+            'breakeven_triggered': False,
+            'entry_scenario': None, 'entry_timeframe': None,
+            'entry_ema1': None, 'entry_ema2': None,
+            'sl_order_id': None, 'sl_exchange_placed': False,
+        })
+
+        # A-3: cooldown post-stop-loss
+        _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
+        if _cd_candles > 0:
+            _TF_SEC = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800,
+                       '1h': 3600, '4h': 14400, '1d': 86400}
+            _candle_sec = _TF_SEC.get(ctx.time_interval, 3600)
+            ps['_stop_loss_cooldown_until'] = time.time() + (_cd_candles * _candle_sec)
+            logger.info(
+                "[A-3 COOLDOWN] Post-stop-loss exchange: %d bougies x %ds = %.1fh",
+                _cd_candles, _candle_sec, (_cd_candles * _candle_sec) / 3600,
+            )
+
+        save_bot_state(force=True)
+
+        # Journal de trading
+        if _sl_exec_qty > 0:
+            try:
+                logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+                _pnl = (executed_price - _saved_entry_price) * _sl_exec_qty if _saved_entry_price else None
+                _pnl_pct_j = ((executed_price / _saved_entry_price) - 1) if _saved_entry_price else None
+                _update_daily_pnl(_pnl)
+                log_trade(
+                    logs_dir=logs_dir,
+                    pair=ctx.real_trading_pair,
+                    side='sell',
+                    quantity=_sl_exec_qty,
+                    price=executed_price,
+                    fee=_sl_exec_qty * config.taker_fee * executed_price,
+                    scenario=ctx.scenario,
+                    timeframe=ctx.time_interval,
+                    pnl=_pnl,
+                    pnl_pct=_pnl_pct_j,
+                    extra={'sell_reason': f'{stop_type} (exchange-filled)'},
+                )
+            except Exception as _journal_err:
+                logger.error("[JOURNAL] Erreur écriture vente SL exchange: %s", _journal_err)
+
+        # Affichage panel de clôture
+        if is_trailing_stop:
+            stop_loss_info = f"{trailing_stop:.4f} USDC (dynamique : trailing)"
+        else:
+            stop_loss_info = f"{stop_loss_fixed:.4f} USDC (fixe à l'entrée)"
+        display_closure_panel(stop_loss_info, ctx.current_price, ctx.coin_symbol, ctx.coin_balance, console)
+
+        ps['last_execution'] = datetime.now(timezone.utc).isoformat()
+        save_bot_state()
         return True
 
     # Exécution vente immédiate sur stop-loss (coins libres)
@@ -1693,6 +2001,30 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx') -> bool:
 
             # Récupérer le prix d'exécution
             executed_price = ctx.current_price
+        else:
+            # SL software sell NOT FILLED
+            _status = stop_loss_order.get('status', 'UNKNOWN') if stop_loss_order else 'None'
+            logger.warning(f"[STOP-LOSS] Ordre de vente SL non FILLED (statut={_status})")
+            try:
+                send_trading_alert_email(
+                    subject=f"[ALERTE] Stop-Loss NON FILLED — {ctx.real_trading_pair}",
+                    body_main=(
+                        f"Ordre de vente stop-loss (software) non exécuté.\n\n"
+                        f"Paire : {ctx.real_trading_pair}\n"
+                        f"Quantité : {qty_str}\n"
+                        f"Stop effectif : {effective_stop:.4f} USDC\n"
+                        f"Prix courant : {ctx.current_price:.4f} USDC\n"
+                        f"Statut : {_status}\n\n"
+                        f"ATTENTION : position toujours exposée sans protection.\n"
+                        f"Action : le bot réessaiera au prochain cycle."
+                    ),
+                    client=client,
+                )
+            except Exception as _email_err:
+                logger.error(f"[STOP-LOSS] Échec envoi email SL non-filled: {_email_err}")
+
+        if stop_loss_order and stop_loss_order.get('status') == 'FILLED':
+            executed_price = executed_price or ctx.current_price
             total_usdc_received = float(qty_str) * executed_price
 
             # Déterminer le type de stop-loss
@@ -1790,13 +2122,25 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx') -> bool:
 def _handle_dust_cleanup(ctx: '_TradeCtx') -> bool:
     """C-15: Détecte et nettoie les résidus (dust). Retourne position_has_crypto."""
     ps = ctx.pair_state
-    position_has_crypto = ctx.coin_balance > ctx.min_qty
+    # Position réelle = assez de coins ET (valeur >= min_notional OU position intentionnelle BUY)
+    # Quand last_order_side='SELL' mais du dust subsiste au-dessus de min_qty,
+    # la valeur notional détermine si c'est tradeable ou non.
+    _notional_value = ctx.coin_balance * ctx.current_price if ctx.current_price > 0 else 0.0
+    position_has_crypto = (
+        ctx.coin_balance > ctx.min_qty
+        and (
+            _notional_value >= ctx.min_notional
+            or ps.get('last_order_side') == 'BUY'
+        )
+    )
 
     # === DÉTECTION ET NETTOYAGE FORCÉ DES RÉSIDUS (DUST) ===
     dust_threshold = ctx.min_qty * 0.98  # 98% du minimum tradable
+    # Dust = coins présents mais non tradeable (soit < min_qty, soit < min_notional sans position BUY)
     has_dust = (
-        (ctx.min_qty * 0.01 < ctx.coin_balance_free < dust_threshold)
-        and (ctx.coin_balance_locked < ctx.min_qty)
+        ctx.coin_balance > ctx.min_qty * 0.01
+        and not position_has_crypto
+        and ctx.coin_balance_locked < ctx.min_qty
     )
 
     if has_dust:
@@ -1808,6 +2152,28 @@ def _handle_dust_cleanup(ctx: '_TradeCtx') -> bool:
             logger.warning(f"[DUST] Valeur du résidu ({dust_notional_value:.2f} USDC) < MIN_NOTIONAL ({ctx.min_notional:.2f} USDC)")
             logger.warning(f"[DUST] Impossible de vendre le résidu - Binance refuse les ordres < {ctx.min_notional:.2f} USDC")
             logger.info("[DUST] Résidu ignoré (position considérée comme fermée)")
+            # Reset état : nettoyer les champs d'entrée stales (quel que soit last_order_side)
+            _stale_fields = (
+                ps.get('entry_price') is not None
+                or ps.get('stop_loss_at_entry') is not None
+                or ps.get('last_order_side') == 'BUY'
+            )
+            if _stale_fields:
+                ps.update({
+                    'entry_price': None, 'max_price': None, 'stop_loss': None,
+                    'trailing_stop': None, 'trailing_stop_activated': False,
+                    'atr_at_entry': None, 'stop_loss_at_entry': None,
+                    'trailing_activation_price_at_entry': None,
+                    'initial_position_size': None,
+                    'last_order_side': 'SELL',
+                    'partial_taken_1': False, 'partial_taken_2': False,
+                    'breakeven_triggered': False,
+                    'entry_scenario': None, 'entry_timeframe': None,
+                    'entry_ema1': None, 'entry_ema2': None,
+                    'sl_order_id': None, 'sl_exchange_placed': False,
+                })
+                save_bot_state(force=True)
+                logger.info("[DUST] État pair_state réinitialisé (dust intradable, position considérée fermée)")
         else:
             logger.info("[DUST] Tentative de vente forcée du résidu pour débloquer le trading...")
 
@@ -1824,8 +2190,13 @@ def _handle_dust_cleanup(ctx: '_TradeCtx') -> bool:
                         'atr_at_entry': None, 'stop_loss_at_entry': None,
                         'trailing_activation_price_at_entry': None,
                         'initial_position_size': None,
+                        'last_order_side': 'SELL',
                         'partial_taken_1': False,
-                        'partial_taken_2': False
+                        'partial_taken_2': False,
+                        'breakeven_triggered': False,
+                        'entry_scenario': None, 'entry_timeframe': None,
+                        'entry_ema1': None, 'entry_ema2': None,
+                        'sl_order_id': None, 'sl_exchange_placed': False,
                     })
                     save_bot_state()
 
@@ -1976,6 +2347,25 @@ def _execute_signal_sell(ctx: '_TradeCtx') -> None:
                             )
                         except Exception as journal_err:
                             logger.error(f"[JOURNAL] Erreur écriture vente: {journal_err}")
+                    else:
+                        # Signal sell order sent but NOT FILLED
+                        _status = sell_order.get('status', 'UNKNOWN') if sell_order else 'None'
+                        logger.warning(f"[SIGNAL] Ordre de vente non FILLED (statut={_status})")
+                        try:
+                            send_trading_alert_email(
+                                subject=f"[ALERTE] Vente signal NON FILLED — {ctx.real_trading_pair}",
+                                body_main=(
+                                    f"Ordre de vente signal non exécuté.\n\n"
+                                    f"Paire : {ctx.real_trading_pair}\n"
+                                    f"Quantité : {qty_str}\n"
+                                    f"Statut : {_status}\n"
+                                    f"Prix courant : {ctx.current_price:.4f} USDC\n\n"
+                                    f"Action : le bot réessaiera au prochain cycle."
+                                ),
+                                client=client,
+                            )
+                        except Exception as _email_err:
+                            logger.error(f"[SIGNAL] Échec envoi email vente non-filled: {_email_err}")
                 else:
                     if quantity_rounded < ctx.min_qty_dec:
                         logger.warning(f"[SIGNAL] Vente bloquée : Quantité {quantity_rounded} < min_qty {ctx.min_qty_dec}")
@@ -2036,7 +2426,7 @@ def _execute_signal_sell(ctx: '_TradeCtx') -> None:
     display_sell_signal_panel(
         row=ctx.row, coin_balance=ctx.coin_balance, pair_state=ps,
         sell_triggered=sell_triggered, console=console, coin_symbol=ctx.coin_symbol,
-        sell_reason=sell_reason
+        sell_reason=sell_reason, best_params=ctx.best_params,
     )
 
 
@@ -2427,6 +2817,26 @@ def _execute_buy(ctx: '_TradeCtx') -> None:
                     account_info = client.get_account()
                     # C-13: helper centralisé
                     _, ctx.usdc_balance, _, _ = _get_coin_balance(account_info, 'USDC')
+                else:
+                    # Buy order sent but NOT FILLED
+                    _status = buy_order.get('status', 'UNKNOWN') if buy_order else 'None'
+                    logger.warning(f"[BUY] Ordre d'achat non FILLED (statut={_status})")
+                    try:
+                        send_trading_alert_email(
+                            subject=f"[ALERTE] Achat NON FILLED — {ctx.real_trading_pair}",
+                            body_main=(
+                                f"Ordre d'achat non exécuté.\n\n"
+                                f"Paire : {ctx.real_trading_pair}\n"
+                                f"Quantité : {qty_str}\n"
+                                f"Montant : {quote_amount:.2f} USDC\n"
+                                f"Statut : {_status}\n"
+                                f"Prix courant : {ctx.current_price:.4f} USDC\n\n"
+                                f"Action : le bot réessaiera au prochain cycle."
+                            ),
+                            client=client,
+                        )
+                    except Exception as _email_err:
+                        logger.error(f"[BUY] Échec envoi email achat non-filled: {_email_err}")
             else:
                 logger.warning(f"[BUY] Quantité {quantity_rounded} < min_qty {ctx.min_qty_dec}, achat annulé")
         except Exception as e:
@@ -2666,8 +3076,13 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
          min_qty_dec, max_qty_dec, step_size_dec, step_decimals) = flt
 
         # Afficher le panel des soldes
-        last_buy_price = pair_state.get('entry_price') if coin_balance >= min_qty else None
-        atr_at_entry = pair_state.get('atr_at_entry') if coin_balance >= min_qty else None
+        # Ne montrer les données d'entrée que si position réelle (qty + notional)
+        _has_real_position = (
+            coin_balance >= min_qty
+            and coin_balance * (pair_state.get('entry_price') or 0) >= min_notional
+        )
+        last_buy_price = pair_state.get('entry_price') if _has_real_position else None
+        atr_at_entry = pair_state.get('atr_at_entry') if _has_real_position else None
         display_account_balances_panel(
             account_info, coin_symbol, quote_currency, client, console,
             pair_state=pair_state,  # type: ignore[arg-type]
@@ -2866,10 +3281,7 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
     pair_state['execution_count'] = pair_state.get('execution_count', 0) + 1
     save_bot_state()
 
-    # Affichage soigne pour la section trading en temps reel
     console.print("\n")
-    display_trading_panel(real_trading_pair, best_params, console)
-    
     try:
         # POSITION SIZING: utiliser le mode passé en paramètre
         execute_real_trades(real_trading_pair, best_params['timeframe'], best_params, backtest_pair, sizing_mode=sizing_mode)        

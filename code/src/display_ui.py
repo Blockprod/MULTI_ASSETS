@@ -60,6 +60,12 @@ def display_buy_signal_panel(
     except Exception:
         quote_currency, coin_symbol = 'USDC', 'COIN'
 
+    # Résumé stratégie active
+    _ema1_p = best_params.get('ema1_period', '?')
+    _ema2_p = best_params.get('ema2_period', '?')
+    _tf = best_params.get('timeframe', '?')
+    _strategy_label = f"{scenario} EMA({_ema1_p}/{_ema2_p}) {_tf}"
+
     cond_grid = Table(
         title="[bold white]Analyse des conditions d'achat[/bold white]",
         title_justify="left",
@@ -69,6 +75,7 @@ def display_buy_signal_panel(
     cond_grid.add_column("result", width=12, no_wrap=True)
     cond_grid.add_column("detail", style="dim")
 
+    cond_grid.add_row("Stratégie active", "", f"[bold cyan]{_strategy_label}[/bold cyan]")
     cond_grid.add_row("EMA1 > EMA2", _ok(row['ema1'] > row['ema2']), f"EMA1={row['ema1']:.2f}  EMA2={row['ema2']:.2f}")
     cond_grid.add_row("StochRSI < 80%", _ok(row['stoch_rsi'] < 0.8), f"{row['stoch_rsi']*100:.1f}%")
     cond_grid.add_row(f"Solde {quote_currency} > 0", _ok(usdc_balance > 0), f"{usdc_balance:.2f} {quote_currency}")
@@ -109,6 +116,7 @@ def display_buy_signal_panel(
 def display_sell_signal_panel(
     row, coin_balance, pair_state, sell_triggered,
     console: Console, coin_symbol, sell_reason=None,
+    best_params: Optional[Dict[str, Any]] = None,
 ):
     """
     Panneau d'analyse des signaux de vente avec stop-loss, trailing stop,
@@ -136,6 +144,14 @@ def display_sell_signal_panel(
     sell_grid.add_column("condition", width=28, no_wrap=True, style="bold white")
     sell_grid.add_column("result", width=12, no_wrap=True)
     sell_grid.add_column("detail", style="dim")
+
+    # Stratégie active
+    if best_params:
+        _ema1_p = best_params.get('ema1_period', '?')
+        _ema2_p = best_params.get('ema2_period', '?')
+        _tf = best_params.get('timeframe', '?')
+        _scenario = best_params.get('scenario', '?')
+        sell_grid.add_row("Stratégie active", "", f"[bold cyan]{_scenario} EMA({_ema1_p}/{_ema2_p}) {_tf}[/bold cyan]")
 
     sell_grid.add_row("EMA2 > EMA1", _ok(row['ema2'] > row['ema1']), "")
     _stoch_exit = getattr(config, 'stoch_rsi_sell_exit', 0.4)
