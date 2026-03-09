@@ -1,5 +1,7 @@
 # Audit Email Alerts — MULTI_ASSETS
 
+> **Statut** : 🔄 Checklist permanente — à parcourir avant chaque release production. Ne pas modifier sans validation préalable.
+
 ## Système d'envoi
 - [ ] `send_email_alert()` : retry 3× avec backoff (`@retry_with_backoff`)
 - [ ] Sujet automatiquement préfixé `[MULTI_ASSETS]` via `config.project_name`

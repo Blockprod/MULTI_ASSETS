@@ -25,12 +25,16 @@ code/states/
 *.log
 code/logs/
 
+# Données de trading (runtime artifacts — ne jamais committer)
+*.csv
+*.meta.json
+
 # Cache de données
 cache/
 code/cache/
 
 # IDE
-.vscode/
+.vscode/*.code-workspace
 .idea/
 
 # OS
@@ -47,3 +51,13 @@ reports/
 
 # Couverture de code
 .coverage
+
+# Caches d'outils d'analyse statique
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Artefacts runtime dans code/src/
+code/src/states/
+code/src/logs/
+code/src/cache/

@@ -1,5 +1,7 @@
 # Template Correction P0 — MULTI_ASSETS
 
+> **Statut** : 🔄 Template permanent — procédure de référence pour toute correction P0. Ne pas modifier sans validation préalable.
+
 ## Procédure standard pour une correction P0
 
 ### 1. Identification

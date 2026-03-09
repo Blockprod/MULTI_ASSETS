@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "pytest: tout (rapide)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/Scripts/python.exe -m pytest tests/ -x -q",
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "ruff: vérifier code/src",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/Scripts/python.exe -m ruff check code/src/",
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "pyright: type check",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/Scripts/python.exe -m pyright --project pyrightconfig.json",
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" }
+    }
+  ]
+}

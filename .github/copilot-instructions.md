@@ -3,7 +3,7 @@
 ## Stack
 - **Python 3.13** · Binance **Spot uniquement** (pas Futures) · Pandas 3.0 / NumPy 2.4
 - Quote currency: **USDC** (jamais USDT) sur toutes les paires
-- Venv: `.venv/` · Tests: `pytest` depuis `c:\Users\averr\MULTI_ASSETS`
+- Venv: `.venv/` · Tests: `pytest tests/ -x -q` (depuis la racine du repo)
 - PM2 + `code/src/watchdog.py` assurent la continuité de service
 
 ## Structure
@@ -12,7 +12,7 @@ code/src/      ← tous les modules Python
 code/bin/      ← .pyd Cython compilés (backtest_engine_standard, indicators)
 states/        ← bot_state.json (JSON_V1 + HMAC-SHA256)
 cache/         ← cache OHLCV pickle (TTL 30 jours)
-tests/         ← pytest (33+ tests)
+tests/         ← pytest (590 tests, 25 fichiers)
 config/        ← ecosystem.config.js (PM2)
 ```
 
@@ -70,3 +70,14 @@ pytest tests/ -x -q
 - Utiliser une `start_date` figée à l'import → utiliser `_fresh_start_date()`
 - Modifier `backtest_taker_fee` au runtime
 - Appeler `TRAILING_STOP_MARKET` sur Spot
+
+## Contexte modulaire
+
+Chaque module critique dispose d'un fichier de contexte dans `code/src/` :
+- `backtest_runner.context.md` — contraintes du moteur backtest
+- `exchange_client.context.md` — règles du client Binance (rate limiter, idempotence)
+- `MULTI_SYMBOLS.context.md` — architecture de l'orchestrateur principal
+- `state_manager.context.md` — format état JSON_V1 + HMAC-SHA256
+- `walk_forward.context.md` — OOS gates + métriques anti-overfit
+
+Consulter le fichier `.context.md` du module concerné avant toute modification.

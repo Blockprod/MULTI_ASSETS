@@ -1,3 +1,6 @@
+[project]
+requires-python = ">=3.13"
+
 [tool.ruff]
 line-length = 100
 
@@ -19,4 +22,7 @@ ignore = ["E501"]  # Pylint gère déjà la longueur des lignes (max-line-length
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore::ResourceWarning",
+]
 

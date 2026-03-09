@@ -27,7 +27,7 @@ code/src/
 
 ## Prérequis
 
-- **Python 3.11+**
+- **Python 3.13+**
 - Compte Binance avec clés API (Lecture + Spot Trading)
 - Compte Gmail avec mot de passe d'application (pour les alertes)
 
@@ -97,8 +97,32 @@ python -m pytest tests/ -v
 python -m pytest tests/test_core.py -v
 ```
 
-78 tests couvrent : configuration, sizing, backtest, error handling, journal
+590 tests couvrent : configuration, sizing, backtest, error handling, journal
 de trades, alertes e-mail, indicateurs et watchdog.
+
+## Modes d'exécution
+
+| Mode | Commande | Effet |
+|------|----------|-------|
+| **Backtest seul** | `python code/src/backtest_runner.py` | Aucun ordre réel, aucune connexion Binance requise |
+| **Live (direct)** | `cd code/src && python MULTI_SYMBOLS.py` | Ordres réels — clés API actives obligatoires |
+| **Production (PM2)** | `pm2 start config/ecosystem.config.js` | Démon supervisé, redémarrage automatique |
+
+> ⚠️ En mode Live ou Production, toute position ouverte engage du capital réel.  
+> Vérifier `BINANCE_API_KEY` et `BINANCE_SECRET_KEY` dans `.env` avant tout démarrage.
+
+## Ressources AI & Architecture
+
+| Fichier | Rôle |
+|---------|------|
+| `.github/copilot-instructions.md` | Contexte principal pour GitHub Copilot |
+| `.claude/context.md` | Contexte principal pour Claude |
+| `.claude/rules.md` | Règles de modification + priorités |
+| `agents/code_auditor.md` | Agent spécialisé audit sécurité/concurrence |
+| `agents/quant_engineer.md` | Agent spécialisé backtest/signaux |
+| `agents/risk_manager.md` | Agent spécialisé gestion du risque |
+| `architecture/decisions.md` | Décisions d'architecture documentées |
+| `architecture/system_design.md` | Design système global |
 
 ## Fonctionnalités
 
@@ -106,7 +130,7 @@ de trades, alertes e-mail, indicateurs et watchdog.
 - **Backtest intégré** : Walk-forward analysis avec métriques détaillées
 - **Gestion du risque** : 4 modes de sizing (baseline, risk, fixed_notional, volatility_parity)
 - **Sorties partielles** : Prise de profit progressive à 2 seuils configurables
-- **Trailing stop** : Activation dynamique basée sur l'ATR
+- **Stop-loss natif** : `STOP_LOSS_LIMIT` exchange-natif posé immédiatement après chaque BUY (le `TRAILING_STOP_MARKET` n'existe pas sur Binance Spot)
 - **Circuit-breaker** : Protection contre les cascades d'erreurs API
 - **Alertes e-mail** : Notifications pour trades, erreurs, déconnexions
 - **Cache intelligent** : Données historiques mises en cache avec mise à jour incrémentale

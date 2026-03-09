@@ -1,5 +1,5 @@
 # ============================================================================
-# MULTI_ASSETS TRADING BOT - DEPENDENCIES (Python 3.11.9)
+# MULTI_ASSETS TRADING BOT - DEPENDENCIES (Python 3.13)
 # ============================================================================
 
 # === CORE DATA & MATH ===

@@ -1,4 +1,7 @@
 # Audit System — MULTI_ASSETS
+
+> **Statut** : 🔄 Checklist permanente — à parcourir avant chaque release production. Ne pas modifier sans validation préalable.
+
 *Template de session d'audit. Cocher chaque item avant de déclarer "produit ready".*
 
 ## BLOC 1 — Biais Backtest
