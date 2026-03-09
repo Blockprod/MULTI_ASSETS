@@ -4,14 +4,6 @@
   // est gérée par pyrightconfig.json à la racine (priorité sur python.analysis.*)
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
 
-  // Chemins additionnels pour la résolution d'imports (redondant avec pyrightconfig.json
-  // extraPaths mais nécessaire pour certaines versions de Pylance qui ignorent pyrightconfig
-  // dans le mode workspace).
-  "python.analysis.extraPaths": [
-    "code/src",
-    "code/bin"
-  ],
-
   // Analyse tout le workspace en arrière-plan (pas seulement les fichiers ouverts)
   "python.analysis.diagnosticMode": "workspace",
 
