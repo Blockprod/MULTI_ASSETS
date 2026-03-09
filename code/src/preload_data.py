@@ -81,13 +81,13 @@ def calculate_all_indicators(df):
 
 def fetch_and_precompute():
     start_date = (datetime.today() - timedelta(days=BACKTEST_DAYS)).strftime("%d %B %Y")
-    
+
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     for pair in PAIRS:
         for tf in TIMEFRAMES:
             print(f" Pré-calcul pour {pair} | {tf}...")
-            
+
             # Téléchargement
             klines = client.get_historical_klines(pair, tf, start_date)
             df = pd.DataFrame(klines, columns=[

@@ -53,7 +53,7 @@ def log_trade(
     extra: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Append a trade record to the journal.
-    
+
     Returns True on success, False on write error.
     """
     record = {
@@ -114,13 +114,13 @@ def journal_summary(logs_dir: str) -> Dict[str, Any]:
     records = read_journal(logs_dir)
     if not records:
         return {"total_trades": 0}
-    
+
     sells = [r for r in records if r.get("side") == "sell" and r.get("pnl") is not None]
     pnls = [r["pnl"] for r in sells]
-    
+
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p <= 0]
-    
+
     return {
         "total_trades": len(records),
         "total_sells": len(sells),

@@ -2,6 +2,7 @@
 import sys
 import os
 import pytest
+from typing import cast
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
@@ -35,7 +36,7 @@ class TestComputePositionSizeByRisk:
                 from MULTI_SYMBOLS import compute_position_size_by_risk
             except Exception:
                 pytest.skip("Cannot import MULTI_SYMBOLS (missing dependencies)")
-        
+
         # equity=10000, ATR=100, entry=50000, risk_pct=0.05, stop_mult=3.0
         # stop_distance = 3.0 * 100 = 300
         # max_risk_usd = 10000 * 0.05 = 500
@@ -193,7 +194,7 @@ class TestSizingErrorRaised:
                 pytest.skip("Cannot import")
         with pytest.raises(SizingError):
             compute_position_size_by_risk(
-                equity="not_a_number", atr_value=100, entry_price=50000,  # type: ignore[arg-type]
+                equity=cast(float, "not_a_number"), atr_value=100, entry_price=50000,
                 risk_pct=0.05, stop_atr_multiplier=3.0,
             )
 
@@ -211,7 +212,7 @@ class TestSizingErrorRaised:
                 pytest.skip("Cannot import")
         with pytest.raises(SizingError):
             compute_position_size_fixed_notional(
-                equity=10000, notional_per_trade_usd=1000, entry_price="bad",  # type: ignore[arg-type]
+                equity=10000, notional_per_trade_usd=1000, entry_price=cast(float, "bad"),
             )
 
     def test_volatility_parity_list_equity_raises(self):
@@ -228,6 +229,6 @@ class TestSizingErrorRaised:
                 pytest.skip("Cannot import")
         with pytest.raises(SizingError):
             compute_position_size_volatility_parity(
-                equity=[1, 2], atr_value=50, entry_price=1000,  # type: ignore[arg-type]
+                equity=cast(float, [1, 2]), atr_value=50, entry_price=1000,
                 target_volatility_pct=0.02,
             )

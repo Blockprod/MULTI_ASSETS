@@ -539,7 +539,7 @@ class TestConfigValidation:
         cfg.taker_fee = 0.0007
         cfg.sizing_mode = 'baseline'
         cfg.initial_wallet = 10000.0
-        
+
         repr_str = repr(cfg)
         assert 'REAL_KEY' not in repr_str
         assert 'REAL_SECRET' not in repr_str

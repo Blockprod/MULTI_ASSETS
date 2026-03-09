@@ -173,10 +173,10 @@ class TestConcurrence:
         lock = threading.Lock()
         lock.acquire()  # verrouiller manuellement
         monkeypatch.setattr(ms, '_pair_execution_locks', {'TRX/USDC': lock})
-        
+
         calls = []
         monkeypatch.setattr(ms, '_execute_real_trades_inner', lambda *a, **kw: calls.append(1))
-        
+
         ms.execute_real_trades('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         assert len(calls) == 0  # inner n'a pas été appelé
         lock.release()
@@ -186,10 +186,10 @@ class TestConcurrence:
         lock = threading.Lock()
         lock.acquire()
         monkeypatch.setattr(ms, '_pair_execution_locks', {'TRX/USDC': lock})
-        
+
         calls = []
         monkeypatch.setattr(ms, '_execute_real_trades_inner', lambda *a, **kw: calls.append(1))
-        
+
         ms.execute_real_trades('BTCUSDC', '1h', _make_best_params(), 'BTC/USDC')
         assert len(calls) == 1
         lock.release()
@@ -207,7 +207,7 @@ class TestBuyFlow:
         """Configure l'environnement pour un test d'achat."""
         cfg = _make_config(sizing_mode=sizing_mode)
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': str(usdc)},
@@ -219,26 +219,26 @@ class TestBuyFlow:
         mock_client.get_symbol_ticker.return_value = {'price': str(price)}
         mock_client.get_all_orders.return_value = []  # pas d'ordres remplis
         monkeypatch.setattr(ms, 'client', mock_client)
-        
+
         monkeypatch.setattr(ms, 'get_cached_exchange_info', lambda c: _exchange_info_mock())
-        
+
         df = _mock_df(close=price, atr=atr)
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
-        
+
         # Buy condition True
         monkeypatch.setattr(ms, 'generate_buy_condition_checker',
                            lambda bp: lambda row, usdc_bal: (True, 'EMA_CROSS'))
         # Sell condition False
         monkeypatch.setattr(ms, 'generate_sell_condition_checker',
                            lambda bp: lambda *a: (False, None))
-        
+
         monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p: usdc)
         monkeypatch.setattr(ms, 'get_sniper_entry_price', lambda p, price: price)
         monkeypatch.setattr(ms, 'check_if_order_executed', lambda orders, side: False)
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
         monkeypatch.setattr(ms, 'can_execute_partial_safely', lambda **kw: True)
-        
+
         buy_order = {
             'orderId': '123', 'status': 'FILLED' if buy_order_filled else 'NEW',
             'executedQty': '9.500', 'cummulativeQuoteQty': '950.0',
@@ -249,14 +249,14 @@ class TestBuyFlow:
             buy_calls.append(kwargs)
             return buy_order
         monkeypatch.setattr(ms, 'safe_market_buy', track_buy)
-        
+
         sl_calls = []
         def track_sl(**kwargs):
             sl_calls.append(kwargs)
             return {'orderId': 'SL_1', 'status': 'NEW'}
         monkeypatch.setattr(ms, 'place_exchange_stop_loss_order', track_sl)
         monkeypatch.setattr(ms, 'safe_market_sell', lambda **kw: {'status': 'FILLED'})
-        
+
         return buy_calls, sl_calls, mock_client
 
     def test_buy_baseline_sizing(self, monkeypatch):
@@ -310,7 +310,7 @@ class TestBuyFlow:
         """Après achat, pair_state contient entry_price, atr_at_entry, etc."""
         buy_calls, sl_calls, _ = self._setup_buy_env(monkeypatch, usdc=1000.0, price=100.0, atr=2.0)
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
-        
+
         ps = ms.bot_state.get('TRX/USDC', {})
         assert ps.get('entry_price') == 100.0
         assert ps.get('atr_at_entry') == 2.0
@@ -321,7 +321,7 @@ class TestBuyFlow:
         """P0-01: Un SL est placé immédiatement après l'achat."""
         buy_calls, sl_calls, _ = self._setup_buy_env(monkeypatch, usdc=1000.0, price=100.0, atr=2.0)
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
-        
+
         assert len(sl_calls) >= 1
         # SL price = 100 - (3.0 * 2.0) = 94.0
         assert abs(sl_calls[0]['stop_price'] - 94.0) < 0.1
@@ -336,7 +336,7 @@ class TestBuyFlow:
         df['atr'] = np.nan  # ATR invalide
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
-        
+
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC', 'risk')
         # P0-SL-GUARD: ATR invalide → achat refusé, pas d'appel buy
         assert len(buy_calls) == 0
@@ -349,7 +349,7 @@ class TestBuyFlow:
         df['atr'] = None
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
-        
+
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         assert len(buy_calls) == 0, "ATR=None doit bloquer l'achat"
         assert len(sl_calls) == 0, "Aucun SL ne doit être tenté"
@@ -360,7 +360,7 @@ class TestBuyFlow:
         df = _mock_df(close=100.0, atr=0.0)
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
-        
+
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         assert len(buy_calls) == 0, "ATR=0 doit bloquer l'achat"
 
@@ -374,7 +374,7 @@ class TestBuyGuards:
         """Si le dernier ordre est un BUY FILLED, le cycle d'achat est ignoré."""
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': '1000'},
@@ -389,7 +389,7 @@ class TestBuyGuards:
         ]
         monkeypatch.setattr(ms, 'client', mock_client)
         monkeypatch.setattr(ms, 'get_cached_exchange_info', lambda c: _exchange_info_mock())
-        
+
         df = _mock_df()
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
@@ -400,10 +400,10 @@ class TestBuyGuards:
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
         monkeypatch.setattr(ms, 'generate_sell_condition_checker',
                            lambda bp: lambda *a: (False, None))
-        
+
         buy_calls = []
         monkeypatch.setattr(ms, 'safe_market_buy', lambda **kw: buy_calls.append(1))
-        
+
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         assert len(buy_calls) == 0  # pas d'achat
 
@@ -414,7 +414,7 @@ class TestBuyGuards:
         monkeypatch.setattr(ms, 'bot_state', {
             'TRX/USDC': {'oos_blocked': True, 'oos_blocked_since': time.time()}
         })
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': '1000'},
@@ -427,7 +427,7 @@ class TestBuyGuards:
         mock_client.get_all_orders.return_value = []
         monkeypatch.setattr(ms, 'client', mock_client)
         monkeypatch.setattr(ms, 'get_cached_exchange_info', lambda c: _exchange_info_mock())
-        
+
         df = _mock_df()
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
@@ -438,10 +438,10 @@ class TestBuyGuards:
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
         monkeypatch.setattr(ms, 'generate_sell_condition_checker',
                            lambda bp: lambda *a: (False, None))
-        
+
         buy_calls = []
         monkeypatch.setattr(ms, 'safe_market_buy', lambda **kw: buy_calls.append(1))
-        
+
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         assert len(buy_calls) == 0
 
@@ -449,7 +449,7 @@ class TestBuyGuards:
         """Capital disponible 0 → pas d'achat."""
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': '0.0'},
@@ -462,7 +462,7 @@ class TestBuyGuards:
         mock_client.get_all_orders.return_value = []
         monkeypatch.setattr(ms, 'client', mock_client)
         monkeypatch.setattr(ms, 'get_cached_exchange_info', lambda c: _exchange_info_mock())
-        
+
         df = _mock_df()
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
@@ -473,10 +473,10 @@ class TestBuyGuards:
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
         monkeypatch.setattr(ms, 'generate_sell_condition_checker',
                            lambda bp: lambda *a: (False, None))
-        
+
         buy_calls = []
         monkeypatch.setattr(ms, 'safe_market_buy', lambda **kw: buy_calls.append(1))
-        
+
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         assert len(buy_calls) == 0
 
@@ -491,7 +491,7 @@ class TestStopLoss:
         """Setup: position ouverte avec coin en wallet."""
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         monkeypatch.setattr(ms, 'bot_state', {
             'TRX/USDC': {
                 'last_order_side': 'BUY',
@@ -506,7 +506,7 @@ class TestStopLoss:
                 'partial_taken_2': False,
             }
         })
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': '0.0'},
@@ -523,7 +523,7 @@ class TestStopLoss:
         ]
         monkeypatch.setattr(ms, 'client', mock_client)
         monkeypatch.setattr(ms, 'get_cached_exchange_info', lambda c: _exchange_info_mock())
-        
+
         df = _mock_df(close=current_price, atr=atr)
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
@@ -533,13 +533,13 @@ class TestStopLoss:
                            lambda bp: lambda *a: (False, None))
         monkeypatch.setattr(ms, 'generate_buy_condition_checker',
                            lambda bp: lambda row, usdc_bal: (False, None))
-        
+
         sell_calls = []
         def track_sell(**kwargs):
             sell_calls.append(kwargs)
             return {'status': 'FILLED', 'executedQty': kwargs.get('quantity', '10.0')}
         monkeypatch.setattr(ms, 'safe_market_sell', track_sell)
-        
+
         return sell_calls
 
     def test_fixed_stop_loss_triggered(self, monkeypatch):
@@ -560,7 +560,7 @@ class TestStopLoss:
         # entry=100, ATR=2, activation = 100 + 5.5*2 = 111
         sell_calls = self._setup_position(monkeypatch, current_price=112.0)
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
-        
+
         ps = ms.bot_state.get('TRX/USDC', {})
         assert ps.get('trailing_stop_activated') is True
 
@@ -582,7 +582,7 @@ class TestStopLoss:
             trailing_activated=True, max_price=118.0, trailing_stop=107.0
         )
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
-        
+
         ps = ms.bot_state.get('TRX/USDC', {})
         # max_price devrait être mis à jour à 120
         # trailing_stop = 120 - 5.5*2 = 109 > 107 → ratchet up
@@ -598,7 +598,7 @@ class TestSLRollback:
         """3 échecs SL → market-sell de rollback."""
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': '1000'},
@@ -611,7 +611,7 @@ class TestSLRollback:
         mock_client.get_all_orders.return_value = []
         monkeypatch.setattr(ms, 'client', mock_client)
         monkeypatch.setattr(ms, 'get_cached_exchange_info', lambda c: _exchange_info_mock())
-        
+
         df = _mock_df(close=100.0, atr=2.0)
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
@@ -624,26 +624,26 @@ class TestSLRollback:
         monkeypatch.setattr(ms, 'get_sniper_entry_price', lambda p, price: price)
         monkeypatch.setattr(ms, 'can_execute_partial_safely', lambda **kw: True)
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
-        
+
         monkeypatch.setattr(ms, 'safe_market_buy', lambda **kw: {
             'orderId': '123', 'status': 'FILLED',
             'executedQty': '9.500', 'cummulativeQuoteQty': '950.0',
             'price': '100',
         })
-        
+
         # SL échoue systématiquement
         monkeypatch.setattr(ms, 'place_exchange_stop_loss_order',
                            MagicMock(side_effect=Exception("SL fail")))
-        
+
         sell_calls = []
         monkeypatch.setattr(ms, 'safe_market_sell', lambda **kw: (sell_calls.append(kw), {'status': 'FILLED'})[1])
-        
+
         # Accélérer les retries
         monkeypatch.setattr(ms.time, 'sleep', lambda t: None)
         monkeypatch.setattr(ms.random, 'random', lambda: 0.0)
-        
+
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
-        
+
         # Rollback (market-sell) doit être appelé
         assert len(sell_calls) >= 1
         ps = ms.bot_state.get('TRX/USDC', {})
@@ -653,7 +653,7 @@ class TestSLRollback:
         """SL échoue 3x + rollback échoue → emergency_halt = True."""
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': '1000'},
@@ -666,7 +666,7 @@ class TestSLRollback:
         mock_client.get_all_orders.return_value = []
         monkeypatch.setattr(ms, 'client', mock_client)
         monkeypatch.setattr(ms, 'get_cached_exchange_info', lambda c: _exchange_info_mock())
-        
+
         df = _mock_df(close=100.0, atr=2.0)
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
@@ -679,13 +679,13 @@ class TestSLRollback:
         monkeypatch.setattr(ms, 'get_sniper_entry_price', lambda p, price: price)
         monkeypatch.setattr(ms, 'can_execute_partial_safely', lambda **kw: True)
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
-        
+
         monkeypatch.setattr(ms, 'safe_market_buy', lambda **kw: {
             'orderId': '123', 'status': 'FILLED',
             'executedQty': '9.500', 'cummulativeQuoteQty': '950.0',
             'price': '100',
         })
-        
+
         # SL + rollback échouent
         monkeypatch.setattr(ms, 'place_exchange_stop_loss_order',
                            MagicMock(side_effect=Exception("SL fail")))
@@ -693,13 +693,13 @@ class TestSLRollback:
                            MagicMock(side_effect=Exception("Rollback fail")))
         monkeypatch.setattr(ms.time, 'sleep', lambda t: None)
         monkeypatch.setattr(ms.random, 'random', lambda: 0.0)
-        
+
         # Neutraliser save_bot_state mais capturer les force=True
         save_calls = []
         monkeypatch.setattr(ms, 'save_bot_state', lambda force=False: save_calls.append(force))
-        
+
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
-        
+
         assert ms.bot_state.get('emergency_halt') is True
         assert 'Double échec' in ms.bot_state.get('emergency_halt_reason', '')
 
@@ -715,7 +715,7 @@ class TestSellFlow:
         """Configure l'environnement pour une vente."""
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         monkeypatch.setattr(ms, 'bot_state', {
             'TRX/USDC': {
                 'last_order_side': 'BUY',
@@ -732,7 +732,7 @@ class TestSellFlow:
                 'partial_enabled': True,
             }
         })
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': '0.0'},
@@ -749,26 +749,26 @@ class TestSellFlow:
         ]
         monkeypatch.setattr(ms, 'client', mock_client)
         monkeypatch.setattr(ms, 'get_cached_exchange_info', lambda c: _exchange_info_mock())
-        
+
         df = _mock_df(close=current_price, atr=2.0)
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'is_valid_stop_loss_order', lambda *a: True)
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (partial_taken_1, partial_taken_2))
-        
+
         monkeypatch.setattr(ms, 'generate_sell_condition_checker',
                            lambda bp: lambda *a: (True, sell_reason))
         monkeypatch.setattr(ms, 'generate_buy_condition_checker',
                            lambda bp: lambda row, usdc_bal: (False, None))
         monkeypatch.setattr(ms, 'can_execute_partial_safely', lambda **kw: True)
-        
+
         sell_calls = []
         def track_sell(**kwargs):
             sell_calls.append(kwargs)
             return {'status': 'FILLED', 'executedQty': kwargs.get('quantity', str(coin_balance)),
                     'cummulativeQuoteQty': str(float(kwargs.get('quantity', coin_balance)) * current_price)}
         monkeypatch.setattr(ms, 'safe_market_sell', track_sell)
-        
+
         return sell_calls
 
     def test_signal_sell_100_pct(self, monkeypatch):
@@ -777,7 +777,7 @@ class TestSellFlow:
                                           coin_balance=10.0, current_price=105.0)
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         assert len(sell_calls) >= 1
-        
+
         ps = ms.bot_state.get('TRX/USDC', {})
         # Après SIGNAL, l'état doit être reset
         assert ps.get('entry_price') is None or ps.get('last_order_side') == 'SELL'
@@ -811,7 +811,7 @@ class TestEdgeCases:
         """Si la crypto n'a pas de balance, On retourne immédiatement."""
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': '1000'},
@@ -822,7 +822,7 @@ class TestEdgeCases:
         mock_client.get_account.return_value = account
         monkeypatch.setattr(ms, 'client', mock_client)
         monkeypatch.setattr(ms, 'get_cached_exchange_info', lambda c: _exchange_info_mock())
-        
+
         # Ne doit pas crasher
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         # Pas d'appel API supplémentaire
@@ -833,7 +833,7 @@ class TestEdgeCases:
         import pandas as pd
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': '1000'},
@@ -845,13 +845,13 @@ class TestEdgeCases:
         mock_client.get_symbol_ticker.return_value = {'price': '100'}
         monkeypatch.setattr(ms, 'client', mock_client)
         monkeypatch.setattr(ms, 'get_cached_exchange_info', lambda c: _exchange_info_mock())
-        
+
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: pd.DataFrame())
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: pd.DataFrame())
-        
+
         buy_calls = []
         monkeypatch.setattr(ms, 'safe_market_buy', lambda **kw: buy_calls.append(1))
-        
+
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         assert len(buy_calls) == 0
 
@@ -859,7 +859,7 @@ class TestEdgeCases:
         """Symbol introuvable dans exchange_info → return."""
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': '1000'},
@@ -869,11 +869,11 @@ class TestEdgeCases:
         mock_client = MagicMock()
         mock_client.get_account.return_value = account
         monkeypatch.setattr(ms, 'client', mock_client)
-        
+
         # Exchange info avec un autre symbol
         monkeypatch.setattr(ms, 'get_cached_exchange_info',
                            lambda c: _exchange_info_mock(symbol='BTCUSDC'))
-        
+
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         mock_client.get_all_orders.assert_not_called()
 
@@ -882,7 +882,7 @@ class TestEdgeCases:
         import pandas as pd
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': '1000'},
@@ -895,17 +895,17 @@ class TestEdgeCases:
         mock_client.get_all_orders.return_value = []
         monkeypatch.setattr(ms, 'client', mock_client)
         monkeypatch.setattr(ms, 'get_cached_exchange_info', lambda c: _exchange_info_mock())
-        
+
         # DataFrame avec 1 seule ligne
         df_tiny = pd.DataFrame({'close': [100], 'open': [100], 'high': [101],
                                 'low': [99], 'atr': [2.0], 'stoch_rsi': [0.15],
                                 'ema_26': [98], 'ema_50': [96], 'rsi': [50]})
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df_tiny)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df_tiny)
-        
+
         buy_calls = []
         monkeypatch.setattr(ms, 'safe_market_buy', lambda **kw: buy_calls.append(1))
-        
+
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         assert len(buy_calls) == 0
 
@@ -1074,7 +1074,7 @@ class TestDust:
         """Résidu < min_qty mais > 1% → tentative de vente forcée."""
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         # coin_balance = 0.0005 < min_qty=0.001 mais > 0.001*0.01 = 0.00001
         account = {
             'balances': [
@@ -1089,7 +1089,7 @@ class TestDust:
         monkeypatch.setattr(ms, 'client', mock_client)
         monkeypatch.setattr(ms, 'get_cached_exchange_info',
                            lambda c: _exchange_info_mock(min_qty='0.001', min_notional='0.01'))
-        
+
         df = _mock_df()
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
@@ -1102,7 +1102,7 @@ class TestDust:
         monkeypatch.setattr(ms, 'can_execute_partial_safely', lambda **kw: True)
         monkeypatch.setattr(ms, 'generate_sell_condition_checker',
                            lambda bp: lambda *a: (False, None))
-        
+
         sell_calls = []
         def track_sell(**kw):
             sell_calls.append(kw)
@@ -1114,7 +1114,7 @@ class TestDust:
         })
         monkeypatch.setattr(ms, 'place_exchange_stop_loss_order',
                            lambda **kw: {'orderId': 'SL_1', 'status': 'NEW'})
-        
+
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         # Le dust sell doit avoir été tenté
         assert len(sell_calls) >= 1
@@ -1129,11 +1129,11 @@ class TestErrorHandling:
         """Exception dans get_account → capturée, pas de crash."""
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
-        
+
         mock_client = MagicMock()
         mock_client.get_account.side_effect = Exception("API unavailable")
         monkeypatch.setattr(ms, 'client', mock_client)
-        
+
         # Ne doit pas lever d'exception
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
 
@@ -1143,7 +1143,7 @@ class TestErrorHandling:
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
         monkeypatch.setattr(ms, 'log_trade', MagicMock(side_effect=Exception("journal error")))
-        
+
         # Configurer un trade SL qui déclenche log_trade
         monkeypatch.setattr(ms, 'bot_state', {
             'TRX/USDC': {
@@ -1154,7 +1154,7 @@ class TestErrorHandling:
                 'trailing_stop': 0,
             }
         })
-        
+
         account = {
             'balances': [
                 {'asset': 'USDC', 'free': '0.0'},
@@ -1171,13 +1171,13 @@ class TestErrorHandling:
         ]
         monkeypatch.setattr(ms, 'client', mock_client)
         monkeypatch.setattr(ms, 'get_cached_exchange_info', lambda c: _exchange_info_mock())
-        
+
         df = _mock_df(close=93.0)
         monkeypatch.setattr(ms, 'fetch_historical_data', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'universal_calculate_indicators', lambda *a, **kw: df)
         monkeypatch.setattr(ms, 'is_valid_stop_loss_order', lambda *a: True)
         monkeypatch.setattr(ms, 'safe_market_sell', lambda **kw: {
             'status': 'FILLED', 'executedQty': '10.0'})
-        
+
         # Ne doit pas crash malgré l'erreur journal
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')

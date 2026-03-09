@@ -175,5 +175,5 @@ class TestSafeMarketSell:
         mock_client.api_secret = "test_secret_key_for_mocking"
 
         with patch('exchange_client._direct_market_order', side_effect=Exception("API down")):
-            with pytest.raises(Exception):  # type: ignore[attr-defined]
+            with pytest.raises(Exception):
                 safe_market_sell(mock_client, "SOLUSDC", quantity=5.0, max_retries=2)

@@ -124,17 +124,17 @@ def sample_ohlcv_df():
     np.random.seed(42)
     n = 1000
     dates = pd.date_range(start='2023-01-01', periods=n, freq='1h')
-    
+
     # Random walk price starting at 100
     returns = np.random.normal(0.0002, 0.015, n)
     close = 100 * np.exp(np.cumsum(returns))
-    
+
     # OHLC from close
     high = close * (1 + np.abs(np.random.normal(0, 0.005, n)))
     low = close * (1 - np.abs(np.random.normal(0, 0.005, n)))
     open_ = close * (1 + np.random.normal(0, 0.003, n))
     volume = np.random.uniform(1000, 50000, n)
-    
+
     df = pd.DataFrame({
         'open': open_,
         'high': high,
@@ -142,23 +142,23 @@ def sample_ohlcv_df():
         'close': close,
         'volume': volume,
     }, index=dates)
-    
+
     # Add indicators used by backtest
     from ta.volatility import AverageTrueRange
     from ta.momentum import RSIIndicator
-    
+
     atr_indicator = AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14)
     df['atr'] = atr_indicator.average_true_range()
-    
+
     # EMA columns
     df['ema1'] = df['close'].ewm(span=26, adjust=False).mean()
     df['ema2'] = df['close'].ewm(span=50, adjust=False).mean()
-    
+
     # StochRSI
     rsi = RSIIndicator(close=df['close'], window=14).rsi()
     stoch_rsi = (rsi - rsi.rolling(14).min()) / (rsi.rolling(14).max() - rsi.rolling(14).min())
     df['stoch_rsi'] = stoch_rsi.fillna(0.5)
-    
+
     df.dropna(inplace=True)
     return df
 
@@ -166,7 +166,7 @@ def sample_ohlcv_df():
 @pytest.fixture
 def mock_binance_client():
     """Mock de BinanceFinalClient avec les méthodes utilisées.
-    
+
     P2-06: get_exchange_info et get_symbol_info acceptent n'importe quel symbole
     au lieu de hardcoder BTCUSDC.
     """
@@ -175,7 +175,7 @@ def mock_binance_client():
     mock.api_secret = "mock_api_secret"
     mock._server_time_offset = -2000
     mock._sync_server_time = MagicMock()
-    
+
     # get_account
     mock.get_account.return_value = {
         'balances': [
@@ -185,7 +185,7 @@ def mock_binance_client():
             {'asset': 'SOL', 'free': '50.0', 'locked': '0.0'},
         ]
     }
-    
+
     # P2-06: filtre LOT_SIZE + MIN_NOTIONAL générique, utilisable pour tout symbole
     _default_filters = [
         {'filterType': 'LOT_SIZE', 'minQty': '0.00001', 'stepSize': '0.00001'},
@@ -211,10 +211,10 @@ def mock_binance_client():
     def _symbol_info(symbol='BTCUSDC'):
         return _make_symbol_info(symbol)
     mock.get_symbol_info.side_effect = _symbol_info
-    
+
     # get_server_time
     mock.get_server_time.return_value = {'serverTime': 1700000000000}
-    
+
     # get_historical_klines (returns list of lists like Binance)
     import time
     now = int(time.time() * 1000)
@@ -223,5 +223,5 @@ def mock_binance_client():
          now - i * 3600000 + 3599999, '100000.0', 50, '500.0', '50000.0', '0']
         for i in range(200)
     ]
-    
+
     return mock

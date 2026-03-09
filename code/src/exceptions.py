@@ -7,7 +7,7 @@ Hierarchy
 ---------
 TradingBotError (base)
 ├── ConfigError           — Invalid or missing configuration
-├── ExchangeError         — Exchange connectivity / API issues  
+├── ExchangeError         — Exchange connectivity / API issues
 │   ├── RateLimitError    — Rate limit exceeded (back off & retry)
 │   ├── InsufficientFundsError — Not enough balance
 │   └── OrderError        — Order placement/cancellation failure

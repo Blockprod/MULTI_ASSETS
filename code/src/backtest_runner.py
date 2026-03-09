@@ -26,7 +26,7 @@ import os
 import sys
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, cast, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -81,7 +81,8 @@ def _compute_mtf_bullish(df_1h: pd.DataFrame, ema_fast: int, ema_slow: int) -> n
     # Reindex to 1h with forward fill
     bullish_1h = bullish_4h.reindex(df_1h.index, method='ffill').fillna(0.0)
 
-    return bullish_1h.to_numpy(dtype=np.float64)
+    result_arr: np.ndarray = np.asarray(bullish_1h.to_numpy(dtype=np.float64), dtype=np.float64)
+    return result_arr
 
 
 # --- Cython Backtest Engine Import -------------------------------------------
@@ -90,8 +91,10 @@ _BIN_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'bin'))
 if _BIN_DIR not in sys.path:
     sys.path.insert(0, _BIN_DIR)
 
+import types as _bt_types
+backtest_engine: Optional[_bt_types.ModuleType] = None
 try:
-    import backtest_engine_standard as backtest_engine
+    import backtest_engine_standard as backtest_engine  # noqa: F811
     CYTHON_BACKTEST_AVAILABLE: bool = True
     logger.info("Cython backtest engine loaded [backtest_runner].")
 except ImportError as e:
@@ -99,7 +102,7 @@ except ImportError as e:
     logger.warning(
         "Cython backtest_engine_standard not available (%s), using Python fallback", e
     )
-    backtest_engine = None  # type: ignore[assignment]
+    # backtest_engine stays None
 
 # --- Core Backtest -----------------------------------------------------------
 
@@ -114,7 +117,7 @@ def backtest_from_dataframe(
     sizing_mode: str = 'risk',  # P1-07
     partial_enabled: bool = True,  # P2-01: toggle simulation des partiels
     periods_per_year: int = 8766,
-    **kwargs: Any,
+    **_kwargs: Any,
 ) -> Dict[str, Any]:
     """Exécute un backtest à partir d'un DataFrame préparé.
 
@@ -418,7 +421,7 @@ def backtest_from_dataframe(
         # --- Python backtest loop ---
         usd = config.initial_wallet
         coin = 0.0
-        trades_history: list = []
+        trades_history: List[Any] = []
         in_position = False
         entry_price = 0.0
         entry_usd_invested = 0.0
@@ -784,7 +787,7 @@ def backtest_from_dataframe(
         _metrics_dd = risk_metrics.get('max_drawdown', 0.0)
         final_max_drawdown = max(max_drawdown, _metrics_dd)
 
-        result = {
+        result: Dict[str, Any] = {
             'final_wallet': final_wallet,
             'trades': pd.DataFrame(trades_history),
             'max_drawdown': final_max_drawdown,
@@ -856,10 +859,13 @@ def run_single_backtest_optimized(args: Tuple[Any, ...]) -> Dict[str, Any]:
         Résultat complet du backtest.  Voir ``backtest_from_dataframe``.
     """
     if len(args) == 6:
-        (timeframe, ema1, ema2, scenario, base_df, pair_symbol) = args
+        (timeframe, ema1, ema2, scenario, base_df, _pair_symbol) = args
         sizing_mode = 'risk'  # P1-07: default risk au lieu de baseline
     else:
-        (timeframe, ema1, ema2, scenario, base_df, pair_symbol, sizing_mode) = args  # type: ignore[misc]
+        _args7 = cast(
+            'Tuple[Any, Any, Any, Any, Any, Any, Any]', args
+        )
+        (timeframe, ema1, ema2, scenario, base_df, pair_symbol, sizing_mode) = _args7
     try:
         result = backtest_from_dataframe(
             df=base_df,
@@ -940,7 +946,7 @@ def run_all_backtests(
         )
 
     # EMA adaptatives par timeframe
-    ema_periods_by_tf: Dict[str, list] = {}
+    ema_periods_by_tf: Dict[str, List[Tuple[int, int]]] = {}
     extra_ema_pairs = [(18, 36), (20, 40), (30, 60)]
     for tf, df_tf in base_dataframes.items():
         if df_tf is not None and not df_tf.empty:
@@ -962,7 +968,7 @@ def run_all_backtests(
         },
     ]
 
-    tasks: list = []
+    tasks: List[Tuple[Any, ...]] = []
     for timeframe in timeframes:
         base_df = base_dataframes.get(timeframe, pd.DataFrame())
         if base_df.empty:
@@ -995,13 +1001,13 @@ def run_all_backtests(
         is_df.dropna(subset=['close', 'rsi', 'atr'], inplace=True)
 
         ema_periods = ema_periods_by_tf.get(timeframe, [(26, 50)])
-        ema_periods_unique: list = []
+        ema_periods_unique: List[Tuple[int, int]] = []
         for pair in ema_periods:
             if pair not in ema_periods_unique:
                 ema_periods_unique.append(pair)
         # Pre-compute ALL EMA columns on is_df before spawning threads
         # to avoid race condition (concurrent writes → duplicate columns).
-        _all_ema_periods: set = set()
+        _all_ema_periods: Set[int] = set()
         for _e1, _e2 in ema_periods_unique:
             _all_ema_periods.add(_e1)
             _all_ema_periods.add(_e2)
@@ -1096,7 +1102,7 @@ def run_parallel_backtests(
         "avec optimisation sniper...[/bold cyan]"
     )
 
-    def run_single_pair(pair_info: Dict) -> Tuple[str, str, list]:
+    def run_single_pair(pair_info: Dict[str, Any]) -> Tuple[str, str, List[Any]]:
         try:
             results = run_all_backtests(
                 pair_info["backtest_pair"],

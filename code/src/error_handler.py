@@ -95,7 +95,7 @@ class CircuitBreaker:
                 return True
 
             return False
-    
+
     def get_status(self) -> str:
         """Get circuit breaker status"""
         status = {
@@ -116,7 +116,7 @@ class ErrorHandler:
         self.email_config = email_config or {}
         self.max_history = 50
         self._history_lock = threading.Lock()  # P0-05: protects error_history list
-    
+
     def send_alert_email(self, subject: str, body: str, error_details: Optional[Dict] = None, critical: bool = False):
         """Send alert email via email_utils, throttled to 1 every 5 minutes.
 
@@ -136,7 +136,7 @@ class ErrorHandler:
             logger.info(f"[ALERT] Email critique — throttle bypassé : {subject}")
         try:
             from email_utils import send_email_alert
-            
+
             text_content = f"""
 ALERTE ERREUR DU BOT DE TRADING
 
@@ -155,16 +155,16 @@ ACTION RECOMMANDÉE:
 ---
 Message automatique du Bot de Trading Crypto
             """
-            
+
             if error_details:
                 text_content += f"\n\nDETAILS TECHNIQUES:\n{json.dumps(error_details, indent=2, default=str)}"
-            
+
             send_email_alert(f"[BOT ALERT] {subject}", text_content)
             logger.info("[ALERT] Email sent successfully")
-        
+
         except Exception as e:
             logger.error(f"[ALERT] Failed to send email: {e}")
-    
+
     def handle_error(
         self,
         error: Exception,
@@ -174,13 +174,13 @@ Message automatique du Bot de Trading Crypto
     ) -> Tuple[bool, Optional[Any]]:
         """
         Central error handler with automatic pause & recovery
-        
+
         Args:
             error: The exception that occurred
             context: Where error occurred (e.g. "execute_real_trades")
             safe_fallback: Function to call for safe recovery
             critical: If True, trigger ALERT mode
-        
+
         Returns:
             (should_continue, fallback_result)
         """
@@ -217,7 +217,7 @@ Message automatique du Bot de Trading Crypto
 
         # Record failure only when no fallback succeeded
         self.circuit_breaker.record_failure()
-        
+
         # Send alert
         alert_body = f"""
 Contexte: {context}
@@ -227,7 +227,7 @@ Message: {str(error)[:200]}
 Mode Circuit: {self.circuit_breaker.mode.value}
 Nombre d'erreurs: {self.circuit_breaker.failure_count}
         """
-        
+
         if critical:
             self.circuit_breaker.mode = SafeMode.ALERT
             self.send_alert_email(
@@ -242,7 +242,7 @@ Nombre d'erreurs: {self.circuit_breaker.failure_count}
                 alert_body,
                 error_details=error_record,
             )
-        
+
         # Return based on circuit state
         if self.circuit_breaker.is_available():
             logger.warning("[CONTINUE] Continuing despite error (circuit still available)")
@@ -250,7 +250,7 @@ Nombre d'erreurs: {self.circuit_breaker.failure_count}
         else:
             logger.critical(f"[PAUSE] Bot paused - Circuit breaker tripped. Recovery in {self.circuit_breaker.timeout_seconds}s")
             return False, None
-    
+
     def safe_execute(
         self,
         func: Callable,
@@ -262,23 +262,23 @@ Nombre d'erreurs: {self.circuit_breaker.failure_count}
     ) -> Tuple[bool, Optional[Any]]:
         """
         Safely execute a function with automatic error handling
-        
+
         Returns:
             (success, result)
         """
         if func_kwargs is None:
             func_kwargs = {}
-        
+
         # Check circuit before execution
         if not self.circuit_breaker.is_available():
             logger.warning(f"[SKIP] {context} skipped - circuit breaker open")
             return False, None
-        
+
         try:
             result = func(*func_args, **func_kwargs)
             self.circuit_breaker.record_success()
             return True, result
-        
+
         except Exception as e:
             should_continue, fallback_result = self.handle_error(
                 error=e,
@@ -287,7 +287,7 @@ Nombre d'erreurs: {self.circuit_breaker.failure_count}
                 critical=critical
             )
             return should_continue, fallback_result
-    
+
     def get_status(self) -> str:
         """Get handler status"""
         status = {
@@ -296,7 +296,7 @@ Nombre d'erreurs: {self.circuit_breaker.failure_count}
             "last_error": self.error_history[-1] if self.error_history else None
         }
         return json.dumps(status, indent=2)
-    
+
     def clear_history(self):
         """Clear error history (P1-03: thread-safe)."""
         with self._history_lock:

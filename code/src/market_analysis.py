@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import pandas as pd
 
@@ -23,7 +23,7 @@ def detect_market_changes(
     pair: str,
     timeframes: List[str],
     start_date: str,
-    prepare_base_dataframe_fn: Callable[..., pd.DataFrame],
+    prepare_base_dataframe_fn: Callable[..., Optional[pd.DataFrame]],
 ) -> Dict[str, Any]:
     """
     Détecte intelligemment les changements IMPORTANTS du marché.

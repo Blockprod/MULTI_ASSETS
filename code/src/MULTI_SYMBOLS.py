@@ -1,14 +1,36 @@
-import os
-import sys
+# ─── Standard-library & third-party imports ─────────────────────────────────
+import argparse
+import json
 import locale
+import logging
+import os
+import random
+import schedule
+import signal
+import sys
+import threading
+import time
+import traceback
 import warnings
+from binance.client import Client
+from collections import OrderedDict
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from rich.console import Console
+from rich.panel import Panel
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypedDict, Union, cast
+
+import numpy as np
+import pandas as pd
+
+# Suppress DeprecationWarning and pandas 2.2 CoW ChainedAssignmentError
+# (root-cause fix is in indicators.pyx; this filter is a safety net).
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-# Suppression du ChainedAssignmentError pandas 2.2 CoW — déclenché par le moteur
-# Cython indicators qui construit un DataFrame à partir de vues numpy de df.
-# Corrigé dans indicators.pyx (np.array copies), ce filtre est une sécurité.
 try:
-    import pandas as _pd
-    warnings.filterwarnings("ignore", category=_pd.errors.ChainedAssignmentError)  # type: ignore[attr-defined]
+    _chained_err = getattr(pd.errors, 'ChainedAssignmentError', None)
+    if _chained_err is not None:
+        warnings.filterwarnings("ignore", category=_chained_err)
 except AttributeError:
     pass  # pandas < 2.2 n'a pas ChainedAssignmentError
 
@@ -71,7 +93,7 @@ from display_ui import (
     display_buy_signal_panel, display_sell_signal_panel,
     display_account_balances_panel, display_market_changes,
     display_results_for_pair, display_backtest_table,
-    display_trading_panel, build_tracking_panel,
+    build_tracking_panel,
     display_closure_panel, display_execution_header,
     display_bot_active_banner,
 )
@@ -82,6 +104,7 @@ from exchange_client import (
     place_exchange_stop_loss as _place_exchange_stop_loss,  # P0-01
     safe_market_buy as _safe_market_buy,
     safe_market_sell as _safe_market_sell,
+    get_symbol_filters as _get_symbol_filters_impl,
 )
 from email_templates import (
     buy_executed_email, sell_executed_email,
@@ -107,44 +130,6 @@ try:
         locale.setlocale(locale.LC_ALL, '')
 except Exception:
     pass
-
-"""
-MULTI_SYMBOLS.py
-1. Imports
-2. Global Variables & Constants
-3. Utility Decorators
-4. Configuration Classes
-5. Exchange Client Classes
-6. Core Helpers (caching, error handling, etc.)
-7. Indicator Calculation
-8. Display Functions
-9. Trading Logic (order placement, state management)
-10. Backtest & Execution Logic
-11. Main Entrypoint
-"""
-
-
-"""Standard, external, and project-specific imports (alphabetized, deduplicated)."""
-import argparse
-import json
-import logging
-import numpy as np
-import pandas as pd
-import random
-import schedule
-import signal
-import threading
-import time
-import traceback
-from collections import OrderedDict
-from binance.client import Client
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-from rich import print
-from rich.console import Console
-from rich.panel import Panel
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, TypedDict
 
 # Configuration du logging
 logging.basicConfig(
@@ -202,13 +187,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Initialisation du client
 client = BinanceFinalClient(
-    config.api_key, 
+    config.api_key,
     config.secret_key,
     requests_params={'timeout': config.api_timeout}
 )
 
 # Configurer le callback d'erreur pour le decorator log_exceptions (Phase 4)
-def _error_notification_handler(fn: str, e: Exception, a: tuple, kw: dict) -> None:
+def _error_notification_handler(fn: str, e: Exception, a: Tuple[Any, ...], kw: Dict[str, Any]) -> None:
     subj, body = generic_exception_email(fn, e, a, kw)
     send_trading_alert_email(subject=subj, body_main=body, client=client)
 
@@ -299,7 +284,7 @@ bot_state: Dict[str, Any] = {}
 
 def _make_default_pair_state() -> 'PairState':
     """Retourne un PairState frais avec les champs d'initialisation (C-16)."""
-    return {  # type: ignore[return-value]
+    return cast('PairState', {
         'last_run_time': None,
         'last_best_params': None,
         'execution_count': 0,
@@ -309,7 +294,7 @@ def _make_default_pair_state() -> 'PairState':
         'stop_loss': None,
         'last_execution': None,
         'sl_exchange_placed': False,
-    }
+    })
 
 
 # ─── Thread-safety du bot_state (C-01) ────────────────────────────────────────
@@ -321,7 +306,7 @@ _pair_locks_mutex = threading.Lock()
 
 # Cache pour les indicateurs calculés (lecture/écriture multi-thread protégée)
 _indicators_cache_lock = threading.Lock()
-indicators_cache: OrderedDict = OrderedDict()
+indicators_cache: OrderedDict[str, Any] = OrderedDict()
 
 
 def compute_stochrsi(rsi_series: pd.Series, period: int = 14) -> pd.Series:
@@ -343,7 +328,7 @@ def compute_stochrsi(rsi_series: pd.Series, period: int = 14) -> pd.Series:
 
 
 # Paramètres par défaut des scénarios — constante partagée (3 emplacements)
-SCENARIO_DEFAULT_PARAMS: Dict[str, Dict] = {
+SCENARIO_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
     'StochRSI': {'stoch_period': 14},
     'StochRSI_SMA': {'stoch_period': 14, 'sma_long': 200},
     'StochRSI_ADX': {'stoch_period': 14, 'adx_period': 14},
@@ -351,7 +336,7 @@ SCENARIO_DEFAULT_PARAMS: Dict[str, Dict] = {
 }
 
 # P6-C: liste de scénarios Walk-Forward — source unique de vérité (remplaçait 3 définitions inline identiques)
-WF_SCENARIOS: List[Dict] = [
+WF_SCENARIOS: List[Dict[str, Any]] = [
     {'name': 'StochRSI',      'params': {'stoch_period': 14}},
     {'name': 'StochRSI_SMA',  'params': {'stoch_period': 14, 'sma_long': 200}},
     {'name': 'StochRSI_ADX',  'params': {'stoch_period': 14, 'adx_period': 14}},
@@ -363,7 +348,7 @@ WF_SCENARIOS: List[Dict] = [
 # _current_backtest_pair moved to backtest_runner.py (P3-SRP)
 
 
-def _get_coin_balance(account_info: dict, asset: str):
+def _get_coin_balance(account_info: Dict[str, Any], asset: str) -> Tuple[bool, float, float, float]:
     """Retourne (found, free, locked, total) pour un asset depuis account_info.
 
     C-13: helper centralisé — élimine la duplication free+locked.
@@ -383,7 +368,7 @@ def _get_coin_balance(account_info: dict, asset: str):
 # --- Order Placement Helpers ---
 # Fonctions d'ordres importées depuis exchange_client.py (Phase 4)
 # Wrappers pour passer le client global automatiquement
-def place_trailing_stop_order(symbol, quantity, activation_price, trailing_delta, client_id=None):
+def place_trailing_stop_order(symbol: str, quantity: float, activation_price: float, trailing_delta: float, client_id: Optional[str] = None) -> None:
     # AVERTISSEMENT : TRAILING_STOP_MARKET est un type d'ordre Futures uniquement.
     # Cette fonction NE PEUT PAS être utilisée sur l'API Spot Binance.
     # Elle est conservée pour compatibilité mais soulève une erreur si appelée.
@@ -392,17 +377,17 @@ def place_trailing_stop_order(symbol, quantity, activation_price, trailing_delta
         "Utilisez le trailing manuel implémenté dans monitor_and_trade_for_pair()."
     )
 
-def place_stop_loss_order(symbol, quantity, stop_price, client_id=None):
-    return _place_stop_loss_order(client, symbol, quantity, stop_price, client_id, send_alert=send_trading_alert_email)
+def place_stop_loss_order(symbol: str, quantity: Union[float, str], stop_price: float, client_id: Optional[str] = None) -> Dict[str, Any]:
+    return _place_stop_loss_order(client, symbol, float(quantity), stop_price, client_id, send_alert=send_trading_alert_email)
 
-def place_exchange_stop_loss_order(symbol, quantity, stop_price):  # P0-01 wrapper
+def place_exchange_stop_loss_order(symbol: str, quantity: str, stop_price: float) -> Dict[str, Any]:  # P0-01 wrapper
     """Place un STOP_LOSS (market trigger) exchange immédiatement après un achat (C-02)."""
     return _place_exchange_stop_loss(client, symbol, quantity, stop_price, send_alert=send_trading_alert_email)
 
-def safe_market_buy(symbol, quoteOrderQty, max_retries=4):
+def safe_market_buy(symbol: str, quoteOrderQty: float, max_retries: int = 4) -> Dict[str, Any]:
     return _safe_market_buy(client, symbol, quoteOrderQty, max_retries, send_alert=send_trading_alert_email)
 
-def safe_market_sell(symbol, quantity, max_retries=4):
+def safe_market_sell(symbol: str, quantity: Union[float, str], max_retries: int = 4) -> Dict[str, Any]:
     return _safe_market_sell(client, symbol, quantity, max_retries, send_alert=send_trading_alert_email)
 
 
@@ -450,13 +435,13 @@ def _cancel_exchange_sl(ctx: '_TradeCtx') -> None:
             logger.warning("[SL-CANCEL] Email alerte impossible: %s", _e)
 
 # --- Utility Functions (delegated to timestamp_utils.py — P3-SRP) ---
-def full_timestamp_resync():
+def full_timestamp_resync() -> None:
     _full_timestamp_resync(client)
 
 def validate_api_connection() -> bool:
     return _validate_api_connection(client, send_trading_alert_email, api_connection_failure_email)
 
-def init_timestamp_solution():
+def init_timestamp_solution() -> bool:
     return _init_timestamp_solution(client)
 
 # get_cache_key importé depuis cache_manager.py (Phase 4)
@@ -467,9 +452,9 @@ _SAVE_THROTTLE_SECONDS: float = 5.0
 _save_failure_count: int = 0  # P0-SAVE: compteur d'échecs consécutifs
 _MAX_SAVE_FAILURES: int = 3   # P0-SAVE: seuil pour emergency halt
 
-def save_bot_state(force: bool = False):
+def save_bot_state(force: bool = False) -> None:
     """Sauvegarde l'etat du bot (wrapper vers state_manager).
-    
+
     P0-SAVE: les erreurs de sauvegarde ne sont plus avalées silencieusement.
     Après _MAX_SAVE_FAILURES échecs consécutifs, le kill-switch est activé.
     Throttled à 1 écriture / 5s sauf si force=True (arrêt, crash).
@@ -516,7 +501,7 @@ def save_bot_state(force: bool = False):
                     _save_failure_count,
                 )
 
-def load_bot_state():
+def load_bot_state() -> None:
     """Charge l'etat du bot (wrapper vers state_manager).
 
     C-04: Ne plus utiliser @log_exceptions — gestion explicite des erreurs
@@ -565,8 +550,7 @@ def load_bot_state():
             logger.warning("[STATE] Notification erreur impossible: %s", _e)
 
 # get_symbol_filters: wrapper vers exchange_client.py (Phase 4)
-from exchange_client import get_symbol_filters as _get_symbol_filters_impl
-def get_symbol_filters(symbol: str) -> Dict:
+def get_symbol_filters(symbol: str) -> Dict[str, Any]:
     """Wrapper qui passe le client global."""
     return _get_symbol_filters_impl(client, symbol)
 
@@ -613,7 +597,7 @@ def _is_daily_loss_limit_reached() -> bool:
     return False
 
 
-def reconcile_positions_with_exchange(crypto_pairs_list: List[Dict]) -> None:
+def reconcile_positions_with_exchange(crypto_pairs_list: List[Dict[str, Any]]) -> None:
     """Vérifie la cohérence entre bot_state et les positions réelles sur Binance.
 
     Appelé UNE FOIS au démarrage après load_bot_state() pour détecter toute
@@ -625,18 +609,18 @@ def reconcile_positions_with_exchange(crypto_pairs_list: List[Dict]) -> None:
         backtest_pair = pair_info.get('backtest_pair', '')
         real_pair = pair_info.get('real_pair', '')
         try:
-            coin_symbol, quote_currency = extract_coin_from_pair(real_pair)
+            coin_symbol, _ = extract_coin_from_pair(real_pair)
         except Exception as e:
             logger.error(f"[RECONCILE] Impossible d'extraire coin/quote pour {real_pair}: {e}")
             continue
         try:
             account_info = client.get_account()
             # C-13: helper centralisé free+locked
-            _, coin_balance_free, coin_balance_locked, coin_balance = _get_coin_balance(account_info, coin_symbol)
+            _, _, _, coin_balance = _get_coin_balance(account_info, coin_symbol)
         except Exception as e:
             logger.error(f"[RECONCILE] Impossible de récupérer le solde Binance pour {coin_symbol}: {e}")
             continue
-        pair_state: PairState = bot_state.get(backtest_pair, {})  # type: ignore[assignment]
+        pair_state: PairState = cast('PairState', bot_state.get(backtest_pair, {}))
         local_in_position = (
             pair_state.get('in_position', False)
             or pair_state.get('last_order_side') == 'BUY'
@@ -655,7 +639,8 @@ def reconcile_positions_with_exchange(crypto_pairs_list: List[Dict]) -> None:
         try:
             _exchange_info_r = get_cached_exchange_info(client)
             _sym_info_r = next(
-                (s for s in _exchange_info_r['symbols'] if s['symbol'] == real_pair), None
+                (s for s in _exchange_info_r['symbols']  # pylint: disable=unsubscriptable-object
+                 if s['symbol'] == real_pair), None
             )
             if _sym_info_r:
                 _lot_f = next((f for f in _sym_info_r['filters'] if f['filterType'] == 'LOT_SIZE'), None)
@@ -882,7 +867,8 @@ def reconcile_positions_with_exchange(crypto_pairs_list: List[Dict]) -> None:
                             try:
                                 _exchange_info = get_cached_exchange_info(client)
                                 _sym_info = next(
-                                    (s for s in _exchange_info['symbols'] if s['symbol'] == real_pair),
+                                    (s for s in _exchange_info['symbols']  # pylint: disable=unsubscriptable-object
+                                     if s['symbol'] == real_pair),
                                     None,
                                 )
                                 _lot_filter = next(
@@ -946,10 +932,10 @@ def fetch_historical_data(pair_symbol: str, time_interval: str, start_date: str,
 
 # --- Indicator Calculation (delegated to indicators_engine.py) ---
 
-def calculate_indicators(df, ema1_period, ema2_period, stoch_period=14,
-                         sma_long=None, adx_period=None,
-                         trix_length=None, trix_signal=None):
-    def _on_error(msg):
+def calculate_indicators(df: pd.DataFrame, ema1_period: int, ema2_period: int, stoch_period: int = 14,
+                         sma_long: Optional[int] = None, adx_period: Optional[int] = None,
+                         trix_length: Optional[int] = None, trix_signal: Optional[int] = None) -> pd.DataFrame:
+    def _on_error(msg: str) -> None:
         try:
             subj, body = indicator_error_email(msg)
             send_trading_alert_email(subject=subj, body_main=body, client=client)
@@ -962,11 +948,11 @@ def calculate_indicators(df, ema1_period, ema2_period, stoch_period=14,
         on_error=_on_error,
     )
 
-def universal_calculate_indicators(df, ema1_period, ema2_period,
-                                   stoch_period=14, sma_long=None,
-                                   adx_period=None, trix_length=None,
-                                   trix_signal=None):
-    def _on_error(msg):
+def universal_calculate_indicators(df: pd.DataFrame, ema1_period: int, ema2_period: int,
+                                   stoch_period: int = 14, sma_long: Optional[int] = None,
+                                   adx_period: Optional[int] = None, trix_length: Optional[int] = None,
+                                   trix_signal: Optional[int] = None) -> pd.DataFrame:
+    def _on_error(msg: str) -> None:
         try:
             subj, body = indicator_error_email(msg)
             send_trading_alert_email(subject=subj, body_main=body, client=client)
@@ -980,13 +966,13 @@ def universal_calculate_indicators(df, ema1_period, ema2_period,
     )
 
 # --- Backtest Functions ---
-def prepare_base_dataframe(pair, timeframe, start_date, stoch_period=14):
+def prepare_base_dataframe(pair: str, timeframe: str, start_date: str, stoch_period: int = 14) -> Optional[pd.DataFrame]:
     return _prepare_base_dataframe(
         pair, timeframe, start_date, stoch_period=stoch_period,
         fetch_data_fn=fetch_historical_data,
     )
 
-def get_binance_trading_fees(client, symbol='TRXUSDC'):
+def get_binance_trading_fees(client: Any, symbol: str = 'TRXUSDC') -> Tuple[float, float]:
     """Thin wrapper — delegates to data_fetcher with config fallbacks."""
     return _get_binance_trading_fees(
         client, symbol,
@@ -997,14 +983,14 @@ def get_binance_trading_fees(client, symbol='TRXUSDC'):
 # backtest_from_dataframe, empty_result_dict, run_single_backtest_optimized
 # imported directly from backtest_runner.py (P3-SRP)
 
-def run_all_backtests(backtest_pair, start_date, timeframes, sizing_mode='risk'):
+def run_all_backtests(backtest_pair: str, start_date: str, timeframes: List[str], sizing_mode: str = 'risk') -> List[Dict[str, Any]]:
     return _run_all_backtests(
         backtest_pair, start_date, timeframes,
         sizing_mode=sizing_mode,
         prepare_base_dataframe_fn=prepare_base_dataframe,
     )
 
-def run_parallel_backtests(crypto_pairs, start_date, timeframes, sizing_mode='risk'):
+def run_parallel_backtests(crypto_pairs: List[Dict[str, str]], start_date: str, timeframes: List[str], sizing_mode: str = 'risk') -> Dict[str, Any]:
     return _run_parallel_backtests(
         crypto_pairs, start_date, timeframes,
         sizing_mode=sizing_mode,
@@ -1016,7 +1002,7 @@ def run_parallel_backtests(crypto_pairs, start_date, timeframes, sizing_mode='ri
 # --- Live Trading Functions ---
 # generate_buy_condition_checker imported from signal_generator.py (P3-SRP)
 # generate_sell_condition_checker wrapper  injects config
-def generate_sell_condition_checker(best_params: Dict[str, Any]):
+def generate_sell_condition_checker(best_params: Dict[str, Any]) -> Callable[..., Tuple[bool, Optional[str]]]:
     return _generate_sell_condition_checker(best_params, config=config)
 
 # sync_windows_silently moved to timestamp_utils.py (P3-SRP)
@@ -1027,20 +1013,21 @@ def generate_sell_condition_checker(best_params: Dict[str, Any]):
 
 # --- Trade Helpers (delegated to trade_helpers.py) ---
 
-def get_sniper_entry_price(pair_symbol, signal_price, max_wait_candles=4):
+def get_sniper_entry_price(pair_symbol: str, signal_price: float, max_wait_candles: int = 4) -> float:
     return _get_sniper_entry_price(
         pair_symbol, signal_price, max_wait_candles,
         fetch_data_fn=fetch_historical_data,
         kline_interval_15m=Client.KLINE_INTERVAL_15MINUTE,
     )
 
-def get_last_sell_trade_usdc(real_trading_pair):
-    return _get_last_sell_trade_usdc(real_trading_pair, client)
+def get_last_sell_trade_usdc(real_trading_pair: str) -> Tuple[Optional[float], Optional[float], Optional[str]]:
+    result = _get_last_sell_trade_usdc(real_trading_pair, client)
+    return cast(Tuple[Optional[float], Optional[float], Optional[str]], result)
 
-def get_usdc_from_all_sells_since_last_buy(real_trading_pair):
+def get_usdc_from_all_sells_since_last_buy(real_trading_pair: str) -> float:
     return _get_usdc_from_all_sells(real_trading_pair, client)
 
-def check_partial_exits_from_history(real_trading_pair, entry_price):
+def check_partial_exits_from_history(real_trading_pair: str, entry_price: float) -> Tuple[bool, bool]:
     return _check_partial_exits(real_trading_pair, entry_price, client)
 
 # check_if_order_executed imported directly from trade_helpers.py
@@ -1068,14 +1055,14 @@ _oos_alert_last_sent: Dict[str, float] = {}
 _oos_alert_lock = threading.Lock()  # P3-A: protège _oos_alert_last_sent contre les accès concurrents
 
 def apply_oos_quality_gate(
-    results: list,
+    results: List[Dict[str, Any]],
     pair: str,
     *,
     log_tag: str = "C-13",
     unblock_on_pass: bool = True,
     send_alert: bool = False,
     save_force: bool = False,
-) -> tuple:
+) -> Tuple[List[Dict[str, Any]], bool]:
     """Filtre *results* par les OOS quality gates et met à jour bot_state.
 
     P2-05: logique extraite de 3 sites dupliqués (SCHEDULED, MAIN, MAIN-LOOP).
@@ -1165,37 +1152,36 @@ def apply_oos_quality_gate(
 
 # _select_best_by_calmar imported from trade_helpers.py as _select_best_by_calmar
 
-def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any], backtest_pair: str, sizing_mode: str):
+def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any], backtest_pair: str, sizing_mode: str) -> None:
     """Wrapper pour les exécutions planifiées avec affichage complet (identique au démarrage)."""
     try:
         # === MESSAGE VISUEL DE DEMARRAGE ===
         logger.info(f"[SCHEDULED] DEBUT execution planifiee - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        
+
         display_execution_header(backtest_pair, real_trading_pair, time_interval, console)
-        
+
         # Force flush de la console
-        import sys
         sys.stdout.flush()
         logger.info("[SCHEDULED] Header affiché, debut des backtests...")
-        
+
         # Re-faire le backtest pour obtenir les paramètres les plus à jour
         # THROTTLE: ne re-backtester que toutes les heures (pas à chaque cycle de 2 min)
         _now = time.time()
         with _bot_state_lock:  # P1-06: protéger _last_backtest_time contre accès concurrents
             _last_bt = _last_backtest_time.get(backtest_pair, 0)
         _time_since_last = _now - _last_bt
-        
+
         if _time_since_last < config.backtest_throttle_seconds:
             _remaining = int((config.backtest_throttle_seconds - _time_since_last) / 60)
             logger.info(f"[SCHEDULED] Backtest throttlé pour {backtest_pair} — prochain dans ~{_remaining} min. Utilisation des anciens paramètres.")
         else:
             logger.info(f"[SCHEDULED] Re-backtest de {backtest_pair} pour obtenir les paramètres les plus à jour...")
-        
+
             # Calculer les dates dynamiquement
             today = datetime.today()
             dynamic_start_date = (today - timedelta(days=config.backtest_days)).strftime("%d %B %Y")
             logger.info(f"[SCHEDULED] Backtest dates: {dynamic_start_date} -> {today.strftime('%d %B %Y')}")
-            
+
             # Re-exécuter le backtest et AFFICHER les résultats
             logger.info("[SCHEDULED] Lancement des backtests...")
             try:
@@ -1211,12 +1197,12 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
                 logger.error(f"[SCHEDULED] Traceback backtest: {traceback.format_exc()}")
                 console.print(f"[red][SCHEDULED] Erreur backtest {backtest_pair} : {backtest_err}[/red]")
                 backtest_results = None
-            
+
             if backtest_results:
                 with _bot_state_lock:  # P1-06
                     _last_backtest_time[backtest_pair] = time.time()
                 logger.info(f"[SCHEDULED] {len(backtest_results)} resultats de backtest recus")
-                
+
                 # C-07 + C-13 + P2-05: OOS quality gate centralisée
                 _selection_pool, _ = apply_oos_quality_gate(
                     backtest_results, backtest_pair,
@@ -1258,9 +1244,9 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
 
                 best_result = _select_best_by_calmar(_selection_pool)
                 best_profit = best_result['final_wallet'] - best_result['initial_wallet']
-                
+
                 logger.info(f"[SCHEDULED] Meilleur resultat IS: {best_result['scenario']} sur {best_result['timeframe']} | Profit IS: ${best_profit:,.2f}")
-                
+
                 # === AFFICHAGE DES RESULTATS ===
                 try:
                     display_results_for_pair(backtest_pair, backtest_results)
@@ -1268,7 +1254,7 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
                     sys.stdout.flush()
                 except Exception as display_err:
                     logger.error(f"[SCHEDULED] Erreur affichage résultats: {str(display_err)}")
-                
+
                 # P2-01: utiliser WF OOS config si disponible, sinon IS-Calmar
                 if _sched_wf_best:
                     updated_best_params = {
@@ -1285,7 +1271,7 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
                         'scenario': best_result['scenario'],
                     }
                 updated_best_params.update(SCENARIO_DEFAULT_PARAMS.get(updated_best_params.get('scenario', 'StochRSI'), {}))
-                
+
                 # Vérifier si les paramètres ont changé
                 if updated_best_params != best_params:
                     logger.info(f"[SCHEDULED] CHANGEMENT DETECTE - Anciens params: {best_params}")
@@ -1309,7 +1295,7 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
                     )
                 except Exception as _alert_err:
                     logger.error(f"[SCHEDULED] Envoi alerte échec backtest impossible: {_alert_err}")
-        
+
         # Exécuter le trading avec les paramètres mis à jour
         try:
             logger.info(f"[SCHEDULED] Appel execute_real_trades avec {best_params['scenario']} sur {best_params['timeframe']} + sizing_mode='{sizing_mode}'...")
@@ -1331,17 +1317,17 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
                 )
             except Exception as _e:
                 logger.warning("[SCHEDULED] Email alerte trade impossible: %s", _e)
-        
+
         # === AFFICHAGE PANEL - SUIVI & PLANIFICATION ===
         logger.info("[SCHEDULED] Affichage des informations de suivi...")
-        
+
         # Assurer l'initialisation par defaut de l'etat de la paire
-        pair_state: PairState = bot_state.setdefault(backtest_pair, {})  # type: ignore[assignment]
+        pair_state: PairState = cast('PairState', bot_state.setdefault(backtest_pair, {}))
         # IMPORTANT : Ne pas réinitialiser last_order_side s'il existe déjà
         if 'last_order_side' not in pair_state:
             pair_state['last_order_side'] = None
         current_run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+
         # Mettre à jour l'état
         pair_state['last_run_time'] = current_run_time
         save_bot_state()
@@ -1353,13 +1339,13 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
         # Afficher le panel de suivi
         logger.info("[SCHEDULED] Création et affichage du panel de suivi...")
         try:
-            console.print(build_tracking_panel(pair_state, current_run_time))  # type: ignore[arg-type]
+            console.print(build_tracking_panel(pair_state, current_run_time))
             console.print("\n")
             sys.stdout.flush()
             logger.info(f"[SCHEDULED] Exécution planifiée COMPLETEE pour {backtest_pair}")
         except Exception as tracking_err:
             logger.error(f"[SCHEDULED] Erreur affichage tracking panel: {str(tracking_err)}")
-        
+
     except Exception as e:
         logger.error(f"[SCHEDULED] Erreur GLOBALE execution planifiee {backtest_pair}: {str(e)}")
         logger.error(f"[SCHEDULED] Traceback complet: {traceback.format_exc()}")
@@ -1379,13 +1365,12 @@ def execute_scheduled_trading(real_trading_pair: str, time_interval: str, best_p
             logger.warning("[SCHEDULED] Email alerte globale impossible: %s", _e)
 
 
-def execute_live_trading_only(real_trading_pair: str, backtest_pair: str, sizing_mode: str):
+def execute_live_trading_only(real_trading_pair: str, backtest_pair: str, sizing_mode: str) -> None:
     """Exécution live uniquement sans backtest — planifiée toutes les 2 minutes.
 
     Lit _live_best_params (mis à jour par execute_scheduled_trading toutes les heures)
     et appelle directement execute_real_trades sans aucun backtest ni WF.
     """
-    import sys
     try:
         current_params = _read_live_params(backtest_pair, {})
         if not current_params or 'timeframe' not in current_params:
@@ -1405,13 +1390,13 @@ def execute_live_trading_only(real_trading_pair: str, backtest_pair: str, sizing
 
         execute_real_trades(real_trading_pair, tf, current_params, backtest_pair, sizing_mode=sizing_mode)
 
-        pair_state: PairState = bot_state.setdefault(backtest_pair, {})  # type: ignore[assignment]
+        pair_state: PairState = cast('PairState', bot_state.setdefault(backtest_pair, {}))
         current_run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         pair_state['last_run_time'] = current_run_time
         save_bot_state()
 
         try:
-            console.print(build_tracking_panel(pair_state, current_run_time))  # type: ignore[arg-type]
+            console.print(build_tracking_panel(pair_state, current_run_time))
             console.print("\n")
             sys.stdout.flush()
         except Exception as _panel_err:
@@ -1450,7 +1435,7 @@ class _TradeCtx:
     time_interval: str
     sizing_mode: str
     pair_state: PairState
-    best_params: dict
+    best_params: Dict[str, Any]
     ema1_period: int
     ema2_period: int
     scenario: str
@@ -1462,7 +1447,7 @@ class _TradeCtx:
     coin_balance: float
     current_price: float
     row: Any
-    orders: list
+    orders: List[Any]
     min_qty: float
     max_qty: float
     step_size: float
@@ -1689,7 +1674,10 @@ def _execute_one_partial(ctx: '_TradeCtx', *, partial_number: int, sell_pct: flo
             )
         except Exception as _email_err:
             logger.error(f"[{label}] Échec envoi email vente bloquée: {_email_err}")
-        ps[flag_key] = True  # type: ignore[literal-required]
+        if partial_number == 1:
+            ps['partial_taken_1'] = True
+        else:
+            ps['partial_taken_2'] = True
         save_bot_state()
         logger.info(f"[{label}] Montant trop faible — Flag mis à True pour éviter retry")
         return
@@ -1704,7 +1692,10 @@ def _execute_one_partial(ctx: '_TradeCtx', *, partial_number: int, sell_pct: flo
 
             logger.info(f"[{label}] Vente exécutée et confirmée : {qty_str} {ctx.coin_symbol} (profit {profit_pct * 100:.1f}%)")
 
-            ps[flag_key] = True  # type: ignore[literal-required]
+            if partial_number == 1:
+                ps['partial_taken_1'] = True
+            else:
+                ps['partial_taken_2'] = True
             save_bot_state()
             logger.info(f"[{label}] Flag mis à jour : {flag_key} = True")
 
@@ -1822,6 +1813,7 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx') -> bool:
     # Si les coins sont verrouillés dans un ordre SL exchange (STOP_LOSS_LIMIT pending),
     # Binance gère la vente automatiquement — ne pas tenter un market-sell en doublon.
     # MAIS il faut vérifier si l'ordre a DÉJÀ été FILLED pour réconcilier l'état.
+    executed_price: Optional[float] = None
     if ctx.coin_balance_free < ctx.min_qty:
         sl_oid = ps.get('sl_order_id')
         _sl_filled = False
@@ -1872,7 +1864,7 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx') -> bool:
             return True
 
         # === SL exchange FILLED — réconciliation complète ===
-        executed_price = _sl_fill_price
+        executed_price = _sl_fill_price  # SL always has a fill price
         total_usdc_received = _sl_exec_qty * executed_price if _sl_exec_qty else 0.0
 
         if is_trailing_stop:
@@ -1992,6 +1984,7 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx') -> bool:
     executed_price = None
     _saved_entry_price = 0.0
     stop_type = 'STOP-LOSS'
+    qty_str: str = ""
 
     if quantity_rounded >= ctx.min_qty_dec and order_value >= ctx.min_notional:
         qty_str = f"{quantity_rounded:.{ctx.step_decimals}f}"
@@ -2087,7 +2080,7 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx') -> bool:
             try:
                 logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
                 _exec_price = float(executed_price)
-                _qty = float(qty_str) if qty_str else 0.0  # type: ignore[possibly-undefined]
+                _qty = float(qty_str) if qty_str else 0.0
                 _pnl = (_exec_price - _saved_entry_price) * _qty if _saved_entry_price and _exec_price else None
                 _pnl_pct = ((_exec_price / _saved_entry_price) - 1) if _saved_entry_price and _exec_price else None
                 _update_daily_pnl(_pnl)
@@ -2135,7 +2128,6 @@ def _handle_dust_cleanup(ctx: '_TradeCtx') -> bool:
     )
 
     # === DÉTECTION ET NETTOYAGE FORCÉ DES RÉSIDUS (DUST) ===
-    dust_threshold = ctx.min_qty * 0.98  # 98% du minimum tradable
     # Dust = coins présents mais non tradeable (soit < min_qty, soit < min_notional sans position BUY)
     has_dust = (
         ctx.coin_balance > ctx.min_qty * 0.01
@@ -2846,7 +2838,7 @@ def _execute_buy(ctx: '_TradeCtx') -> None:
     display_buy_signal_panel(
         row=ctx.row, usdc_balance=usdc_balance_for_display, best_params=ctx.best_params,
         scenario=ctx.scenario, buy_condition=buy_condition, console=console,
-        pair_state=ps, buy_reason=buy_reason  # type: ignore[arg-type]
+        pair_state=ps, buy_reason=buy_reason
     )
 
 
@@ -2854,7 +2846,7 @@ def _execute_buy(ctx: '_TradeCtx') -> None:
 # P3-04: helpers extraits de _execute_real_trades_inner pour réduire la complexité
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _fetch_balances(real_trading_pair: str):
+def _fetch_balances(real_trading_pair: str) -> Optional[Tuple[Any, str, str, float, float, float, float]]:
     """Récupère les soldes coin + quote pour la paire donnée.
 
     Returns:
@@ -2880,7 +2872,7 @@ def _fetch_balances(real_trading_pair: str):
     )
 
 
-def _fetch_symbol_filters(real_trading_pair: str):
+def _fetch_symbol_filters(real_trading_pair: str) -> Optional[Tuple[float, float, float, float, Any, Any, Any, int]]:
     """Récupère LOT_SIZE et MIN_NOTIONAL pour la paire.
 
     Returns:
@@ -2890,7 +2882,8 @@ def _fetch_symbol_filters(real_trading_pair: str):
     """
     exchange_info = get_cached_exchange_info(client)
     symbol_info = next(
-        (s for s in exchange_info['symbols'] if s['symbol'] == real_trading_pair), None
+        (s for s in exchange_info['symbols']  # pylint: disable=unsubscriptable-object
+         if s['symbol'] == real_trading_pair), None
     )
     if not symbol_info:
         console.print(f"[ERREUR] Informations symbole introuvables pour {real_trading_pair}.")
@@ -2920,7 +2913,7 @@ def _fetch_symbol_filters(real_trading_pair: str):
     )
 
 
-def _fetch_indicators(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any]):
+def _fetch_indicators(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any]) -> Optional[Tuple[pd.DataFrame, Any, float]]:
     """Récupère les données de marché et calcule les indicateurs.
 
     Returns:
@@ -2969,7 +2962,7 @@ def _fetch_indicators(real_trading_pair: str, time_interval: str, best_params: D
     return df, row, current_price
 
 
-def _sync_order_history(real_trading_pair: str, pair_state: dict):
+def _sync_order_history(real_trading_pair: str, pair_state: 'PairState') -> Tuple[List[Any], Optional[str]]:
     """Synchronise last_order_side avec l'historique des ordres Binance.
 
     Returns:
@@ -2982,19 +2975,19 @@ def _sync_order_history(real_trading_pair: str, pair_state: dict):
     last_filled_order = filled_orders[0] if filled_orders else None
     last_side = last_filled_order['side'] if last_filled_order else None
 
-    if last_side and pair_state['last_order_side'] != last_side:
+    if last_side and pair_state.get('last_order_side') != last_side:
         pair_state['last_order_side'] = last_side
         save_bot_state()
 
     return orders, last_side
 
 
-def execute_real_trades(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any], backtest_pair: str, sizing_mode: str = 'risk'):
+def execute_real_trades(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any], backtest_pair: str, sizing_mode: str = 'risk') -> None:
     """
     Exécution complète des trades réels avec gestion totale du cycle achat/vente,
     stop-loss, trailing-stop, sniper entry, envoi d'emails d'alerte et affichage console.
     Stratégie d'origine préservée intégralement.
-    
+
     Args:
         sizing_mode: Position sizing strategy ('baseline', 'risk', 'fixed_notional', 'volatility_parity')
                     DEFAULT='risk' (P1-07: risk-based ATR stop au lieu de 95% capital)
@@ -3016,7 +3009,7 @@ def execute_real_trades(real_trading_pair: str, time_interval: str, best_params:
         _pair_lock.release()
 
 
-def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any], backtest_pair: str, sizing_mode: str = 'risk'):
+def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_params: Dict[str, Any], backtest_pair: str, sizing_mode: str = 'risk') -> None:
     """Implémentation interne de execute_real_trades (appelée sous per-pair lock).
 
     P3-04: logique de fetching déléguée aux helpers _fetch_balances, _fetch_symbol_filters,
@@ -3033,7 +3026,7 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
 
     # pair_state dérivé depuis bot_state — les mutations du dict se propagent par référence.
     with _bot_state_lock:
-        pair_state: PairState = bot_state.setdefault(backtest_pair, {})  # type: ignore[assignment]
+        pair_state: PairState = cast('PairState', bot_state.setdefault(backtest_pair, {}))
     if 'last_order_side' not in pair_state:
         pair_state['last_order_side'] = None
 
@@ -3041,19 +3034,25 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
     # Garantit que le sell est évalué sur le même scenario/TF/EMA que l’achat,
     # même si le WF a sélectionné une stratégie différente entre-temps.
     if pair_state.get('last_order_side') == 'BUY' and pair_state.get('entry_scenario'):
-        time_interval = pair_state['entry_timeframe']  # type: ignore[typeddict-item]
-        best_params = {
-            **best_params,
-            'timeframe': pair_state['entry_timeframe'],  # type: ignore[typeddict-item]
-            'ema1_period': pair_state['entry_ema1'],  # type: ignore[typeddict-item]
-            'ema2_period': pair_state['entry_ema2'],  # type: ignore[typeddict-item]
-            'scenario': pair_state['entry_scenario'],  # type: ignore[typeddict-item]
-        }
-        logger.info(
-            "[F-COH] Position ouverte — indicateurs verrouillés sur params entrée: %s EMA(%s/%s) %s",
-            pair_state['entry_scenario'], pair_state['entry_ema1'],  # type: ignore[typeddict-item]
-            pair_state['entry_ema2'], pair_state['entry_timeframe'],  # type: ignore[typeddict-item]
-        )
+        _f_coh_tf = pair_state.get('entry_timeframe')
+        _f_coh_ema1 = pair_state.get('entry_ema1')
+        _f_coh_ema2 = pair_state.get('entry_ema2')
+        _f_coh_scenario = pair_state.get('entry_scenario')
+        if (_f_coh_tf is not None and _f_coh_ema1 is not None
+                and _f_coh_ema2 is not None and _f_coh_scenario is not None):
+            time_interval = _f_coh_tf
+            best_params = {
+                **best_params,
+                'timeframe': _f_coh_tf,
+                'ema1_period': _f_coh_ema1,
+                'ema2_period': _f_coh_ema2,
+                'scenario': _f_coh_scenario,
+            }
+            logger.info(
+                "[F-COH] Position ouverte — indicateurs verrouillés sur params entrée: %s EMA(%s/%s) %s",
+                _f_coh_scenario, _f_coh_ema1,
+                _f_coh_ema2, _f_coh_tf,
+            )
 
     # Paramètres stratégiques
     ema1_period = best_params.get('ema1_period') or 26
@@ -3085,7 +3084,7 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
         atr_at_entry = pair_state.get('atr_at_entry') if _has_real_position else None
         display_account_balances_panel(
             account_info, coin_symbol, quote_currency, client, console,
-            pair_state=pair_state,  # type: ignore[arg-type]
+            pair_state=cast(Dict[str, Any], pair_state),
             last_buy_price=last_buy_price, atr_at_entry=atr_at_entry
         )
 
@@ -3093,10 +3092,10 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
         mkt = _fetch_indicators(real_trading_pair, time_interval, best_params)
         if mkt is None:
             return
-        df, row, current_price = mkt
+        _, row, current_price = mkt
 
         # === P3-04: HISTORIQUE ORDRES (helper) ===
-        orders, last_side = _sync_order_history(real_trading_pair, pair_state)  # type: ignore[arg-type]
+        orders, last_side = _sync_order_history(real_trading_pair, pair_state)
 
         # === C-15: BUILD CONTEXT + DELEGATE TO SUB-FUNCTIONS ===
         ctx = _TradeCtx(
@@ -3144,40 +3143,40 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
 
 def detect_market_changes(pair: str, timeframes: List[str], start_date: str) -> Dict[str, Any]:
     # P3-SRP: delegated to market_analysis.py
-    return _detect_market_changes(pair, timeframes, start_date, prepare_base_dataframe)  # type: ignore[arg-type]
+    return _detect_market_changes(pair, timeframes, start_date, prepare_base_dataframe)
 
 # display_market_changes extraite dans display_ui.py (Phase 5)
 
-def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, start_date: str, timeframes: List[str], sizing_mode: str = 'risk'):
+def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, start_date: str, timeframes: List[str], sizing_mode: str = 'risk') -> None:
     """
     Effectue les backtests pour differents timeframes, affiche les resultats,
     et identifie les meilleurs parametres pour le trading en temps reel.
-    
+
     IMPORTANT: start_date sera recalcule dynamiquement a chaque appel pour toujours
     utiliser une fenetre glissante de 5 ans depuis aujourd'hui.
     """
     # Recalculer start_date dynamiquement a chaque execution (fenetre glissante 5 ans)
     dynamic_start_date = (datetime.today() - timedelta(days=config.backtest_days)).strftime("%d %B %Y")
-    
+
     console = Console()
-    
+
     # DETECTION INTELLIGENTE DES CHANGEMENTS DE MARCHE
     console.print("\n[bold cyan][ANALYZE] Analyse des changements du marche...[/bold cyan]")
     market_changes = detect_market_changes(backtest_pair, timeframes, dynamic_start_date)
     display_market_changes(market_changes, backtest_pair, console=console)
-    
+
     logger.info(f"Backtest period: 5 years from today | Start date: {dynamic_start_date}")
-    
+
     # COMPENSATION BINANCE ULTRA-ROBUSTE A CHAQUE BACKTEST
     logger.info("Compensation timestamp Binance ultra-robuste active")
-    
+
     logger.info("Debut des backtests...")
-    
+
     if backtest_pair not in bot_state:
         bot_state[backtest_pair] = _make_default_pair_state()
-    
-    pair_state: PairState = bot_state[backtest_pair]  # type: ignore[assignment]
-    
+
+    pair_state: PairState = cast('PairState', bot_state[backtest_pair])
+
     try:
         results = run_all_backtests(backtest_pair, dynamic_start_date, timeframes, sizing_mode=sizing_mode)
     except Exception as e:
@@ -3197,7 +3196,7 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
         for tf in timeframes:
             df_wf = prepare_base_dataframe(backtest_pair, tf, dynamic_start_date, 14)
             wf_base_dataframes[tf] = df_wf if df_wf is not None and not df_wf.empty else pd.DataFrame()
-        
+
         wf_result = run_walk_forward_validation(
             base_dataframes=wf_base_dataframes,
             full_sample_results=results,
@@ -3206,7 +3205,7 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
             initial_capital=config.initial_wallet,
             sizing_mode=sizing_mode,
         )
-        
+
         if wf_result.get('any_passed'):
             console.print(Panel(
                 f"[bold green]Walk-Forward Validation PASSED[/bold green]\n"
@@ -3284,7 +3283,7 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
     console.print("\n")
     try:
         # POSITION SIZING: utiliser le mode passé en paramètre
-        execute_real_trades(real_trading_pair, best_params['timeframe'], best_params, backtest_pair, sizing_mode=sizing_mode)        
+        execute_real_trades(real_trading_pair, best_params['timeframe'], best_params, backtest_pair, sizing_mode=sizing_mode)
     except Exception as e:
         logger.error(f"Une erreur est survenue lors de l'execution des ordres en reel: {e}")
         subj, body = trading_execution_error_email(str(e), traceback.format_exc())
@@ -3292,7 +3291,7 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
 
     # Gestion de l'historique d'execution
     current_run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+
     # Panel pour l'historique et la planification
     pair_state['last_run_time'] = current_run_time
 
@@ -3307,12 +3306,12 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
                 break
         except Exception:
             continue
-    
+
     # Si une tâche existe déjà, la supprimer
     if existing_job:
         schedule.cancel_job(existing_job)
         logger.info(f"Ancienne planification supprimée pour {backtest_pair}")
-    
+
     # Programmer une tâche UNIQUE et HOMOGENE toutes les 2 minutes (indépendant du timeframe)
     # IMPORTANT: recalculer start_date à CHAQUE exécution pour conserver une fenêtre glissante de 5 ans
     schedule.every(config.schedule_interval_minutes).minutes.do(  # P2-02: intervalle configurable
@@ -3324,8 +3323,8 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
             sm
         )
     )
-    
-    console.print(build_tracking_panel(pair_state, current_run_time))  # type: ignore[arg-type]
+
+    console.print(build_tracking_panel(pair_state, current_run_time))
     console.print("\n")
 
 # cleanup_expired_cache importé depuis cache_manager.py (Phase 4)
@@ -3339,27 +3338,83 @@ if __name__ == "__main__":
 
     # MODE ULTRA-ROBUSTE SANS POPUP - COMPENSATION BINANCE PURE
     logger.info("Bot crypto H24/7 - Mode ultra-robuste avec privileges admin")
-    
+
     crypto_pairs = [
-        {"backtest_pair": "SOLUSDT", "real_pair": "SOLUSDC"},        
+        {"backtest_pair": "SOLUSDT", "real_pair": "SOLUSDC"},
     ]
     _voluntary_event   = threading.Event()
     _shutdown_verified = threading.Event()
+
+    # P0-SHUT: Définie avant le try pour être toujours accessible dans les handlers except.
+    def _verify_all_stops_on_shutdown(reason: str = "unknown", send_email: bool = True) -> None:
+        """C-11: Vérifie les stops actifs sur Binance pour chaque position ouverte.
+
+        Envoie un email CRITICAL si une position BUY n'a pas de stop-loss.
+        Appelée depuis SIGTERM, KeyboardInterrupt et atexit.
+        Si send_email=False (arrêt volontaire CTRL+C), log seulement sans email.
+        """
+        try:
+            pair_lookup = {p['backtest_pair']: p['real_pair'] for p in crypto_pairs}
+            for bp, ps in list(bot_state.items()):
+                if not isinstance(ps, dict) or ps.get('last_order_side') != 'BUY':
+                    continue
+                real_sym = pair_lookup.get(bp, bp)
+                try:
+                    open_orders = client.get_open_orders(symbol=real_sym)
+                    stop_types = {'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT',
+                                  'TAKE_PROFIT_LIMIT', 'OCO'}
+                    has_stop = any(o.get('type', '') in stop_types for o in open_orders)
+                    if not has_stop:
+                        logger.critical(
+                            "[SHUTDOWN C-11] AUCUN stop-loss actif sur Binance pour %s "
+                            "(%s) alors que la position est ouverte!",
+                            bp, real_sym,
+                        )
+                        if send_email:
+                            try:
+                                send_trading_alert_email(
+                                    subject=f"[CRITIQUE] Stop manquant au shutdown: {bp}",
+                                    body_main=(
+                                        f"Le bot s'arrête ({reason}).\n\n"
+                                        f"La paire {bp} ({real_sym}) est en position BUY "
+                                        f"mais AUCUN stop-loss n'a été trouvé parmi les ordres "
+                                        f"ouverts sur Binance.\n\n"
+                                        f"ACTION REQUISE: poser un stop manuellement."
+                                    ),
+                                    client=client,
+                                )
+                            except Exception as _mail_err:
+                                logger.error("[SHUTDOWN C-11] Email critique impossible: %s", _mail_err)
+                        else:
+                            logger.warning(
+                                "[SHUTDOWN C-11] Email supprimé (arrêt volontaire CTRL+C). "
+                                "Stop manquant pour %s — vérifiez manuellement.", bp
+                            )
+                    else:
+                        logger.info("[SHUTDOWN C-11] Stop actif confirmé pour %s", bp)
+                except Exception as _ord_err:
+                    logger.error(
+                        "[SHUTDOWN C-11] Impossible de récupérer les ordres pour %s: %s",
+                        real_sym, _ord_err,
+                    )
+        except Exception as _shutdown_check_err:
+            logger.error("[SHUTDOWN C-11] Erreur vérification stops: %s", _shutdown_check_err)
+
     try:
         # SOLUTION ULTRA-ROBUSTE TIMESTAMP
         logger.info("=== INITIALISATION TIMESTAMP ULTRA-ROBUSTE ===")
         if not init_timestamp_solution():
             logger.error("IMPOSSIBLE D'INITIALISER LA SYNCHRONISATION")
-        
+
         # Re-synchroniser avant chaque session de trading
-        client._sync_server_time()
+        client._sync_server_time()  # pylint: disable=protected-access
         logger.info("Synchronisation timestamp pre-trading terminee")
-        
+
         # Validation de la connexion API au demarrage
         if not validate_api_connection():
             logger.error("Impossible de valider la connexion API. Arret du programme.")
             exit(1)
-        
+
         # Récupération des frais réels depuis l'API Binance (override config defaults)
         real_taker, real_maker = get_binance_trading_fees(client)
         with _bot_state_lock:  # P1-04: protéger la mutation du singleton config
@@ -3375,7 +3430,7 @@ if __name__ == "__main__":
             reconcile_positions_with_exchange(crypto_pairs)
         except Exception as reconcile_err:
             logger.error(f"[RECONCILE] Erreur lors de la réconciliation: {reconcile_err}")
-        
+
         logger.info("Script demarre. Planification initiale en cours...")
         # Purge préventive: supprimer toute planification résiduelle
         # Nettoyage renforcé de la planification
@@ -3384,15 +3439,15 @@ if __name__ == "__main__":
             logger.info("Planification nettoyee au demarrage (schedule.clear())")
         except Exception as _clear_ex:
             logger.debug(f"Echec nettoyage planification au demarrage: {_clear_ex}")
-        
+
         # Planification du nettoyage du cache tous les 30 jours
         schedule.every(30).days.do(cleanup_expired_cache)
         logger.info("Nettoyage automatique du cache planifié: tous les 30 jours")
-        
+
         # P1-08: Resynchronisation timestamp périodique (toutes les 30 min)
         # Le drift horloge locale vs serveur Binance s'accumule et provoque
         # des erreurs recvWindow après quelques heures sans resync.
-        def _periodic_timestamp_resync():
+        def _periodic_timestamp_resync() -> None:
             try:
                 full_timestamp_resync()
                 logger.info("[TIMESTAMP P1-08] Resync périodique OK")
@@ -3400,7 +3455,7 @@ if __name__ == "__main__":
                 logger.warning("[TIMESTAMP P1-08] Resync échouée: %s", _ts_err)
         schedule.every(30).minutes.do(_periodic_timestamp_resync)
         logger.info("[TIMESTAMP P1-08] Resync timestamp planifiée: toutes les 30 min")
-        
+
         # === NOUVELLE LOGIQUE : backtests optimisés + affichage propre ===
         parser = argparse.ArgumentParser(description='Run backtests and optional sizing mode')
         parser.add_argument('--sizing-mode', choices=['baseline', 'risk', 'fixed_notional', 'volatility_parity'], default=config.sizing_mode, help='Position sizing mode to use for backtests')
@@ -3462,7 +3517,7 @@ if __name__ == "__main__":
 
             # Affichage des résultats via la fonction centralisée
             display_results_for_pair(backtest_pair, data['results'])
-            
+
             # === Exécuter le trading réel avec les meilleurs paramètres ===
             if _startup_wf_best:
                 best_params = {
@@ -3484,27 +3539,27 @@ if __name__ == "__main__":
                     "[STARTUP F-BUG2] Aucun WF valide — paramètres CONSERVATIFS par défaut "
                     "(EMA 26/50, StochRSI, 1d). Achats bloqués par P0-03/oos_blocked."
                 )
-            
+
             # Initialiser l'état du bot pour cette paire
             if backtest_pair not in bot_state:
                 bot_state[backtest_pair] = _make_default_pair_state()
-            
-            pair_state: PairState = bot_state[backtest_pair]  # type: ignore[assignment]
-            
+
+            pair_state: PairState = cast('PairState', bot_state[backtest_pair])
+
             try:
                 execute_real_trades(data['real_pair'], best_params['timeframe'], best_params, backtest_pair, sizing_mode=args.sizing_mode)
             except Exception as e:
                 logger.error(f"Erreur trading réel {backtest_pair}: {e}")
                 subj, body = trading_pair_error_email(backtest_pair, str(e), traceback.format_exc())
                 send_email_alert(subject=subj, body=body)
-            
+
             # === AFFICHAGE DATE/HEURE ET PLANIFICATION ===
             current_run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
+
             pair_state['last_run_time'] = current_run_time
             pair_state['last_best_params'] = best_params
             pair_state['execution_count'] = pair_state.get('execution_count', 0) + 1
-            
+
             # CORRECTION: Nettoyer les planifications existantes pour éviter les doublons
             schedule.clear()
 
@@ -3540,79 +3595,24 @@ if __name__ == "__main__":
                 lambda bp=backtest_pair, rp=data['real_pair'], sm=args.sizing_mode:
                     execute_live_trading_only(rp, bp, sm)
             )
-            
+
             # Afficher le panel de suivi
-            console.print(build_tracking_panel(pair_state, current_run_time))  # type: ignore[arg-type]
+            console.print(build_tracking_panel(pair_state, current_run_time))
             console.print("\n")
-            
+
             save_bot_state(force=True)
 
         logger.info(f"Tâches planifiées actives: {len(schedule.jobs)}")
-        
-        # === BOUCLE PRINCIPALE ===
-        # P0-SHUT: Fonction réutilisable de vérification des stops au shutdown
-        def _verify_all_stops_on_shutdown(reason: str = "unknown", send_email: bool = True):
-            """C-11: Vérifie les stops actifs sur Binance pour chaque position ouverte.
-            
-            Envoie un email CRITICAL si une position BUY n'a pas de stop-loss.
-            Appelée depuis SIGTERM, KeyboardInterrupt et atexit.
-            Si send_email=False (arrêt volontaire CTRL+C), log seulement sans email.
-            """
-            try:
-                pair_lookup = {p['backtest_pair']: p['real_pair'] for p in crypto_pairs}
-                for bp, ps in list(bot_state.items()):
-                    if not isinstance(ps, dict) or ps.get('last_order_side') != 'BUY':
-                        continue
-                    real_sym = pair_lookup.get(bp, bp)
-                    try:
-                        open_orders = client.get_open_orders(symbol=real_sym)
-                        stop_types = {'STOP_LOSS', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT',
-                                      'TAKE_PROFIT_LIMIT', 'OCO'}
-                        has_stop = any(o.get('type', '') in stop_types for o in open_orders)
-                        if not has_stop:
-                            logger.critical(
-                                "[SHUTDOWN C-11] AUCUN stop-loss actif sur Binance pour %s "
-                                "(%s) alors que la position est ouverte!",
-                                bp, real_sym,
-                            )
-                            if send_email:
-                                try:
-                                    send_trading_alert_email(
-                                        subject=f"[CRITIQUE] Stop manquant au shutdown: {bp}",
-                                        body_main=(
-                                            f"Le bot s'arrête ({reason}).\n\n"
-                                            f"La paire {bp} ({real_sym}) est en position BUY "
-                                            f"mais AUCUN stop-loss n'a été trouvé parmi les ordres "
-                                            f"ouverts sur Binance.\n\n"
-                                            f"ACTION REQUISE: poser un stop manuellement."
-                                        ),
-                                        client=client,
-                                    )
-                                except Exception as _mail_err:
-                                    logger.error("[SHUTDOWN C-11] Email critique impossible: %s", _mail_err)
-                            else:
-                                logger.warning(
-                                    "[SHUTDOWN C-11] Email supprimé (arrêt volontaire CTRL+C). "
-                                    "Stop manquant pour %s — vérifiez manuellement.", bp
-                                )
-                        else:
-                            logger.info("[SHUTDOWN C-11] Stop actif confirmé pour %s", bp)
-                    except Exception as _ord_err:
-                        logger.error(
-                            "[SHUTDOWN C-11] Impossible de récupérer les ordres pour %s: %s",
-                            real_sym, _ord_err,
-                        )
-            except Exception as _shutdown_check_err:
-                logger.error("[SHUTDOWN C-11] Erreur vérification stops: %s", _shutdown_check_err)
 
+        # === BOUCLE PRINCIPALE ===
         # C-04: Handler SIGTERM/SIGINT pour graceful shutdown (PM2, taskkill, systemd, Ctrl+C)
         # P3-01: remplacement des closures fragiles par threading.Event
         _shutdown_event     = threading.Event()   # set → le main-loop s'arrête
         _voluntary_event    = threading.Event()   # set → CTRL+C → pas d'email
         _shutdown_verified  = threading.Event()   # set → vérification déjà faite
 
-        def _graceful_shutdown(signum, frame):
-            import signal as _signal
+        def _graceful_shutdown(signum: int, frame: Any) -> None:
+            import signal as _signal  # pylint: disable=reimported
             if signum == _signal.SIGINT:
                 _voluntary_event.set()
             _shutdown_event.set()  # main-loop va sortir naturellement
@@ -3628,7 +3628,7 @@ if __name__ == "__main__":
         # P0-SHUT: atexit comme filet de sécurité.
         # Ignoré si un handler signal a déjà effectué la vérification (_shutdown_verified).
         import atexit
-        def _atexit_verify():
+        def _atexit_verify() -> None:
             if _shutdown_verified.is_set():
                 return  # déjà fait
             _shutdown_verified.set()
@@ -3639,7 +3639,7 @@ if __name__ == "__main__":
         atexit.register(_atexit_verify)
 
         display_bot_active_banner(len(schedule.jobs), schedule.next_run(), console)
-        
+
         logger.info("Bot actif - Surveillance des signaux de trading...")
         logger.info("Initialisation du gestionnaire d'erreurs...")
         error_handler = initialize_error_handler({
@@ -3650,7 +3650,7 @@ if __name__ == "__main__":
             'recipient_email': config.receiver_email
         })
         logger.info(f"Gestionnaire d'erreurs actif - Mode: {error_handler.circuit_breaker.mode.value}")
-        
+
         # Initialisation du compteur de vérification réseau
         network_check_counter = 0
         try:
@@ -3692,13 +3692,13 @@ if __name__ == "__main__":
                     if next_run:
                         delta = next_run - now
                         minutes_left = max(0, int(delta.total_seconds() // 60))
-                        print(f"[TIME] {now.strftime('%H:%M:%S')} - Bot actif (RUNNING) | Prochaine execution dans {minutes_left} min ({next_run.strftime('%H:%M:%S')})")
+                        console.print(f"[TIME] {now.strftime('%H:%M:%S')} - Bot actif (RUNNING) | Prochaine execution dans {minutes_left} min ({next_run.strftime('%H:%M:%S')})")
                     else:
-                        print(f"[TIME] {now.strftime('%H:%M:%S')} - Bot actif (RUNNING) | Prochaine execution non planifiée")
+                        console.print(f"[TIME] {now.strftime('%H:%M:%S')} - Bot actif (RUNNING) | Prochaine execution non planifiée")
 
                     running_counter += 1
                     if running_counter % 1 == 0:  # Toutes les 10 minutes (600s sleep)
-                        print(f"[RUNNING] {now.strftime('%H:%M:%S')} - running en cours")
+                        console.print(f"[RUNNING] {now.strftime('%H:%M:%S')} - running en cours")
 
                     # Écriture du heartbeat (Phase 2 — watchdog support)
                     try:
@@ -3712,7 +3712,7 @@ if __name__ == "__main__":
                         hb_path = os.path.join(os.path.dirname(__file__), "states", "heartbeat.json")
                         os.makedirs(os.path.dirname(hb_path), exist_ok=True)
                         tmp_path = hb_path + ".tmp"
-                        with open(tmp_path, "w") as f:
+                        with open(tmp_path, "w", encoding="utf-8") as f:
                             json.dump(heartbeat, f)
                         os.replace(tmp_path, hb_path)
                     except Exception as hb_err:
@@ -3770,7 +3770,7 @@ if __name__ == "__main__":
         if not _shutdown_verified.is_set():
             _shutdown_verified.set()
             try:
-                _verify_all_stops_on_shutdown(reason="KeyboardInterrupt (outer)", send_email=False)  # type: ignore[possibly-unbound]
+                _verify_all_stops_on_shutdown(reason="KeyboardInterrupt (outer)", send_email=False)
             except Exception as _e:
                 logger.warning("[SHUTDOWN] Vérification stops abandonnée: %s", _e)
     except Exception as e:
@@ -3785,6 +3785,6 @@ if __name__ == "__main__":
         if not _shutdown_verified.is_set():
             _shutdown_verified.set()
             try:
-                _verify_all_stops_on_shutdown(reason=f"fatal error: {e}")  # type: ignore[possibly-unbound]
+                _verify_all_stops_on_shutdown(reason=f"fatal error: {e}")
             except Exception as _e:
                 logger.warning("[SHUTDOWN] Vérification stops (fatal): %s", _e)

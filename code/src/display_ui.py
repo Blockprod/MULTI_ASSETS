@@ -8,7 +8,7 @@ formatting, deduplication, and a single PANEL_WIDTH constant.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, MutableMapping, Optional
 
 from rich.console import Console
 from rich.panel import Panel
@@ -38,7 +38,7 @@ def _ok(condition: bool) -> str:
 
 def display_buy_signal_panel(
     row, usdc_balance, best_params, scenario, buy_condition,
-    console: Console, pair_state: Optional[Dict[str, Any]] = None, buy_reason=None,
+    console: Console, pair_state: Optional[Mapping[str, Any]] = None, buy_reason=None,
 ):
     """
     Panneau d'analyse des signaux d'achat avec détails des conditions
@@ -293,7 +293,7 @@ _last_balance_panel_hash: Optional[int] = None
 
 def display_account_balances_panel(
     account_info, coin_symbol, quote_currency, client,
-    console: Console, pair_state: Dict[str, Any],
+    console: Console, pair_state: MutableMapping[str, Any],
     last_buy_price=None, atr_at_entry=None,
 ):
     """
@@ -600,7 +600,7 @@ def display_trading_panel(real_trading_pair: str, best_params: Dict[str, Any], c
 
 # ─── Tracking Panel (deduplicated) ─────────────────────────────────────────
 
-def build_tracking_panel(pair_state: Dict[str, Any], current_run_time: str) -> Panel:
+def build_tracking_panel(pair_state: Mapping[str, Any], current_run_time: str) -> Panel:
     """
     Construit le panel «SUIVI D'EXÉCUTION & PLANIFICATION AUTOMATIQUE».
     Retourne un Panel Rich prêt à être imprimé.

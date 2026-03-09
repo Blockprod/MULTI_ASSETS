@@ -23,6 +23,7 @@ import os
 import sys
 import numpy as np
 import pandas as pd
+from typing import Any, Dict
 from unittest.mock import patch
 
 SRC_DIR = os.path.join(os.path.dirname(__file__), '..', 'code', 'src')
@@ -160,7 +161,7 @@ class TestWFSelectionPriority:
         _wf_best_cfg = None
         try:
             # Simule wf_result inaccessible (KeyError, AttributeError, etc.)
-            _missing: dict = {}  # type: ignore[annotation-unchecked]
+            _missing: Dict[str, Any] = {}
             _wf_best_cfg = _missing['wf_result'].get('best_wf_config')  # KeyError intentionnel
         except Exception:
             pass  # comportement attendu : _wf_best_cfg reste None

@@ -45,14 +45,15 @@ def _close_logger_handlers():
 atexit.register(_close_logger_handlers)
 
 # Tentative d'import email (optionnel — watchdog reste fonctionnel sans)
-def _send_email_alert(subject: str, body: str) -> bool:  # noqa: default no-op if import fails
+def _send_email_alert(subject: str, body: str) -> bool:  # default no-op if import fails
     return False
 
 _EMAIL_AVAILABLE = False
 try:
     import sys as _sys
     _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from email_utils import send_email_alert as _send_email_alert  # type: ignore[no-redef]
+    from email_utils import send_email_alert as _real_send_email_alert
+    _send_email_alert = _real_send_email_alert
     _EMAIL_AVAILABLE = True
 except Exception:
     pass  # _EMAIL_AVAILABLE stays False, _send_email_alert stays no-op

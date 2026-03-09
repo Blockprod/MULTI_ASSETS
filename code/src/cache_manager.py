@@ -14,7 +14,7 @@ import json
 import pickle
 import hashlib
 import logging
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 
@@ -24,10 +24,10 @@ from email_utils import send_email_alert
 logger = logging.getLogger('trading_bot')
 
 # Flag pour initialisation unique du répertoire cache
-_cache_dir_initialized = False
+_cache_dir_initialized = False  # pylint: disable=invalid-name
 
 
-def get_cache_key(pair: str, interval: str, params: Dict) -> str:
+def get_cache_key(pair: str, interval: str, params: Dict[str, Any]) -> str:
     """Génère une clé de cache unique pour les indicateurs."""
     key_data = f"{pair}_{interval}_{json.dumps(params, sort_keys=True)}"
     return hashlib.md5(key_data.encode()).hexdigest()
@@ -123,7 +123,7 @@ def safe_cache_write(cache_file: str, lock_file: str, df: pd.DataFrame) -> bool:
         while os.path.exists(lock_file):
             # Détecte et supprime les locks périmés (processus mort)
             try:
-                with open(lock_file) as _lf:
+                with open(lock_file, encoding='utf-8') as _lf:
                     _pid_str = _lf.read().strip().split('_')[0]
                 _dead = False
                 try:
@@ -144,7 +144,7 @@ def safe_cache_write(cache_file: str, lock_file: str, df: pd.DataFrame) -> bool:
             time.sleep(0.1)
 
         try:
-            with open(lock_file, 'w') as lock:
+            with open(lock_file, 'w', encoding='utf-8') as lock:
                 lock.write(f"{os.getpid()}_{int(time.time())}")
         except Exception:
             return False
@@ -183,10 +183,10 @@ def safe_cache_write(cache_file: str, lock_file: str, df: pd.DataFrame) -> bool:
 
 @retry_with_backoff(max_retries=5, base_delay=2.0)
 def update_cache_with_recent_data(
-    cached_df: pd.DataFrame, pair_symbol: str, time_interval: str, client
+    cached_df: pd.DataFrame, pair_symbol: str, time_interval: str, client: Any
 ) -> pd.DataFrame:
     """Mise à jour intelligente du cache avec les dernières bougies."""
-    from binance.client import Client
+    from binance.client import Client  # pylint: disable=import-outside-toplevel
 
     try:
         if cached_df.empty:
@@ -238,7 +238,7 @@ def update_cache_with_recent_data(
         return cached_df
 
 
-def cleanup_expired_cache():
+def cleanup_expired_cache() -> None:
     """Nettoie les fichiers de cache expirés (>30 jours)."""
     try:
         cache_dir = config.cache_dir
@@ -270,7 +270,7 @@ def cleanup_expired_cache():
         logger.error(f"Erreur nettoyage cache: {e}")
 
 
-def ensure_cache_dir():
+def ensure_cache_dir() -> None:
     """S'assure que le répertoire cache existe. Appeler une fois au démarrage."""
     global _cache_dir_initialized
     if _cache_dir_initialized:
@@ -280,7 +280,7 @@ def ensure_cache_dir():
         _cache_dir_initialized = True
         logger.debug(f"Répertoire cache initialisé: {config.cache_dir}")
     except Exception:
-        import tempfile
+        import tempfile  # pylint: disable=import-outside-toplevel
         config.cache_dir = tempfile.mkdtemp(prefix="crypto_cache_")
         _cache_dir_initialized = True
         logger.debug(f"Cache temporaire créé: {config.cache_dir}")

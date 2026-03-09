@@ -230,7 +230,7 @@ class TestP0Shut:
 
     def test_verify_stops_function_exists(self):
         """_verify_all_stops_on_shutdown should be a callable defined in the main function scope.
-        
+
         Since it's defined inside main(), we can't test it directly here.
         We verify the supporting logic: the atexit registration pattern and
         that the function would detect BUY positions without stops.
@@ -419,7 +419,7 @@ class TestP1Thresh:
             sharpe_min, wr_min = _get_oos_thresholds()
             # _get_oos_thresholds does `from bot_config import config` internally
             # so we need to patch at that level
-        
+
         # Better approach: patch bot_config.config
         with patch.dict("sys.modules", {}):
             pass  # can't easily reimport

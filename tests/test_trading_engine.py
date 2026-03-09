@@ -14,6 +14,7 @@ import sys
 import time
 import pytest
 from decimal import Decimal
+from typing import cast
 from unittest.mock import MagicMock
 import numpy as np
 import pandas as pd
@@ -1790,21 +1791,21 @@ class TestPairStateTypedDict:
         """_make_default_pair_state() retourne les bons champs par défaut."""
         ps = ms._make_default_pair_state()
         assert isinstance(ps, dict)
-        assert ps['last_run_time'] is None  # type: ignore[typeddict-item]
-        assert ps['execution_count'] == 0  # type: ignore[typeddict-item]
-        assert ps['entry_price'] is None  # type: ignore[typeddict-item]
-        assert ps['max_price'] is None  # type: ignore[typeddict-item]
-        assert ps['trailing_stop'] is None  # type: ignore[typeddict-item]
-        assert ps['stop_loss'] is None  # type: ignore[typeddict-item]
-        assert ps['last_execution'] is None  # type: ignore[typeddict-item]
-        assert ps['last_best_params'] is None  # type: ignore[typeddict-item]
+        assert ps.get('last_run_time') is None
+        assert ps.get('execution_count') == 0
+        assert ps.get('entry_price') is None
+        assert ps.get('max_price') is None
+        assert ps.get('trailing_stop') is None
+        assert ps.get('stop_loss') is None
+        assert ps.get('last_execution') is None
+        assert ps.get('last_best_params') is None
 
     def test_make_default_pair_state_is_independent(self):
         """Chaque appel retourne un dict indépendant (pas de référence partagée)."""
         ps1 = ms._make_default_pair_state()
         ps2 = ms._make_default_pair_state()
         ps1['entry_price'] = 42.0
-        assert ps2['entry_price'] is None  # type: ignore[typeddict-item]
+        assert ps2.get('entry_price') is None
 
     def test_pair_state_accepts_all_known_keys(self):
         """Un dict avec toutes les clés PairState est valide au runtime."""
@@ -1863,12 +1864,12 @@ class TestPairStateTypedDict:
             step_decimals=2,
         )
         assert ctx.pair_state is ps
-        assert ctx.pair_state['last_order_side'] == 'BUY'  # type: ignore[typeddict-item]
+        assert ctx.pair_state.get('last_order_side') == 'BUY'
 
     def test_pair_state_total_false(self):
         """PairState(total=False) → un dict vide {} est valide au runtime."""
         # TypedDict with total=False means all keys optional
-        ps: ms.PairState = {}  # type: ignore[typeddict-item,annotation-unchecked]
+        ps: ms.PairState = cast(ms.PairState, {})
         assert isinstance(ps, dict)
 
 
@@ -2103,7 +2104,7 @@ class TestP305IntegrationCycle:
         """partial_enabled=False → pas de partial sells même si seuils atteints."""
         entry = 100.0
         price_up = entry * 1.05
-        
+
         cfg = _make_config()
         monkeypatch.setattr(ms, 'config', cfg)
         monkeypatch.setattr(ms, 'console', MagicMock())

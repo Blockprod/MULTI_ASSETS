@@ -55,7 +55,10 @@ def get_cached_exchange_info(client: Any) -> Dict[str, Any]:
         _exchange_info_cache['data'] = client.get_exchange_info()
         _exchange_info_cache['ts'] = time.time()
         logger.debug("[CACHE] exchange_info rechargé (TTL expiré ou premier appel)")
-    return _exchange_info_cache['data']
+    result = _exchange_info_cache['data']
+    if not isinstance(result, dict):
+        raise RuntimeError("get_cached_exchange_info: données cache invalides")
+    return result
 
 
 # ─── Data Integrity Validation ───────────────────────────────────────────────
@@ -178,40 +181,40 @@ def fetch_historical_data(
             )
 
         try:
-            klinesT = client.get_historical_klines(
+            klines_raw = client.get_historical_klines(
                 pair_symbol, time_interval, start_date
             )
 
-            if not klinesT:
+            if not klines_raw:
                 raise ValueError(
                     f"Aucune donnee pour {pair_symbol} et {time_interval}"
                 )
 
             if not verbose_logs:
-                first_ts = pd.Timestamp(klinesT[0][0], unit='ms').strftime('%Y-%m-%d')
-                last_ts = pd.Timestamp(klinesT[-1][0], unit='ms').strftime('%Y-%m-%d')
+                first_ts = pd.Timestamp(klines_raw[0][0], unit='ms').strftime('%Y-%m-%d')
+                last_ts = pd.Timestamp(klines_raw[-1][0], unit='ms').strftime('%Y-%m-%d')
                 logger.info(
-                    f"OK: {len(klinesT)} candles | {first_ts} -> {last_ts}"
+                    f"OK: {len(klines_raw)} candles | {first_ts} -> {last_ts}"
                 )
             else:
                 logger.info(
-                    f"Telechargement complete: {len(klinesT)} candles "
+                    f"Telechargement complete: {len(klines_raw)} candles "
                     f"recuperees pour {pair_symbol}"
                 )
                 logger.info(
                     f"  Date premiere bougie: "
-                    f"{pd.Timestamp(klinesT[0][0], unit='ms')}"
+                    f"{pd.Timestamp(klines_raw[0][0], unit='ms')}"
                 )
                 logger.info(
                     f"  Date derniere bougie: "
-                    f"{pd.Timestamp(klinesT[-1][0], unit='ms')}"
+                    f"{pd.Timestamp(klines_raw[-1][0], unit='ms')}"
                 )
 
         except Exception as e:
             logger.error(f"Erreur lors du telechargement: {e}")
             raise
 
-        all_klines = klinesT
+        all_klines = klines_raw
 
         # Création du DataFrame
         df = pd.DataFrame(all_klines, columns=[
@@ -267,11 +270,11 @@ def fetch_historical_data(
                 logger.info("Connexion rétablie, nouvelle tentative...")
                 time.sleep(3)
                 try:
-                    klinesT = client.get_historical_klines(
+                    klines_raw = client.get_historical_klines(
                         pair_symbol, time_interval, start_date
                     )
-                    if klinesT:
-                        df = pd.DataFrame(klinesT, columns=[
+                    if klines_raw:
+                        df = pd.DataFrame(klines_raw, columns=[
                             'timestamp', 'open', 'high', 'low', 'close',
                             'volume', 'close_time', 'quote_av', 'trades',
                             'tb_base_av', 'tb_quote_av', 'ignore',

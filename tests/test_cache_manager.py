@@ -40,7 +40,7 @@ def tmp_cache_dir(monkeypatch, tmp_path):
     """Crée un répertoire cache temporaire et configure le module."""
     cache_dir = str(tmp_path / "test_cache")
     os.makedirs(cache_dir, exist_ok=True)
-    
+
     cfg = Config()
     cfg.cache_dir = cache_dir
     cfg.states_dir = str(tmp_path / "states")
@@ -52,7 +52,7 @@ def tmp_cache_dir(monkeypatch, tmp_path):
     cfg.slippage_buy = cfg.slippage_sell = 0.0001
     cfg.initial_wallet = 10000.0
     cfg.api_timeout = 30
-    
+
     monkeypatch.setattr(cm, 'config', cfg)
     monkeypatch.setattr(cm, '_cache_dir_initialized', False)
     return cache_dir
@@ -117,7 +117,7 @@ class TestGetCachePath:
         existing = os.path.join(tmp_cache_dir, 'BTCUSDC_1h_2024-01-01_00-00-00.pkl')
         with open(existing, 'wb') as f:
             pickle.dump(pd.DataFrame(), f)
-        
+
         cache_file, _ = get_cache_path('BTCUSDC', '1h', '2024-01-15 00:00:00')
         assert cache_file == existing
 
@@ -166,7 +166,7 @@ class TestSafeCacheRead:
         fpath = os.path.join(tmp_cache_dir, 'valid.pkl')
         with open(fpath, 'wb') as f:
             pickle.dump(df, f)
-        
+
         result = safe_cache_read(fpath)
         assert result is not None
         assert len(result) == len(df)
@@ -182,10 +182,10 @@ class TestSafeCacheRead:
         fpath = os.path.join(tmp_cache_dir, 'expired.pkl')
         with open(fpath, 'wb') as f:
             pickle.dump(df, f)
-        
+
         old_time = time.time() - (31 * 24 * 3600)
         os.utime(fpath, (old_time, old_time))
-        
+
         result = safe_cache_read(fpath)
         assert result is None
 
@@ -193,7 +193,7 @@ class TestSafeCacheRead:
         """Fichier vide (0 bytes) → None."""
         fpath = os.path.join(tmp_cache_dir, 'empty.pkl')
         open(fpath, 'w').close()
-        
+
         result = safe_cache_read(fpath)
         assert result is None
 
@@ -202,7 +202,7 @@ class TestSafeCacheRead:
         fpath = os.path.join(tmp_cache_dir, 'corrupt.pkl')
         with open(fpath, 'wb') as f:
             f.write(b'not a valid pickle')
-        
+
         result = safe_cache_read(fpath)
         assert result is None
 
@@ -212,7 +212,7 @@ class TestSafeCacheRead:
         fpath = os.path.join(tmp_cache_dir, 'small.pkl')
         with open(fpath, 'wb') as f:
             pickle.dump(df, f)
-        
+
         result = safe_cache_read(fpath)
         assert result is None
 
@@ -227,11 +227,11 @@ class TestSafeCacheWrite:
         df = _sample_df()
         fpath = os.path.join(tmp_cache_dir, 'write.pkl')
         lpath = os.path.join(tmp_cache_dir, 'write.lock')
-        
+
         result = safe_cache_write(fpath, lpath, df)
         assert result is True
         assert os.path.exists(fpath)
-        
+
         # Relecture pour vérifier
         with open(fpath, 'rb') as f:
             loaded = pickle.load(f)
@@ -241,7 +241,7 @@ class TestSafeCacheWrite:
         """DataFrame vide → False, pas d'écriture."""
         fpath = os.path.join(tmp_cache_dir, 'empty_write.pkl')
         lpath = os.path.join(tmp_cache_dir, 'empty_write.lock')
-        
+
         result = safe_cache_write(fpath, lpath, pd.DataFrame())
         assert result is False
         assert not os.path.exists(fpath)
@@ -251,7 +251,7 @@ class TestSafeCacheWrite:
         df = _sample_df()
         fpath = os.path.join(tmp_cache_dir, 'locked.pkl')
         lpath = os.path.join(tmp_cache_dir, 'locked.lock')
-        
+
         safe_cache_write(fpath, lpath, df)
         assert not os.path.exists(lpath)
 
@@ -260,15 +260,15 @@ class TestSafeCacheWrite:
         df = _sample_df()
         fpath = os.path.join(tmp_cache_dir, 'ident.pkl')
         lpath = os.path.join(tmp_cache_dir, 'ident.lock')
-        
+
         safe_cache_write(fpath, lpath, df)
         mtime1 = os.path.getmtime(fpath)
-        
+
         # Petite pause pour que le mtime diffère
         time.sleep(0.05)
         safe_cache_write(fpath, lpath, df)
         mtime2 = os.path.getmtime(fpath)
-        
+
         assert mtime1 == mtime2  # pas réécrit
 
     def test_stale_lock_removed(self, tmp_cache_dir):
@@ -276,11 +276,11 @@ class TestSafeCacheWrite:
         df = _sample_df()
         fpath = os.path.join(tmp_cache_dir, 'stale.pkl')
         lpath = os.path.join(tmp_cache_dir, 'stale.lock')
-        
+
         # Créer un lock avec un PID inexistant
         with open(lpath, 'w') as f:
             f.write(f"99999999_{int(time.time())}")
-        
+
         result = safe_cache_write(fpath, lpath, df)
         assert result is True
 
@@ -294,39 +294,39 @@ class TestCleanupExpiredCache:
         """Supprime les fichiers expirés."""
         # Neutraliser l'envoi d'email
         monkeypatch.setattr('cache_manager.send_email_alert', lambda *a, **kw: None, raising=False)
-        
+
         fpath = os.path.join(tmp_cache_dir, 'old_cache.pkl')
         with open(fpath, 'wb') as f:
             pickle.dump(_sample_df(), f)
-        
+
         old_time = time.time() - (31 * 24 * 3600)
         os.utime(fpath, (old_time, old_time))
-        
+
         cleanup_expired_cache()
         assert not os.path.exists(fpath)
 
     def test_keeps_fresh(self, tmp_cache_dir, monkeypatch):
         """Garde les fichiers récents."""
         monkeypatch.setattr('cache_manager.send_email_alert', lambda *a, **kw: None, raising=False)
-        
+
         fpath = os.path.join(tmp_cache_dir, 'fresh_cache.pkl')
         with open(fpath, 'wb') as f:
             pickle.dump(_sample_df(), f)
-        
+
         cleanup_expired_cache()
         assert os.path.exists(fpath)
 
     def test_ignores_non_pkl(self, tmp_cache_dir, monkeypatch):
         """Ne touche pas aux fichiers non-.pkl."""
         monkeypatch.setattr('cache_manager.send_email_alert', lambda *a, **kw: None, raising=False)
-        
+
         fpath = os.path.join(tmp_cache_dir, 'data.json')
         with open(fpath, 'w') as f:
             f.write('{}')
-        
+
         old_time = time.time() - (31 * 24 * 3600)
         os.utime(fpath, (old_time, old_time))
-        
+
         cleanup_expired_cache()
         assert os.path.exists(fpath)
 
@@ -341,7 +341,7 @@ class TestEnsureCacheDir:
         new_dir = os.path.join(tmp_cache_dir, 'new_subdir')
         cm.config.cache_dir = new_dir
         monkeypatch.setattr(cm, '_cache_dir_initialized', False)
-        
+
         ensure_cache_dir()
         assert os.path.isdir(new_dir)
 
@@ -355,15 +355,15 @@ class TestEnsureCacheDir:
     def test_fallback_temp(self, monkeypatch, tmp_path):
         """Si la création échoue, bascule sur un tempdir."""
         invalid_dir = str(tmp_path / 'NUL' / 'impossible')  # pas créable sous Windows
-        
+
         cfg = Config()
         cfg.cache_dir = invalid_dir
         for attr in ('api_key', 'secret_key', 'sender_email', 'receiver_email', 'smtp_password'):
             setattr(cfg, attr, 'test')
-        
+
         monkeypatch.setattr(cm, 'config', cfg)
         monkeypatch.setattr(cm, '_cache_dir_initialized', False)
-        
+
         # Force une erreur dans os.makedirs
         original_makedirs = os.makedirs
         def failing_makedirs(path, **kw):
@@ -371,7 +371,7 @@ class TestEnsureCacheDir:
                 raise PermissionError("Cannot create directory")
             return original_makedirs(path, **kw)
         monkeypatch.setattr(os, 'makedirs', failing_makedirs)
-        
+
         ensure_cache_dir()
         assert cm._cache_dir_initialized is True
         assert cfg.cache_dir != invalid_dir  # basculé sur tempdir

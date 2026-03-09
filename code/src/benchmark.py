@@ -14,29 +14,29 @@ from indicators import calculate_indicators as cython_calculate_indicators
 def python_calculate_indicators(df, ema1_period, ema2_period, stoch_period=14):
     """Version Python pure pour comparaison"""
     df_work = df.copy()
-    
+
     # EMA
     df_work['ema1'] = df_work['close'].ewm(span=ema1_period, adjust=False).mean()
     df_work['ema2'] = df_work['close'].ewm(span=ema2_period, adjust=False).mean()
-    
+
     # RSI
     df_work['rsi'] = _RSIIndicator(df_work['close'], window=14).rsi()
-    
+
     # Stochastic RSI
     rsi_rolling = df_work['rsi'].rolling(window=stoch_period)
     df_work['lowest_rsi'] = rsi_rolling.min()
     df_work['highest_rsi'] = rsi_rolling.max()
     rsi_range = df_work['highest_rsi'] - df_work['lowest_rsi']
     df_work['stoch_rsi'] = (df_work['rsi'] - df_work['lowest_rsi']) / rsi_range.replace(0, 1)
-    
+
     # ATR
     df_work['atr'] = _AverageTrueRange(
-        high=df_work['high'], 
-        low=df_work['low'], 
-        close=df_work['close'], 
+        high=df_work['high'],
+        low=df_work['low'],
+        close=df_work['close'],
         window=14
     ).average_true_range()
-    
+
     df_work.dropna(inplace=True)
     return df_work
 
@@ -47,7 +47,7 @@ print("=== BENCHMARK CYTHON vs PYTHON ===\n")
 
 for size in sizes:
     print(f"Taille des données: {size} lignes")
-    
+
     # Générer des données aléatoires
     np.random.seed(42)
     data = {
@@ -56,7 +56,7 @@ for size in sizes:
         'close': np.random.uniform(95, 105, size)
     }
     df = pd.DataFrame(data)
-    
+
     # Benchmark Python
     result_python = pd.DataFrame()
     start_time = time.time()
@@ -70,10 +70,10 @@ for size in sizes:
     for _ in range(3):  # 3 répétitions
         result_cython = cython_calculate_indicators(df, 14, 26, 14, 0, 0, 0, 0)
     cython_time = (time.time() - start_time) / 3
-    
+
     # Calcul du speedup
     speedup = python_time / cython_time if cython_time > 0 else 0
-    
+
     print(f"  Python:  {python_time:.4f}s")
     print(f"  Cython:  {cython_time:.4f}s")
     print(f"  Speedup: {speedup:.2f}x")

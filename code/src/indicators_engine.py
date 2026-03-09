@@ -48,17 +48,19 @@ _BIN_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'bin'))
 if _BIN_DIR not in sys.path:
     sys.path.insert(0, _BIN_DIR)
 
+import types as _ind_types
+_cython_indicators: Optional[_ind_types.ModuleType] = None
 try:
-    import indicators as _cython_indicators  # type: ignore[import]
+    import indicators as _cython_indicators  # noqa: F811
     CYTHON_INDICATORS_AVAILABLE: bool = True
     logger.info("Cython indicators engine loaded (C-14) [indicators_engine].")
 except ImportError as _ind_import_err:
-    _cython_indicators = None  # type: ignore[assignment]
     CYTHON_INDICATORS_AVAILABLE = False
     logger.warning(
         "Cython indicators not available (%s) — using Python fallback.",
         _ind_import_err,
     )
+    # _cython_indicators stays None
 
 
 # ─── LRU Indicator Cache ────────────────────────────────────────────────────

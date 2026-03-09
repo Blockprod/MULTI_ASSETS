@@ -12,20 +12,21 @@ def send_email_alert(subject, body):
     receiver_email = os.getenv('RECEIVER_EMAIL')
     smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
     smtp_port = int(os.getenv('SMTP_PORT', '587'))
-    smtp_user = sender_email
 
-    # Récupère le mot de passe depuis la variable d’environnement
+    # Récupère le mot de passe depuis la variable d'environnement
     smtp_password = os.getenv('GOOGLE_MAIL_PASSWORD')
-
     print("[DEBUG] Lecture de la variable d'environnement GOOGLE_MAIL_PASSWORD...")
+
     if not sender_email or not receiver_email:
         print("[ERREUR] SENDER_EMAIL ou RECEIVER_EMAIL non défini dans .env")
         return
     if smtp_password is None:
-        print("[ERREUR] La variable d’environnement GOOGLE_MAIL_PASSWORD n’est pas définie.")
+        print("[ERREUR] La variable d'environnement GOOGLE_MAIL_PASSWORD n'est pas définie.")
         return
     else:
-        print("[INFO] Variable d’environnement récupérée avec succès.")
+        print("[INFO] Variable d'environnement récupérée avec succès.")
+
+    smtp_user = sender_email  # narrowed to str after the None-guard above
 
     try:
         # Création du message
@@ -43,7 +44,7 @@ def send_email_alert(subject, body):
         server.ehlo()
 
         print("[DEBUG] Connexion en cours avec les identifiants...")
-        server.login(smtp_user, smtp_password)  # type: ignore[arg-type]
+        server.login(smtp_user, smtp_password)
 
         print("[DEBUG] Envoi du message...")
         server.sendmail(sender_email, receiver_email, msg.as_string())

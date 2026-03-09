@@ -9,7 +9,7 @@ import sys
 from binance.client import Client
 import pandas as pd
 import numpy as np
-import ta
+import ta  # pylint: disable=import-error
 
 PAIR = os.getenv('TEST_PAIR', 'BTCUSDC')
 INTERVAL = Client.KLINE_INTERVAL_1HOUR
@@ -17,24 +17,28 @@ LIMIT = 1000
 STOCH_PERIOD = 14
 
 
-def fetch_klines(pair, interval, limit=1000):
+def fetch_klines(pair: str, interval: str, limit: int = 1000) -> pd.DataFrame:
+    """Fetch OHLCV klines from Binance and return a DataFrame."""
     client = Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_SECRET_KEY'))
     kl = client.get_klines(symbol=pair, interval=interval, limit=limit)
     if not kl:
         print('No klines')
         sys.exit(1)
     df = pd.DataFrame(kl, columns=[
-        'open_time','open','high','low','close','volume','close_time','quote_av','trades','tb_base_av','tb_quote_av','ignore'
+        'open_time', 'open', 'high', 'low', 'close', 'volume',
+        'close_time', 'quote_av', 'trades', 'tb_base_av', 'tb_quote_av', 'ignore',
     ])
-    df = df[['open_time','open','high','low','close','volume']]
-    df[['open','high','low','close','volume']] = df[['open','high','low','close','volume']].astype(float)
+    df = df[['open_time', 'open', 'high', 'low', 'close', 'volume']]
+    df[['open', 'high', 'low', 'close', 'volume']] = (
+        df[['open', 'high', 'low', 'close', 'volume']].astype(float))
     df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms')
     df.set_index('timestamp', inplace=True)
     return df
 
 
-def compute_stochrsi_from_rsi_series(rsi_series: pd.Series, stoch_period: int = 14):
-    # vector loop equivalent to the bot: for each i compute rolling min/max over last stoch_period RSI values
+def compute_stochrsi_from_rsi_series(
+        rsi_series: pd.Series, stoch_period: int = 14) -> pd.Series:
+    """Compute StochRSI from an RSI series using a rolling min/max window."""
     rsi_vals = rsi_series.to_numpy(dtype=float)
     n = len(rsi_vals)
     stoch = np.full(n, np.nan)
@@ -52,11 +56,13 @@ def compute_stochrsi_from_rsi_series(rsi_series: pd.Series, stoch_period: int = 
 
 
 def compute_rsi_wilder_series(prices: pd.Series, period: int = 14) -> pd.Series:
-    prices = prices.astype('float64').values  # type: ignore[assignment]
-    n = len(prices)
+    """Compute Wilder-smoothed RSI from a price series."""
+    _original_index = prices.index
+    prices_arr: np.ndarray = prices.astype(np.float64).to_numpy()
+    n = len(prices_arr)
     if n <= period:
         return pd.Series([np.nan] * n, index=pd.RangeIndex(n))
-    deltas = np.diff(prices)
+    deltas = np.diff(prices_arr)
     seed = deltas[:period]
     up = seed[seed >= 0].sum() / period
     down = -seed[seed < 0].sum() / period
@@ -75,7 +81,7 @@ def compute_rsi_wilder_series(prices: pd.Series, period: int = 14) -> pd.Series:
         avg_loss = (avg_loss * (period - 1) + loss) / period
         rs = avg_gain / avg_loss if avg_loss != 0 else np.inf
         rsi[i] = 100.0 - (100.0 / (1.0 + rs)) if np.isfinite(rs) else 100.0
-    return pd.Series(rsi, index=prices.index if hasattr(prices, 'index') else None)
+    return pd.Series(rsi, index=_original_index)
 
 
 if __name__ == '__main__':
@@ -83,7 +89,7 @@ if __name__ == '__main__':
     df = fetch_klines(PAIR, INTERVAL, LIMIT)
     print(f'Retrieved {len(df)} candles from {df.index[0]} to {df.index[-1]}')
 
-    df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()  # type: ignore[attr-defined]
+    df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()  # pylint: disable=no-member
     # Also compute Wilder RSI for comparison
     try:
         rsi_wilder = compute_rsi_wilder_series(df['close'], period=14)
@@ -97,7 +103,8 @@ if __name__ == '__main__':
     df['stoch_d'] = df['stoch_k'].rolling(window=3, min_periods=1).mean()
 
     # compute StochRSI raw/K/D using Wilder RSI
-    df['stoch_raw_wilder'] = compute_stochrsi_from_rsi_series(df['rsi_wilder'], stoch_period=STOCH_PERIOD)
+    df['stoch_raw_wilder'] = compute_stochrsi_from_rsi_series(
+        df['rsi_wilder'], stoch_period=STOCH_PERIOD)
     df['stoch_k_wilder'] = df['stoch_raw_wilder'].rolling(window=3, min_periods=1).mean()
     df['stoch_d_wilder'] = df['stoch_k_wilder'].rolling(window=3, min_periods=1).mean()
     # Also compute EMA-based smoothing (some platforms use EMA instead of SMA for %K/%D)
@@ -106,7 +113,8 @@ if __name__ == '__main__':
     df['stoch_k_wilder_ema'] = df['stoch_raw_wilder'].ewm(span=3, adjust=False).mean()
     df['stoch_d_wilder_ema'] = df['stoch_k_wilder_ema'].ewm(span=3, adjust=False).mean()
     # Variant: compute StochRSI using previous period (exclude current) for min/max
-    def stoch_exclusive(series: pd.Series, period: int = STOCH_PERIOD):
+    def stoch_exclusive(series: pd.Series, period: int = STOCH_PERIOD) -> pd.Series:
+        """Compute StochRSI excluding the current bar from the min/max window."""
         vals = series.to_numpy(dtype=float)
         n = len(vals)
         out = np.full(n, np.nan)
@@ -132,26 +140,33 @@ if __name__ == '__main__':
     print('timestamp:', ts)
     print('open:', used_row['open'])
     print('close:', used_row['close'])
-    print('\nRSI for used candle: {:.6f}'.format(used_row['rsi']))
+    print(f'\nRSI for used candle: {used_row["rsi"]:.6f}')
     stoch_raw_val = used_row['stoch_rsi_raw']
     stoch_k_val = used_row['stoch_k']
     stoch_d_val = used_row['stoch_d']
-    print('StochRSI raw: {:.6f} -> {:.2f}%'.format(stoch_raw_val, stoch_raw_val * 100 if not np.isnan(stoch_raw_val) else float('nan')))
-    print('StochRSI %K (SMA3): {:.6f} -> {:.2f}%'.format(stoch_k_val, stoch_k_val * 100 if not np.isnan(stoch_k_val) else float('nan')))
-    print('StochRSI %D (SMA3): {:.6f} -> {:.2f}%'.format(stoch_d_val, stoch_d_val * 100 if not np.isnan(stoch_d_val) else float('nan')))
+    nan_val = float('nan')
+    raw_pct = stoch_raw_val * 100 if not np.isnan(stoch_raw_val) else nan_val
+    k_pct = stoch_k_val * 100 if not np.isnan(stoch_k_val) else nan_val
+    d_pct = stoch_d_val * 100 if not np.isnan(stoch_d_val) else nan_val
+    print(f'StochRSI raw: {stoch_raw_val:.6f} -> {raw_pct:.2f}%')
+    print(f'StochRSI %K (SMA3): {stoch_k_val:.6f} -> {k_pct:.2f}%')
+    print(f'StochRSI %D (SMA3): {stoch_d_val:.6f} -> {d_pct:.2f}%')
 
     # print RSI window used
     start_idx = max(0, used_idx - STOCH_PERIOD + 1)
     rsi_window = df['rsi'].iloc[start_idx:used_idx + 1]
     print('\nRSI window values (most recent last):')
     print(rsi_window.tolist())
-    print('min:', rsi_window.min(), 'max:', rsi_window.max(), 'denom:', rsi_window.max() - rsi_window.min())
+    print('min:', rsi_window.min(), 'max:', rsi_window.max(),
+          'denom:', rsi_window.max() - rsi_window.min())
 
     # Also print last few rows (ta.RSI and Wilder RSI sets)
     print('\nLast 6 rows (close, rsi, stoch_rsi_raw, stoch_k, stoch_d):')
-    print(df[['close','rsi','stoch_rsi_raw','stoch_k','stoch_d']].tail(6).to_string())
+    print(df[['close', 'rsi', 'stoch_rsi_raw', 'stoch_k', 'stoch_d']].tail(6).to_string())
     print('\nLast 6 rows (close, rsi_wilder, stoch_raw_wilder, stoch_k_wilder, stoch_d_wilder):')
-    print(df[['close','rsi_wilder','stoch_raw_wilder','stoch_k_wilder','stoch_d_wilder']].tail(6).to_string())
+    print(
+        df[['close', 'rsi_wilder', 'stoch_raw_wilder',
+            'stoch_k_wilder', 'stoch_d_wilder']].tail(6).to_string())
     print('\nEMA-smoothed %K/%D (ta.RSI):')
     print(df[['stoch_k_ema','stoch_d_ema']].tail(6).to_string())
     print('\nEMA-smoothed %K/%D (Wilder RSI):')
@@ -159,28 +174,36 @@ if __name__ == '__main__':
 
     print('\nDone.')
     # Brute-force search over common variants to match Binance reported values
-    target_k = 10.72 / 100.0
-    target_d = 14.98 / 100.0
+    target_k = 10.72 / 100.0  # pylint: disable=invalid-name
+    target_d = 14.98 / 100.0  # pylint: disable=invalid-name
 
-    def compute_variant(rsi_series, include_current=True, k_method='sma', k_period=3, d_method='sma', d_period=3):
+    def compute_variant(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+            rsi_series: pd.Series,
+            include_current: bool = True,
+            k_method: str = 'sma',
+            k_period: int = 3,
+            d_method: str = 'sma',
+            d_period: int = 3,
+    ) -> 'tuple[pd.Series, pd.Series]':
+        """Compute a StochRSI variant with configurable smoothing."""
         series = rsi_series
         n = len(series)
-        stoch = np.full(n, np.nan)
+        stoch_arr = np.full(n, np.nan)
         period = STOCH_PERIOD
         for i in range(n):
             if include_current:
                 if i - period + 1 < 0:
                     continue
-                window = series.iloc[i - period + 1:i + 1].values
+                window = series.iloc[i - period + 1:i + 1].to_numpy()
             else:
                 if i - period < 0:
                     continue
-                window = series.iloc[i - period:i].values
+                window = series.iloc[i - period:i].to_numpy()
             low = np.min(window)
             high = np.max(window)
             denom = high - low
-            stoch[i] = (series.iloc[i] - low) / denom if denom != 0 else 0.5
-        stoch = pd.Series(stoch, index=series.index)
+            stoch_arr[i] = (series.iloc[i] - low) / denom if denom != 0 else 0.5
+        stoch = pd.Series(stoch_arr, index=series.index)
         if k_method == 'sma':
             k = stoch.rolling(window=k_period, min_periods=1).mean()
         else:
@@ -199,16 +222,30 @@ if __name__ == '__main__':
                 for k_period in (1,2,3,4,5):
                     for d_method in ('sma', 'ema'):
                         for d_period in (1,2,3,4,5):
-                            k, d = compute_variant(rsi_series, include_current, k_method, k_period, d_method, d_period)
-                            val_k = k.iloc[used_idx] if not np.isnan(k.iloc[used_idx]) else np.nan
-                            val_d = d.iloc[used_idx] if not np.isnan(d.iloc[used_idx]) else np.nan
+                            k, d = compute_variant(
+                                rsi_series, include_current,
+                                k_method, k_period, d_method, d_period)
+                            val_k = (
+                                k.iloc[used_idx]
+                                if not np.isnan(k.iloc[used_idx]) else np.nan)
+                            val_d = (
+                                d.iloc[used_idx]
+                                if not np.isnan(d.iloc[used_idx]) else np.nan)
                             if np.isnan(val_k) or np.isnan(val_d):
                                 continue
                             err = abs(val_k - target_k) + abs(val_d - target_d)
-                            candidates.append((err, rsi_name, include_current, k_method, k_period, d_method, d_period, val_k, val_d))
+                            candidates.append((
+                                err, rsi_name, include_current,
+                                k_method, k_period, d_method, d_period,
+                                val_k, val_d))
 
     candidates.sort(key=lambda x: x[0])
-    print('\nTop 8 candidate parameterizations (err, rsi, include_current, k_method, k_period, d_method, d_period, val_k, val_d):')
+    print('\nTop 8 candidate parameterizations '
+          '(err, rsi, include_current, k_method, k_period, d_method,'
+          ' d_period, val_k, val_d):')
     for row in candidates[:8]:
         err, rsi_name, include_current, k_method, k_period, d_method, d_period, val_k, val_d = row
-        print(f"err={err:.6f}, rsi={rsi_name}, include_current={include_current}, k={k_method}{k_period}, d={d_method}{d_period}, %K={val_k*100:.2f}, %D={val_d*100:.2f}")
+        print(
+            f"err={err:.6f}, rsi={rsi_name}, include_current={include_current},"
+            f" k={k_method}{k_period}, d={d_method}{d_period},"
+            f" %K={val_k*100:.2f}, %D={val_d*100:.2f}")

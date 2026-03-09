@@ -44,7 +44,7 @@ def check_admin_privileges() -> bool:
     else:
         # Linux / macOS : root = uid 0
         try:
-            return os.getuid() == 0  # type: ignore[attr-defined]
+            return getattr(os, 'getuid', lambda: -1)() == 0
         except AttributeError:
             return False
 

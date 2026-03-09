@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
 
 import pytest
+from typing import cast
 
 
 class TestPositionSizeByRisk:
@@ -134,7 +135,7 @@ class TestExceptionBranches:
         from exceptions import SizingError
         with pytest.raises(SizingError):
             compute_position_size_by_risk(
-                equity="not_a_number", atr_value=2.0, entry_price=100.0,  # type: ignore[arg-type]
+                equity=cast(float, "not_a_number"), atr_value=2.0, entry_price=100.0,
                 risk_pct=0.01, stop_atr_multiplier=3.0,
             )
 
@@ -144,7 +145,7 @@ class TestExceptionBranches:
         from exceptions import SizingError
         with pytest.raises(SizingError):
             compute_position_size_fixed_notional(
-                equity="bad", notional_per_trade_usd="bad", entry_price=100.0,  # type: ignore[arg-type]
+                equity=cast(float, "bad"), notional_per_trade_usd=cast(float, "bad"), entry_price=100.0,
             )
 
     def test_volatility_parity_exception_on_non_numeric(self):
@@ -153,6 +154,6 @@ class TestExceptionBranches:
         from exceptions import SizingError
         with pytest.raises(SizingError):
             compute_position_size_volatility_parity(
-                equity="bad", atr_value=2.0, entry_price=100.0,  # type: ignore[arg-type]
+                equity=cast(float, "bad"), atr_value=2.0, entry_price=100.0,
                 target_volatility_pct=0.02,
             )
