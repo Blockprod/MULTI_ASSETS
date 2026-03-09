@@ -1,17 +1,20 @@
-"""
-exchange_client.py — Client Binance robuste et helpers d'ordres.
+# pylint: disable=trailing-whitespace
+""" — Client Binance robuste et helpers d'ordres.
 Phase 4 refactoring: extrait de MULTI_SYMBOLS.py
 """
 import hashlib
 import hmac
 import logging
 import random
-import requests  # type: ignore[import-untyped]
 import threading
 import time
 import uuid
-from typing import Any, Dict, Optional, Union
+from datetime import datetime
+from decimal import Decimal
+from typing import Any, Dict, Optional, Union, cast
 
+import requests
+import schedule
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 
@@ -22,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 # ─── Token-bucket rate limiter (C-05) ─────────────────────────────────────
-# Limite l'API Binance à 18 req/s (marge sur la limite Binance de 20 req/s / 1200 req/min).
+# Limite l'API Binance à 18 req/s (marge sur la limite Binance
+# de 20 req/s / 1200 req/min).
 # Chaque appel à _request() consomme un token. Si le bucket est vide, on attend.
 class _TokenBucket:
     """Token bucket thread-safe pour le rate limiting."""
@@ -50,7 +54,8 @@ class _TokenBucket:
                 return False
             time.sleep(0.05)
 
-# 18 req/s = 1080 req/min — marge de sécurité par rapport à la limite Binance (1200 req/min)
+# 18 req/s = 1080 req/min — marge de sécurité par rapport
+# à la limite Binance (1200 req/min)
 _api_rate_limiter = _TokenBucket(rate=18.0, capacity=18.0)
 
 
@@ -58,11 +63,11 @@ _api_rate_limiter = _TokenBucket(rate=18.0, capacity=18.0)
 class BinanceFinalClient(Client):
     """Client Binance ULTRA ROBUSTE - Correction définitive du timestamp -1021"""
 
-    def __init__(self, api_key, api_secret, **kwargs):
+    def __init__(self, api_key: str, api_secret: str, **kwargs: Any) -> None:
         self.api_key = api_key
         self.api_secret = api_secret
-        self._server_time_offset = -2000
-        self._last_sync = 0
+        self._server_time_offset: int = -2000
+        self._last_sync: float = 0
         self._sync_interval = 180
         self._error_count = 0
         self._max_errors = 5
@@ -71,7 +76,7 @@ class BinanceFinalClient(Client):
         logger.info("Client Binance ULTRA ROBUSTE initialisé")
         self._perform_ultra_robust_sync()
 
-    def ping(self):
+    def ping(self) -> Dict[str, Any]:
         """Override du ping() Binance : absorbe les erreurs de géo-restriction
         (runners CI, serveurs hors zone Binance) sans bloquer l'initialisation.
         Le bot dispose de sa propre validation de connectivité.
@@ -79,10 +84,12 @@ class BinanceFinalClient(Client):
         try:
             return super().ping()
         except Exception as exc:
-            logger.warning("Binance ping() ignoré (%s) — connectivité validée séparément.", exc)
+            logger.warning(
+                "Binance ping() ignoré (%s) — connectivité validée séparément.", exc
+            )
             return {}
 
-    def close_connection(self):
+    def close_connection(self) -> None:
         """Fermeture sécurisée — protège contre AttributeError si __init__ a
         échoué ou n'a pas été appelé (ex. instanciation via __new__).
 
@@ -94,7 +101,7 @@ class BinanceFinalClient(Client):
         if session:
             session.close()
 
-    def _perform_ultra_robust_sync(self):
+    def _perform_ultra_robust_sync(self) -> None:
         """Synchronisation avec compensation du décalage horloge locale/Binance.
 
         L'offset est calculé précisément :
@@ -110,21 +117,24 @@ class BinanceFinalClient(Client):
             latency = (local_after - local_before) // 2
             real_offset = server_time - (local_before + latency)
             # Marge de sécurité conservatrice : -500 ms (ni trop négatif, ni positif)
-            # Évite l'ancien forcing à -5000 ms qui envoyait des timestamps trop anciens.
-            SAFETY_MARGIN_MS = -500
+            # Évite l'ancien forcing à -5000 ms qui envoyait
+            # des timestamps trop anciens.
+            SAFETY_MARGIN_MS = -500  # pylint: disable=invalid-name
             adjusted_offset = real_offset + SAFETY_MARGIN_MS
             # Clamp : jamais plus de -10 s ni plus de +1 s
             self._server_time_offset = max(-10000, min(1000, adjusted_offset))
             self._last_sync = time.time()
             self._error_count = 0
-            logger.info(f"SYNCHRO OK: offset={self._server_time_offset}ms (real={real_offset}ms, latency={latency}ms)")
+            logger.info(
+                f"SYNCHRO OK: offset={self._server_time_offset}ms "
+                f"(real={real_offset}ms, latency={latency}ms)")
         except Exception as e:
             logger.error(f"Echec synchronisation: {e}")
             self._server_time_offset = -2000  # fallback conservateur
 
-    def _get_ultra_safe_timestamp(self):
+    def _get_ultra_safe_timestamp(self) -> int:
         """Génère un timestamp garanti correct.
-        
+
         La sync périodique toutes les 60s via _perform_ultra_robust_sync est suffisante.
         Pas d'appel API supplémentaire ici (économie rate-limit).
         """
@@ -134,10 +144,10 @@ class BinanceFinalClient(Client):
         safe_ts = int(current_time * 1000) + self._server_time_offset
         return safe_ts
 
-    def _request(self, method, uri, signed, force_params=False, **kwargs):
+    def _request(
+            self, method: str, uri: str, signed: bool,
+            force_params: bool = False, **kwargs: Any) -> Any:
         """Override MINIMAL - only handle timestamp sync, let parent handle params."""
-        import schedule
-        from datetime import datetime
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -147,21 +157,30 @@ class BinanceFinalClient(Client):
                 try:
                     if 'recvWindow' in kwargs:
                         kwargs.pop('recvWindow', None)
-                    if 'params' in kwargs and isinstance(kwargs['params'], dict) and 'recvWindow' in kwargs['params']:
+                    if ('params' in kwargs
+                            and isinstance(kwargs['params'], dict)
+                            and 'recvWindow' in kwargs['params']):
                         kwargs['params'].pop('recvWindow', None)
-                    if 'data' in kwargs and isinstance(kwargs['data'], dict) and 'recvWindow' in kwargs['data']:
+                    if ('data' in kwargs
+                            and isinstance(kwargs['data'], dict)
+                            and 'recvWindow' in kwargs['data']):
                         kwargs['data'].pop('recvWindow', None)
                 except Exception as _sanitize_ex:
-                    logger.debug(f"_request: recvWindow sanitation failed: {_sanitize_ex}")
+                    logger.debug(
+                        f"_request: recvWindow sanitation failed: {_sanitize_ex}"
+                    )
 
-                result = super()._request(method, uri, signed, force_params=force_params, **kwargs)
+                result = super()._request(
+                    method, uri, signed, force_params=force_params, **kwargs
+                )
                 self._error_count = max(0, self._error_count - 1)
                 return result
-                
             except BinanceAPIException as e:
                 if getattr(e, 'code', None) == -1021:
                     self._error_count += 1
-                    logger.warning(f"Erreur -1021 détectée (tentative {attempt+1}), resync obligatoire")
+                    logger.warning(
+                        f"Erreur -1021 détectée "
+                        f"(tentative {attempt+1}), resync obligatoire")
                     self._perform_ultra_robust_sync()
                     if attempt < max_retries - 1:
                         time.sleep(2)
@@ -169,11 +188,12 @@ class BinanceFinalClient(Client):
                     raise
                 else:
                     if getattr(e, 'code', None) == -1101:
-                        logger.error(f"BinanceAPIException -1101 (Duplicate recvWindow): {e}")
+                        logger.error(
+                            f"BinanceAPIException -1101 (Duplicate recvWindow): {e}"
+                        )
                     else:
                         logger.error(f"BinanceAPIException: {e}")
                     raise
-                    
             except Exception as e:
                 logger.error(f"Erreur inattendue dans _request: {e}")
                 if attempt < max_retries - 1:
@@ -182,23 +202,32 @@ class BinanceFinalClient(Client):
                     if next_run:
                         delta = next_run - now
                         minutes_left = max(0, int(delta.total_seconds() // 60))
-                        print(f"[TIME] {now.strftime('%H:%M:%S')} - Bot actif (RUNNING) | Prochaine execution dans {minutes_left} min ({next_run.strftime('%H:%M:%S')})")
+                        print(
+                            f"[TIME] {now.strftime('%H:%M:%S')} - "
+                            f"Bot actif (RUNNING) | Prochaine execution "
+                            f"dans {minutes_left} min "
+                            f"({next_run.strftime('%H:%M:%S')})")
                     else:
-                        print(f"[TIME] {now.strftime('%H:%M:%S')} - Bot actif (RUNNING) | Prochaine execution non planifiée")
+                        print(
+                            f"[TIME] {now.strftime('%H:%M:%S')} - "
+                            f"Bot actif (RUNNING) | "
+                            f"Prochaine execution non planifiée")
                     _backoff = min(10 * (2 ** attempt), 30)  # 10s, 20s, 30s max
-                    logger.warning(f"_request: retry {attempt+1}/{max_retries} après {_backoff}s")
+                    logger.warning(
+                        f"_request: retry {attempt+1}/{max_retries} après {_backoff}s"
+                    )
                     time.sleep(_backoff)
                     continue
                 raise
         return None
 
-    def _sync_server_time(self):
+    def _sync_server_time(self) -> None:
         self._perform_ultra_robust_sync()
 
-    def _sync_server_time_robust(self):
+    def _sync_server_time_robust(self) -> None:
         self._perform_ultra_robust_sync()
 
-    def _get_synchronized_timestamp(self):
+    def _get_synchronized_timestamp(self) -> int:
         return self._get_ultra_safe_timestamp()
 
 
@@ -209,68 +238,87 @@ def _generate_client_order_id(prefix: str = 'bot') -> str:
     return f"{prefix}-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
 
 
-def _direct_market_order(client, symbol: str, side: str,
-                         quoteOrderQty: Optional[float] = None,
+def _direct_market_order(client: Any, symbol: str, side: str,
+                         quoteOrderQty: Optional[float] = None,  # pylint: disable=invalid-name
                          quantity: Optional[Union[float, str]] = None,
                          client_id: Optional[str] = None,
-                         send_alert=None) -> Dict[str, Any]:
-    """Appel API REST direct pour éviter le bug 'Duplicate recvWindow' du wrapper Binance.
-    
+                         send_alert: Any = None) -> Dict[str, Any]:
+    """Appel API REST direct pour éviter le bug 'Duplicate recvWindow'
+    du wrapper Binance.
+
     Args:
         client: Instance BinanceFinalClient
         send_alert: Callable(subject, body_main, client) pour envoyer des alertes email
     """
-    client._sync_server_time()
-    timestamp = int(time.time() * 1000) + client._server_time_offset
+    client._sync_server_time()  # pylint: disable=protected-access
+    timestamp = int(time.time() * 1000) + client._server_time_offset  # pylint: disable=protected-access
     # recvWindow : centralisé dans config (P1-11)
     params_order = [
         ('symbol', symbol),
         ('side', side),
         ('type', 'MARKET'),
         ('quantity', f"{quantity}" if quantity is not None else None),
-        ('quoteOrderQty', f"{float(quoteOrderQty):.2f}" if quoteOrderQty is not None else None),
-        ('newClientOrderId', client_id),  # P0-IDEM: idempotence — même ID sur chaque retry
+        ('quoteOrderQty',
+         f"{float(quoteOrderQty):.2f}" if quoteOrderQty is not None else None),
+        # P0-IDEM: idempotence — même ID sur chaque retry
+        ('newClientOrderId', client_id),
         ('recvWindow', _config.recv_window),
         ('timestamp', int(timestamp)),
     ]
     params_order = [(k, v) for k, v in params_order if v is not None]
     query_string = '&'.join([f"{k}={v}" for k, v in params_order])
-    signature = hmac.new(client.api_secret.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
+    signature = hmac.new(
+        client.api_secret.encode('utf-8'),
+        query_string.encode('utf-8'),
+        hashlib.sha256).hexdigest()
     query_string_with_sig = query_string + f"&signature={signature}"
     headers = {
         'X-MBX-APIKEY': client.api_key,
         'Content-Type': 'application/x-www-form-urlencoded'
     }
-    
     url = 'https://api.binance.com/api/v3/order'
     try:
-        response = requests.post(url, data=query_string_with_sig, headers=headers, timeout=10)
+        response = requests.post(
+            url, data=query_string_with_sig, headers=headers, timeout=10
+        )
         if response.status_code != 200:
             try:
                 error_data = response.json()
                 error_code = error_data.get('code', 'UNKNOWN')
                 error_msg = error_data.get('msg', 'Unknown error')
-                logger.error(f"[DEBUG ORDER] Erreur API Binance: code={error_code}, msg={error_msg}")
+                logger.error(
+                    f"[DEBUG ORDER] Erreur API Binance: "
+                    f"code={error_code}, msg={error_msg}")
                 if send_alert:
                     # Masquer les détails sensibles (signature, timestamp)
-                    safe_params = [(k, v) for k, v in params_order if k not in ('signature', 'timestamp')]
+                    safe_params = [
+                        (k, v) for k, v in params_order
+                        if k not in ('signature', 'timestamp')]
                     send_alert(
                         subject=f"[BOT CRYPTO] ERREUR EXECUTION {side.upper()} ORDER",
-                        body_main=f"Erreur lors de l'execution de l'ordre {side.upper()} : {error_code} - {error_msg}\n\nParams : {safe_params}",
+                        body_main=(
+                            f"Erreur lors de l'execution de l'ordre "
+                            f"{side.upper()} : {error_code} - {error_msg}"
+                            f"\n\nParams : {safe_params}"),
                         client=client
                     )
                 raise BinanceAPIException(response, error_code, error_msg)
             except (ValueError, KeyError):
                 response.raise_for_status()
-        result = response.json()
+        result: Dict[str, Any] = response.json()
         if send_alert:
             # Ne pas inclure params_order (contient la signature HMAC)
-            # Utiliser executedQty (quantité base asset réelle) plutôt que quoteOrderQty (USDC dépensés)
+            # Utiliser executedQty (quantité base asset réelle)
+            # plutôt que quoteOrderQty (USDC dépensés)
             _display_qty = result.get('executedQty') or quantity or quoteOrderQty
             order_summary = f"Symbol: {symbol}, Side: {side}, Qty: {_display_qty}"
             send_alert(
                 subject=f"[BOT CRYPTO] {side.upper()} ORDER EXECUTE",
-                body_main=f"Ordre {side.upper()} exécuté avec succès.\n\n{order_summary}\nOrderId: {result.get('orderId', 'N/A')}\nStatus: {result.get('status', 'N/A')}",
+                body_main=(
+                    f"Ordre {side.upper()} exécuté avec succès."
+                    f"\n\n{order_summary}"
+                    f"\nOrderId: {result.get('orderId', 'N/A')}"
+                    f"\nStatus: {result.get('status', 'N/A')}"),
                 client=client
             )
         return result
@@ -281,7 +329,9 @@ def _direct_market_order(client, symbol: str, side: str,
             try:
                 send_alert(
                     subject=f"[BOT CRYPTO] EXCEPTION {side.upper()} ORDER",
-                    body_main=f"Exception lors de l'appel API {side.upper()} : {e}\n\nParams : {params_order}",
+                    body_main=(
+                        f"Exception lors de l'appel API "
+                        f"{side.upper()} : {e}\n\nParams : {params_order}"),
                     client=client
                 )
             except Exception:
@@ -289,28 +339,42 @@ def _direct_market_order(client, symbol: str, side: str,
         raise OrderError(f"Exception {side.upper()} order: {e}", symbol=symbol) from e
 
 
-def safe_market_buy(client, symbol: str, quoteOrderQty: float,
-                    max_retries: int = 4, send_alert=None) -> Dict[str, Any]:
+def safe_market_buy(client: Any, symbol: str, quoteOrderQty: float,  # pylint: disable=invalid-name
+                    max_retries: int = 4, send_alert: Any = None) -> Dict[str, Any]:
     """Place a market BUY by quote amount with idempotency/retry and safety checks."""
     client_id = _generate_client_order_id('buy')
     last_exc = None
     # Min notional check
     try:
         exchange_info = client.get_exchange_info()
-        symbol_info = next((s for s in exchange_info['symbols'] if s['symbol'] == symbol), None)
-        notional_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'MIN_NOTIONAL'), None) if symbol_info else None
-        min_notional = float(notional_filter.get('minNotional', '10.0')) if notional_filter else 10.0
+        symbol_info = next(
+            (s for s in exchange_info['symbols'] if s['symbol'] == symbol), None
+        )
+        notional_filter = (
+            next((f for f in symbol_info['filters']
+                  if f['filterType'] == 'MIN_NOTIONAL'), None)
+            if symbol_info else None)
+        min_notional = (
+            float(notional_filter.get('minNotional', '10.0'))
+            if notional_filter else 10.0)
         if quoteOrderQty < min_notional:
-            logger.error(f"[ORDER BLOCKED] quoteOrderQty {quoteOrderQty} < min_notional {min_notional} pour {symbol}")
-            raise ValueError(f"Order value {quoteOrderQty} is below min_notional {min_notional} for {symbol}")
+            logger.error(
+                f"[ORDER BLOCKED] quoteOrderQty {quoteOrderQty} "
+                f"< min_notional {min_notional} pour {symbol}")
+            raise ValueError(
+                f"Order value {quoteOrderQty} is below "
+                f"min_notional {min_notional} for {symbol}")
     except Exception as e:
-        logger.error(f"[ORDER CHECK] Impossible de vérifier min_notional pour {symbol}: {e}")
+        logger.error(
+            f"[ORDER CHECK] Impossible de vérifier min_notional pour {symbol}: {e}"
+        )
         raise
     for attempt in range(max_retries):
         # P2-A: avant chaque retry, vérifier si l'ordre précédent a déjà été exécuté
         if attempt > 0:
             try:
-                existing = client.get_order(symbol=symbol, origClientOrderId=client_id)
+                existing: Dict[str, Any] = client.get_order(
+                    symbol=symbol, origClientOrderId=client_id)
                 if existing.get('status') in ('FILLED', 'PARTIALLY_FILLED'):
                     logger.info(
                         "[IDEM P2-A] BUY %s déjà %s (clientId=%s) — retry annulé",
@@ -318,28 +382,37 @@ def safe_market_buy(client, symbol: str, quoteOrderQty: float,
                     )
                     return existing
             except Exception as _lookup_err:
-                logger.debug("[IDEM P2-A] Ordre BUY introuvable, retry normal: %s", _lookup_err)
+                logger.debug(
+                    "[IDEM P2-A] Ordre BUY introuvable, retry normal: %s", _lookup_err
+                )
         try:
-            client._sync_server_time()
+            client._sync_server_time()  # pylint: disable=protected-access
             res = _direct_market_order(
                 client=client, symbol=symbol, side='BUY',
                 quoteOrderQty=quoteOrderQty, client_id=client_id,
                 send_alert=send_alert
             )
-            logger.info(f"Market buy placed: {symbol} quote={quoteOrderQty} clientId={client_id}")
+            logger.info(
+                f"Market buy placed: {symbol} quote={quoteOrderQty}"
+                f" clientId={client_id}"
+            )
             return res
         except Exception as e:
             last_exc = e
-            logger.warning(f"safe_market_buy attempt {attempt+1} failed for {symbol}: {e}")
+            logger.warning(
+                f"safe_market_buy attempt {attempt+1} failed for {symbol}: {e}"
+            )
             time.sleep(1.0 + random.random())
     logger.error(f"safe_market_buy failed after {max_retries} attempts for {symbol}")
     if last_exc is not None:
         raise last_exc
-    raise RuntimeError(f"safe_market_buy failed after {max_retries} attempts for {symbol}")
+    raise RuntimeError(
+        f"safe_market_buy failed after {max_retries} attempts for {symbol}"
+    )
 
 
-def safe_market_sell(client, symbol: str, quantity: Union[float, str],
-                     max_retries: int = 4, send_alert=None) -> Dict[str, Any]:
+def safe_market_sell(client: Any, symbol: str, quantity: Union[float, str],
+                     max_retries: int = 4, send_alert: Any = None) -> Dict[str, Any]:
     """Place a market SELL with idempotent retries and safety checks."""
     client_id = _generate_client_order_id('sell')
     last_exc = None
@@ -347,7 +420,8 @@ def safe_market_sell(client, symbol: str, quantity: Union[float, str],
         # P2-A: avant chaque retry, vérifier si l'ordre précédent a déjà été exécuté
         if attempt > 0:
             try:
-                existing = client.get_order(symbol=symbol, origClientOrderId=client_id)
+                existing: Dict[str, Any] = client.get_order(
+                    symbol=symbol, origClientOrderId=client_id)
                 if existing.get('status') in ('FILLED', 'PARTIALLY_FILLED'):
                     logger.info(
                         "[IDEM P2-A] SELL %s déjà %s (clientId=%s) — retry annulé",
@@ -355,38 +429,46 @@ def safe_market_sell(client, symbol: str, quantity: Union[float, str],
                     )
                     return existing
             except Exception as _lookup_err:
-                logger.debug("[IDEM P2-A] Ordre SELL introuvable, retry normal: %s", _lookup_err)
+                logger.debug(
+                    "[IDEM P2-A] Ordre SELL introuvable, retry normal: %s", _lookup_err
+                )
         try:
-            client._sync_server_time()
+            client._sync_server_time()  # pylint: disable=protected-access
             res = _direct_market_order(
                 client=client, symbol=symbol, side='SELL',
                 quantity=quantity, client_id=client_id,
                 send_alert=send_alert
             )
-            logger.info(f"Market sell placed: {symbol} qty={quantity} clientId={client_id}")
+            logger.info(
+                f"Market sell placed: {symbol} qty={quantity} clientId={client_id}"
+            )
             return res
         except Exception as e:
             last_exc = e
-            logger.warning(f"safe_market_sell attempt {attempt+1} failed for {symbol}: {e}")
+            logger.warning(
+                f"safe_market_sell attempt {attempt+1} failed for {symbol}: {e}"
+            )
             time.sleep(1.0 + random.random())
     logger.error(f"safe_market_sell failed after {max_retries} attempts for {symbol}")
     if last_exc is not None:
         raise last_exc
-    raise RuntimeError(f"safe_market_sell failed after {max_retries} attempts for {symbol}")
+    raise RuntimeError(
+        f"safe_market_sell failed after {max_retries} attempts for {symbol}"
+    )
 
 
 @retry_with_backoff(max_retries=3, base_delay=2.0)
 @log_exceptions(default_return=None)
-def place_trailing_stop_order(client, symbol: str, quantity: float,
+def place_trailing_stop_order(client: Any, symbol: str, quantity: float,
                               activation_price: float, trailing_delta: int,
                               client_id: Optional[str] = None,
-                              send_alert=None) -> dict:
+                              send_alert: Any = None) -> Dict[str, Any]:
     """Place un ordre TRAILING_STOP_MARKET.
-    
+
     ATTENTION : TRAILING_STOP_MARKET est un type d'ordre Futures uniquement.
     Cette fonction NE FONCTIONNE PAS sur l'API Spot Binance (api/v3/order).
     Conservée pour compatibilité mais ne doit pas être appelée sur un compte Spot.
-    
+
     Utilise client.create_order() pour bénéficier du retry/sync de _request().
     """
     order_params = {
@@ -397,10 +479,11 @@ def place_trailing_stop_order(client, symbol: str, quantity: float,
     if client_id:
         order_params['newClientOrderId'] = client_id
     try:
-        result = client.create_order(**order_params)
+        result: Dict[str, Any] = client.create_order(**order_params)
         if send_alert:
             order_summary = (f"Symbol: {symbol}, Qty: {quantity}, "
-                             f"ActivationPrice: {activation_price}, TrailingDelta: {trailing_delta}, "
+                             f"ActivationPrice: {activation_price}, "
+                             f"TrailingDelta: {trailing_delta}, "
                              f"OrderId: {result.get('orderId')}")
             send_alert(subject="[BOT CRYPTO] TRAILING STOP EXECUTE",
                        body_main=f"TRAILING STOP exécuté.\n\n{order_summary}",
@@ -417,11 +500,13 @@ def place_trailing_stop_order(client, symbol: str, quantity: float,
 
 @retry_with_backoff(max_retries=3, base_delay=2.0)
 @log_exceptions(default_return=None)
-def place_stop_loss_order(client, symbol: str, quantity: float, stop_price: float,
-                          client_id: Optional[str] = None,
-                          send_alert=None) -> dict:
+def place_stop_loss_order(
+    client: Any, symbol: str, quantity: Union[float, str], stop_price: float,
+    client_id: Optional[str] = None,
+    send_alert: Any = None,
+) -> Dict[str, Any]:
     """Place un ordre STOP_LOSS sur Binance (spot).
-    
+
     Utilise client.create_order() pour bénéficier du retry/sync de _request().
     """
     order_params = {
@@ -431,26 +516,33 @@ def place_stop_loss_order(client, symbol: str, quantity: float, stop_price: floa
     if client_id:
         order_params['newClientOrderId'] = client_id
     try:
-        result = client.create_order(**order_params)
+        result: Dict[str, Any] = client.create_order(**order_params)
         if send_alert:
-            order_summary = (f"Symbol: {symbol}, Qty: {quantity}, StopPrice: {stop_price}, "
-                             f"OrderId: {result.get('orderId')}, Status: {result.get('status')}")
+            order_summary = (
+                f"Symbol: {symbol}, Qty: {quantity}, StopPrice: {stop_price}, "
+                f"OrderId: {result.get('orderId')}, Status: {result.get('status')}"
+            )
             send_alert(subject="[BOT CRYPTO] STOP LOSS EXECUTE",
                        body_main=f"STOP LOSS exécuté.\n\n{order_summary}",
                        client=client)
         return result
     except BinanceAPIException as e:
         if send_alert:
-            send_alert(subject="[BOT CRYPTO] ERREUR EXECUTION STOP LOSS",
-                       body_main=f"Erreur STOP LOSS: {e.code} - {e.message}\n"
-                                 f"Symbol: {symbol}, Qty: {quantity}, StopPrice: {stop_price}",
-                       client=client)
+            send_alert(
+                subject="[BOT CRYPTO] ERREUR EXECUTION STOP LOSS",
+                body_main=(
+                    f"Erreur STOP LOSS: {e.code} - {e.message}\n"
+                    f"Symbol: {symbol}, Qty: {quantity}, StopPrice: {stop_price}"
+                ),
+                client=client
+            )
         raise
 
 
-def is_valid_stop_loss_order(symbol, quantity, stop_price) -> bool:
+def is_valid_stop_loss_order(symbol: Any, quantity: Any, stop_price: Any) -> bool:
     """Vérifie que les paramètres d'ordre stop-loss sont valides."""
-    if symbol is None or symbol == "None" or not isinstance(symbol, str) or len(symbol) < 5:
+    if (symbol is None or symbol == "None"
+            or not isinstance(symbol, str) or len(symbol) < 5):
         return False
     try:
         q = float(quantity)
@@ -464,30 +556,34 @@ def is_valid_stop_loss_order(symbol, quantity, stop_price) -> bool:
 
 def can_execute_partial_safely(coin_balance: float, current_price: float,
                                min_notional: float) -> bool:
-    """Vérifie si les partials peuvent s'exécuter sans créer de reliquat non-vendable."""
+    """Vérifie si les partials peuvent s'exécuter
+    sans créer de reliquat non-vendable."""
     final_remaining_qty = coin_balance * 0.20
     final_notional_value = final_remaining_qty * current_price
     safety_margin = min_notional * 1.1
     if final_notional_value < safety_margin:
         logger.warning(
             f"[PARTIAL-CHECK] Position trop petite pour partials sûrs:\n"
-            f"  Position totale: {coin_balance:.8f} ({coin_balance * current_price:.2f} USDC)\n"
-            f"  Reliquat final (20%): {final_remaining_qty:.8f} ({final_notional_value:.2f} USDC)\n"
+            f"  Position totale: {coin_balance:.8f}"
+            f" ({coin_balance * current_price:.2f} USDC)\n"
+            f"  Reliquat final (20%): {final_remaining_qty:.8f}"
+            f" ({final_notional_value:.2f} USDC)\n"
             f"  MIN_NOTIONAL requis: {safety_margin:.2f} USDC\n"
             f"  → PARTIALS DÉSACTIVÉS pour cette position"
         )
         return False
     logger.info(
         f"[PARTIAL-CHECK] Position suffisante pour partials:\n"
-        f"  Reliquat final (20%): {final_notional_value:.2f} USDC > {safety_margin:.2f} USDC ✓"
+        f"  Reliquat final (20%): {final_notional_value:.2f} USDC"
+        f" > {safety_margin:.2f} USDC ✓"
     )
     return True
 
 
-@log_exceptions(default_return={'min_qty': None, 'step_size': None, 'min_notional': None})
-def get_symbol_filters(client, symbol: str) -> Dict:
+@log_exceptions(
+    default_return={'min_qty': None, 'step_size': None, 'min_notional': None})
+def get_symbol_filters(client: Any, symbol: str) -> Dict[str, Any]:
     """Récupère les filters min_qty, step_size et min_notional pour un symbole."""
-    from decimal import Decimal
     info = client.get_symbol_info(symbol)
     if not info:
         raise ValueError(f"Aucune information trouvée pour le symbole {symbol}")
@@ -502,7 +598,10 @@ def get_symbol_filters(client, symbol: str) -> Dict:
             result['step_size'] = Decimal(f['stepSize'])
         elif f['filterType'] == 'MIN_NOTIONAL':
             result['min_notional'] = Decimal(f.get('minNotional', '10.0'))
-    logger.info(f"Filters pour {symbol}: min_qty={result['min_qty']}, step_size={result['step_size']}, min_notional={result['min_notional']}")
+    logger.info(
+        f"Filters pour {symbol}: min_qty={result['min_qty']}, "
+        f"step_size={result['step_size']}, "
+        f"min_notional={result['min_notional']}")
     return result
 
 
@@ -511,12 +610,12 @@ _tickers_cache: Dict[str, Any] = {'data': None, 'timestamp': 0.0}
 
 
 def place_exchange_stop_loss(
-    client,
+    client: Any,
     symbol: str,
     quantity: str,
     stop_price: float,
     limit_slippage: float = 0.005,
-    send_alert=None,
+    send_alert: Any = None,
 ) -> Dict[str, Any]:
     """Place un ordre STOP_LOSS (market trigger) sur Binance Spot après un achat.
 
@@ -538,24 +637,26 @@ def place_exchange_stop_loss(
     Raises:
         OrderError: Si le placement échoue après retry
     """
-    client._sync_server_time()
-    timestamp = int(time.time() * 1000) + client._server_time_offset
+    client._sync_server_time()  # pylint: disable=protected-access
+    timestamp = int(time.time() * 1000) + client._server_time_offset  # pylint: disable=protected-access
     client_id = _generate_client_order_id('sl')
 
     # Snapper stop_price au tickSize Binance (fix PRICE_FILTER -1013)
-    from decimal import Decimal as _PriceD
     try:
         _sym_info = client.get_symbol_info(symbol)
         _price_filter = next(
             (f for f in _sym_info['filters'] if f['filterType'] == 'PRICE_FILTER'), None
         ) if _sym_info else None
-        _tick = _PriceD(str(_price_filter['tickSize'])) if _price_filter else _PriceD('0.01')
+        _tick = (
+            Decimal(str(_price_filter['tickSize']))
+            if _price_filter else Decimal('0.01')
+        )
         _tick_decs = max(0, -int(_tick.as_tuple().exponent))
     except Exception:
-        _tick = _PriceD('0.01')
+        _tick = Decimal('0.01')
         _tick_decs = 2
 
-    stop_price_snapped = float((_PriceD(str(stop_price)) // _tick) * _tick)
+    stop_price_snapped = float((Decimal(str(stop_price)) // _tick) * _tick)
     stop_price_str = f"{stop_price_snapped:.{_tick_decs}f}"
     logger.debug(
         "[SL-ORDER] C-02 STOP_LOSS tick=%s stop_raw=%.8f→%s",
@@ -613,7 +714,7 @@ def place_exchange_stop_loss(
                     f"STOP_LOSS échoué: {error_code} - {error_msg}",
                     symbol=symbol,
                 )
-            result = response.json()
+            result: Dict[str, Any] = response.json()
             logger.info(
                 "[SL-ORDER] Stop-loss exchange placé: %s qty=%s stop=%s orderId=%s",
                 symbol, quantity, stop_price, result.get('orderId'),
@@ -647,19 +748,20 @@ def place_exchange_stop_loss(
     )
 
 
-def get_all_tickers_cached(client, cache_ttl: int = 10) -> dict:
+def get_all_tickers_cached(client: Any, cache_ttl: int = 10) -> Dict[str, float]:
     """Récupère tous les tickers Binance avec cache local (TTL configurable)."""
     now = time.time()
     with _tickers_lock:
-        if _tickers_cache['data'] is not None and (now - _tickers_cache['timestamp'] < cache_ttl):
-            return _tickers_cache['data']
+        if (_tickers_cache['data'] is not None
+                and (now - _tickers_cache['timestamp'] < cache_ttl)):
+            return cast(Dict[str, float], _tickers_cache['data'])
         tickers = {t['symbol']: float(t['price']) for t in client.get_all_tickers()}
         _tickers_cache['data'] = tickers
         _tickers_cache['timestamp'] = now
         return tickers
 
 
-def get_spot_balance_usdc(client) -> float:
+def get_spot_balance_usdc(client: Any) -> float:
     """Retourne le solde SPOT global converti en USDC (y compris coins).
 
     P0-02: lève BalanceUnavailableError si l'API échoue au lieu de retourner 0.0

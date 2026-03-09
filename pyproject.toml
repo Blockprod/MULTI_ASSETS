@@ -1,0 +1,22 @@
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "A"]
+ignore = ["E501"]  # Pylint gère déjà la longueur des lignes (max-line-length = 100)
+
+[tool.ruff.lint.per-file-ignores]
+# MULTI_SYMBOLS.py legitimately needs sys.path.insert before project-relative
+# imports.  E402 is therefore expected and suppressed for this file only.
+"code/src/MULTI_SYMBOLS.py" = ["E402"]
+# sys.path manipulation before imports — intentional in these modules
+"code/src/backtest_runner.py" = ["E402"]
+"code/src/indicators_engine.py" = ["E402"]
+"code/src/watchdog.py" = ["E402"]
+"tests/bench_optimization.py" = ["E402"]
+# F841: unused local vars in test setup are intentional (side-effect assignments)
+"tests/*.py" = ["F841"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

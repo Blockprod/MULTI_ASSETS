@@ -10,9 +10,10 @@ Verifies that:
 - universal_calculate_indicators delegates to calculate_indicators
 - prepare_base_dataframe uses aligned compute_stochrsi
 """
-
+# pylint: disable=redefined-outer-name,import-outside-toplevel,c-extension-no-member
 import os
 import sys
+from typing import Any
 import numpy as np
 import pandas as pd
 
@@ -24,14 +25,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
 @pytest.fixture
-def price_data():
+def price_data() -> pd.DataFrame:
     """Generate realistic price data for indicator testing."""
     np.random.seed(42)
     n = 200
     prices = 100 + np.cumsum(np.random.randn(n) * 0.5)
     highs = prices + np.abs(np.random.randn(n) * 0.3)
     lows = prices - np.abs(np.random.randn(n) * 0.3)
-    dates = pd.date_range('2024-01-01', periods=n, freq='1h')
+    dates = pd.date_range(start='2024-01-01', periods=n, freq='1h')
     df = pd.DataFrame({
         'open': prices + np.random.randn(n) * 0.1,
         'high': highs,
@@ -43,13 +44,13 @@ def price_data():
 
 
 @pytest.fixture
-def flat_rsi():
+def flat_rsi() -> pd.Series:
     """RSI series that's constant (flat market → zero range)."""
     return pd.Series([50.0] * 30)
 
 
 @pytest.fixture
-def normal_rsi():
+def normal_rsi() -> pd.Series:
     """RSI series with natural variation."""
     np.random.seed(123)
     return pd.Series(30 + np.random.randn(50) * 15)
@@ -60,36 +61,40 @@ def normal_rsi():
 class TestComputeStochrsiAlignment:
     """P3-DUP: compute_stochrsi must match Cython behavior."""
 
-    def test_zero_range_returns_half(self, flat_rsi):
+    def test_zero_range_returns_half(self, flat_rsi: pd.Series) -> None:
         """When RSI is constant (zero range), StochRSI = 0.5 (neutral)."""
         from MULTI_SYMBOLS import compute_stochrsi
         result = compute_stochrsi(flat_rsi, period=14)
         # Values after warm-up (index >= 13) should be 0.5
         valid = result.iloc[13:]
-        assert (valid == 0.5).all(), f"Expected 0.5 for flat RSI, got: {valid.unique()}"
+        assert (valid == 0.5).all(), (
+            f"Expected 0.5 for flat RSI, got: {valid.unique()}")
 
-    def test_pre_period_is_nan(self, normal_rsi):
+    def test_pre_period_is_nan(self, normal_rsi: pd.Series) -> None:
         """Pre-period values (first `period-1` bars) must be NaN, not 0."""
         from MULTI_SYMBOLS import compute_stochrsi
         result = compute_stochrsi(normal_rsi, period=14)
         pre_period = result.iloc[:13]
-        assert pre_period.isna().all(), f"Pre-period should be NaN, got: {pre_period.values}"
+        assert pre_period.isna().all(), (
+            f"Pre-period should be NaN, got: {pre_period.values}")
 
-    def test_post_period_no_nan(self, normal_rsi):
+    def test_post_period_no_nan(self, normal_rsi: pd.Series) -> None:
         """Post-warmup values should NOT be NaN."""
         from MULTI_SYMBOLS import compute_stochrsi
         result = compute_stochrsi(normal_rsi, period=14)
         post_period = result.iloc[13:]
-        assert not post_period.isna().any(), f"Post-period has NaN values: {post_period.values}"
+        assert not post_period.isna().any(), (
+            f"Post-period has NaN values: {post_period.values}")
 
-    def test_values_in_0_1_range(self, normal_rsi):
+    def test_values_in_0_1_range(self, normal_rsi: pd.Series) -> None:
         """All valid StochRSI values must be in [0, 1]."""
         from MULTI_SYMBOLS import compute_stochrsi
         result = compute_stochrsi(normal_rsi, period=14)
         valid = result.dropna()
-        assert (valid >= 0).all() and (valid <= 1).all(), f"Out of range: {valid.values}"
+        assert (valid >= 0).all() and (valid <= 1).all(), (
+            f"Out of range: {valid.values}")
 
-    def test_varying_rsi_not_all_same(self, normal_rsi):
+    def test_varying_rsi_not_all_same(self, normal_rsi: pd.Series) -> None:
         """Varying RSI should produce varying StochRSI values."""
         from MULTI_SYMBOLS import compute_stochrsi
         result = compute_stochrsi(normal_rsi, period=14)
@@ -102,10 +107,11 @@ class TestComputeStochrsiAlignment:
 class TestPythonCythonConsistency:
     """P3-DUP: Python fallback and Cython must produce consistent results."""
 
-    def _get_cython_module(self):
+    def _get_cython_module(self) -> Any:
         """Try to import Cython indicators module (compiled .pyd, not stub)."""
-        bin_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'code', 'bin'))
-        code_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'code'))
+        _here = os.path.dirname(__file__)
+        bin_dir = os.path.abspath(os.path.join(_here, '..', 'code', 'bin'))
+        code_dir = os.path.abspath(os.path.join(_here, '..', 'code'))
         # Remove cached stub from sys.modules so we can reimport the compiled version
         saved = sys.modules.pop('indicators', None)
         # Ensure bin_dir and code_dir are at the front of sys.path
@@ -131,7 +137,7 @@ class TestPythonCythonConsistency:
                 # Keep the freshly imported Cython module
                 pass
 
-    def test_ema_consistency(self, price_data):
+    def test_ema_consistency(self, price_data: pd.DataFrame) -> None:
         """EMA calculation: Python ewm vs Cython manual α loop."""
         cython_ind = self._get_cython_module()
 
@@ -145,16 +151,16 @@ class TestPythonCythonConsistency:
         # Align by index (Cython result has fewer rows after dropna)
         common_idx = result.index
         np.testing.assert_allclose(
-            ema1_py.loc[common_idx].values, result['ema1'].values,
+            ema1_py.loc[common_idx].to_numpy(), result['ema1'].to_numpy(),
             rtol=1e-10, err_msg="EMA1 diverges between Python and Cython")
         np.testing.assert_allclose(
-            ema2_py.loc[common_idx].values, result['ema2'].values,
+            ema2_py.loc[common_idx].to_numpy(), result['ema2'].to_numpy(),
             rtol=1e-10, err_msg="EMA2 diverges between Python and Cython")
 
-    def test_rsi_consistency(self, price_data):
+    def test_rsi_consistency(self, price_data: pd.DataFrame) -> None:
         """RSI: ta library vs Cython Wilder implementation."""
         cython_ind = self._get_cython_module()
-        from ta.momentum import RSIIndicator
+        from ta.momentum import RSIIndicator  # pylint: disable=no-name-in-module
 
         # Python RSI (ta library, full length)
         rsi_py = RSIIndicator(price_data['close'], window=14).rsi()
@@ -164,8 +170,8 @@ class TestPythonCythonConsistency:
 
         # Align by index
         common_idx = result.index
-        rsi_py_aligned = rsi_py.loc[common_idx].values
-        rsi_cy_aligned = result['rsi'].values
+        rsi_py_aligned = rsi_py.loc[common_idx].to_numpy()
+        rsi_cy_aligned = result['rsi'].to_numpy()
 
         # Compare last 100 bars (well past warm-up convergence)
         np.testing.assert_allclose(
@@ -175,7 +181,7 @@ class TestPythonCythonConsistency:
             err_msg="RSI diverges beyond tolerance after convergence"
         )
 
-    def test_stochrsi_zero_range_consistency(self):
+    def test_stochrsi_zero_range_consistency(self) -> None:
         """StochRSI zero-range: both Python and Cython return 0.5."""
         cython_ind = self._get_cython_module()
         from MULTI_SYMBOLS import compute_stochrsi
@@ -193,7 +199,8 @@ class TestPythonCythonConsistency:
         cy_stochrsi = result_cy['stoch_rsi'].values
         valid_cy = cy_stochrsi[~np.isnan(cy_stochrsi)]
         if len(valid_cy) > 0:
-            assert (valid_cy == 0.5).all(), f"Cython zero-range StochRSI != 0.5: {valid_cy}"
+            assert (valid_cy == 0.5).all(), (
+                f"Cython zero-range StochRSI != 0.5: {valid_cy}")
 
         # Python StochRSI for flat RSI
         flat_rsi = pd.Series([50.0] * 30)
@@ -201,7 +208,7 @@ class TestPythonCythonConsistency:
         valid_py = py_stochrsi.dropna().to_numpy()
         assert np.all(valid_py == 0.5), f"Python zero-range StochRSI != 0.5: {valid_py}"
 
-    def test_atr_sma_seeding(self, price_data):
+    def test_atr_sma_seeding(self, price_data: pd.DataFrame) -> None:
         """ATR: Cython now uses SMA seeding (not single-value)."""
         cython_ind = self._get_cython_module()
 
@@ -216,7 +223,10 @@ class TestPythonCythonConsistency:
         trs = np.zeros(len(close))
         trs[0] = high[0] - low[0]
         for i in range(1, len(close)):
-            trs[i] = max(high[i] - low[i], abs(high[i] - close[i-1]), abs(low[i] - close[i-1]))
+            trs[i] = max(
+                high[i] - low[i],
+                abs(high[i] - close[i-1]),
+                abs(low[i] - close[i-1]))
 
         # SMA seed at index 14
         atr_period = 14
@@ -224,14 +234,15 @@ class TestPythonCythonConsistency:
         expected_atr[:atr_period] = np.nan
         expected_atr[atr_period] = np.mean(trs[1:atr_period + 1])
         for i in range(atr_period + 1, len(close)):
-            expected_atr[i] = (expected_atr[i-1] * (atr_period - 1) + trs[i]) / atr_period
+            expected_atr[i] = (
+                expected_atr[i-1] * (atr_period - 1) + trs[i]) / atr_period
 
         # Compare on the overlapping index range
         common_idx = result.index
         # Map index to positional integers in price_data
         positions = price_data.index.get_indexer(common_idx)
         expected_aligned = expected_atr[positions]
-        atr_cy = result['atr'].values
+        atr_cy = result['atr'].to_numpy()
 
         np.testing.assert_allclose(
             atr_cy, expected_aligned, rtol=1e-6,
@@ -244,7 +255,7 @@ class TestPythonCythonConsistency:
 class TestUniversalCalculateIndicators:
     """P3-DUP: universal_calculate_indicators is now a thin wrapper."""
 
-    def test_delegates_to_calculate_indicators(self, price_data):
+    def test_delegates_to_calculate_indicators(self, price_data: pd.DataFrame) -> None:
         """universal_ and calculate_ should produce identical results."""
         import MULTI_SYMBOLS as MS
 
@@ -261,16 +272,17 @@ class TestUniversalCalculateIndicators:
                         err_msg=f"Column {col} diverges"
                     )
 
-    def test_empty_df_returns_empty(self):
+    def test_empty_df_returns_empty(self) -> None:
         """Empty DataFrame input → empty DataFrame output."""
         import MULTI_SYMBOLS as MS
         result = MS.universal_calculate_indicators(pd.DataFrame(), 26, 50)
         assert result.empty
 
-    def test_short_df_returns_empty(self):
+    def test_short_df_returns_empty(self) -> None:
         """DataFrame shorter than 10 rows → empty return."""
         import MULTI_SYMBOLS as MS
-        df = pd.DataFrame({'close': [100.0] * 5, 'high': [101.0] * 5, 'low': [99.0] * 5})
+        df = pd.DataFrame({
+            'close': [100.0] * 5, 'high': [101.0] * 5, 'low': [99.0] * 5})
         result = MS.universal_calculate_indicators(df, 26, 50)
         assert result.empty
 
@@ -280,33 +292,36 @@ class TestUniversalCalculateIndicators:
 class TestBacktestEngineVectorized:
     """Verify backtest_engine.pyx standalone vectorized functions."""
 
-    def _get_backtest_engine(self):
+    def _get_backtest_engine(self) -> Any:
         try:
-            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'bin'))
-            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code'))
+            _here = os.path.dirname(__file__)
+            sys.path.insert(0, os.path.join(_here, '..', 'code', 'bin'))
+            sys.path.insert(0, os.path.join(_here, '..', 'code'))
             import backtest_engine as be
             return be
         except ImportError:
             pytest.skip("Cython backtest_engine not available")
 
-    def test_vectorized_ema_matches_pandas(self, price_data):
+    def test_vectorized_ema_matches_pandas(self, price_data: pd.DataFrame) -> None:
         """vectorized_ema must match pandas ewm(adjust=False)."""
         be = self._get_backtest_engine()
         close = price_data['close'].values.astype(np.float64)
 
         cy_ema = be.vectorized_ema(close, 26)
-        pd_ema = pd.Series(close).ewm(span=26, adjust=False).mean().to_numpy(dtype=np.float64)
+        pd_ema = (
+            pd.Series(close).ewm(span=26, adjust=False).mean()
+            .to_numpy(dtype=np.float64))
 
         np.testing.assert_allclose(cy_ema, pd_ema, rtol=1e-10)
 
-    def test_vectorized_rsi_first_14_nan(self, price_data):
+    def test_vectorized_rsi_first_14_nan(self, price_data: pd.DataFrame) -> None:
         """First 14 bars of RSI should be NaN."""
         be = self._get_backtest_engine()
         close = price_data['close'].values.astype(np.float64)
         rsi = be.vectorized_rsi(close)
         assert np.isnan(rsi[:14]).all()
 
-    def test_vectorized_rsi_zero_div_returns_high(self):
+    def test_vectorized_rsi_zero_div_returns_high(self) -> None:
         """When avg_loss=0 (all gains), RSI should be very high (close to 100)."""
         be = self._get_backtest_engine()
         # Monotonically increasing prices → avg_loss = 0 after seed
@@ -317,7 +332,7 @@ class TestBacktestEngineVectorized:
         # but after convergence RSI asymptotes toward 100
         assert (valid > 95.0).all(), f"All-gain RSI should be > 95, got {valid}"
 
-    def test_vectorized_atr_sma_seed(self, price_data):
+    def test_vectorized_atr_sma_seed(self, price_data: pd.DataFrame) -> None:
         """vectorized_atr uses SMA seed (first `period` TRs)."""
         be = self._get_backtest_engine()
         high = price_data['high'].values.astype(np.float64)
@@ -329,12 +344,16 @@ class TestBacktestEngineVectorized:
         # Compute expected SMA seed
         trs = [high[0] - low[0]]
         for i in range(1, 14):
-            tr = max(high[i] - low[i], abs(high[i] - close[i-1]), abs(low[i] - close[i-1]))
+            tr = max(
+                high[i] - low[i],
+                abs(high[i] - close[i-1]),
+                abs(low[i] - close[i-1]))
             trs.append(tr)
         expected = np.mean(trs)
-        assert abs(atr[13] - expected) < 0.01, f"ATR seed: {atr[13]} vs expected {expected}"
+        assert abs(atr[13] - expected) < 0.01, (
+            f"ATR seed: {atr[13]} vs expected {expected}")
 
-    def test_vectorized_stochrsi_zero_range_05(self):
+    def test_vectorized_stochrsi_zero_range_05(self) -> None:
         """vectorized_stoch_rsi zero-range → 0.5."""
         be = self._get_backtest_engine()
         flat_rsi = np.full(30, 50.0, dtype=np.float64)
@@ -348,20 +367,21 @@ class TestBacktestEngineVectorized:
 class TestBacktestIndicatorPath:
     """Verify that backtest uses the same indicator results as live."""
 
-    def test_calculate_indicators_stochrsi_aligned(self, price_data):
+    def test_calculate_indicators_stochrsi_aligned(
+            self, price_data: pd.DataFrame) -> None:
         """calculate_indicators StochRSI output matches compute_stochrsi."""
         import MULTI_SYMBOLS as MS
 
         result = MS.calculate_indicators(price_data.copy(), 26, 50)
         if not result.empty and 'stoch_rsi' in result.columns:
-            stochrsi = result['stoch_rsi']
+            _stochrsi = result['stoch_rsi']  # noqa: F841
             # No value should be exactly 0.0 from pre-period NaN→0 conversion
-            # (the old bug). Pre-period values are dropped by dropna on 'close','rsi','atr'
-            # so they shouldn't appear.
+            # (the old bug). Pre-period values are dropped by dropna
+            # on 'close','rsi','atr' so they shouldn't appear.
             # After warm-up, zero-range should be 0.5
             assert 'stoch_rsi' in result.columns
 
-    def test_indicators_cache_still_works(self, price_data):
+    def test_indicators_cache_still_works(self, price_data: pd.DataFrame) -> None:
         """Indicator caching should still work after P3-DUP changes."""
         import MULTI_SYMBOLS as MS
 

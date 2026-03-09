@@ -12,7 +12,11 @@ import logging
 import random
 import time
 import threading
-from typing import Any, Tuple
+from functools import wraps
+from typing import Any, Callable, ParamSpec, Tuple, TypeVar, cast
+
+P = ParamSpec('P')
+T = TypeVar('T')
 
 # Setup du logger commun
 logger = logging.getLogger('trading_bot')
@@ -24,10 +28,10 @@ VERBOSE_LOGS = False
 _alert_sending = threading.local()
 
 # Callback pour notification d'erreur (configuré par le module principal)
-_error_notification_callback = None
+_error_notification_callback = None  # pylint: disable=invalid-name
 
 
-def set_error_notification_callback(callback):
+def set_error_notification_callback(callback: Any) -> None:
     """Configure le callback appelé par log_exceptions en cas d'erreur."""
     global _error_notification_callback
     _error_notification_callback = callback
@@ -50,7 +54,8 @@ class Config:
     smtp_port: int = 587
     taker_fee: float = 0.0007
     maker_fee: float = 0.0002
-    backtest_taker_fee: float = 0.0007  # P2-FEES: frais figés pour le backtest (jamais écrasés par le live)
+    backtest_taker_fee: float = 0.0007  # P2-FEES: frais figés pour le backtest
+                                         # (jamais écrasés par le live)
     backtest_maker_fee: float = 0.0002  # P2-FEES: frais figés pour le backtest
     slippage_buy: float = 0.0001
     slippage_sell: float = 0.0001
@@ -63,7 +68,7 @@ class Config:
     atr_period: int = 14
     atr_multiplier: float = 8.0  # E-1: optimisé 5.5→8.0 (PnL +22.5%, DD -0.9pp)
     atr_stop_multiplier: float = 3.0
-    recv_window: int = 60000  # P1-11: centralisé, u tilisé par exchange_client
+    recv_window: int = 60000  # P1-11: centralisé, utilisé par exchange_client
     risk_per_trade: float = 0.055  # B-2: optimisé 5%→5.5% (Calmar max 2.004)
     sizing_mode: str = 'risk'  # P1-07: default 'risk' au lieu de 'baseline'
     partial_threshold_1: float = 0.02
@@ -94,9 +99,10 @@ class Config:
     max_parallel_pairs: int = 5      # P2-09: cap parallélisation run_parallel_backtests
     backtest_throttle_seconds: float = 3600.0  # P3-02: intervalle minimum entre deux backtests (s)
     project_name: str = "MULTI_ASSETS"  # Préfixe de tous les sujets d'alertes mail
-    daily_loss_limit_pct: float = 0.05  # P5-A: bloquer les achats si perte journalière > 5 % du capital initial
+    # P5-A: bloquer les achats si perte journalière > 5 % du capital initial
+    daily_loss_limit_pct: float = 0.05
 
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
     def __repr__(self) -> str:
@@ -116,7 +122,7 @@ class Config:
     def from_env(cls) -> 'Config':
         """Charge la configuration depuis les variables d'environnement."""
         try:
-            from dotenv import load_dotenv
+            from dotenv import load_dotenv  # pylint: disable=import-outside-toplevel
             load_dotenv()
         except ImportError:
             pass
@@ -138,21 +144,28 @@ class Config:
         # Optionnels
         config_data['taker_fee'] = float(os.getenv('TAKER_FEE', '0.0007'))
         config_data['maker_fee'] = float(os.getenv('MAKER_FEE', '0.0002'))
-        config_data['backtest_taker_fee'] = float(os.getenv('BACKTEST_TAKER_FEE', '0.0007'))  # P2-FEES
-        config_data['backtest_maker_fee'] = float(os.getenv('BACKTEST_MAKER_FEE', '0.0002'))  # P2-FEES
+        config_data['backtest_taker_fee'] = float(
+            os.getenv('BACKTEST_TAKER_FEE', '0.0007'))  # P2-FEES
+        config_data['backtest_maker_fee'] = float(
+            os.getenv('BACKTEST_MAKER_FEE', '0.0002'))  # P2-FEES
         config_data['slippage_buy'] = float(os.getenv('SLIPPAGE_BUY', '0.0001'))
         config_data['slippage_sell'] = float(os.getenv('SLIPPAGE_SELL', '0.0001'))
         config_data['api_timeout'] = int(os.getenv('API_TIMEOUT', '30'))
         config_data['max_workers'] = int(os.getenv('MAX_WORKERS', '4'))
         config_data['initial_wallet'] = float(os.getenv('INITIAL_WALLET', '10000.0'))
-        config_data['backtest_days'] = int(os.getenv('BACKTEST_DAYS', '1095'))  # 3 ans glissants (1 cycle bear+bull complet)
+        config_data['backtest_days'] = int(
+            os.getenv('BACKTEST_DAYS', '1095'))  # 3 ans glissants (1 cycle bear+bull)
         # Chemins ancrés au répertoire du script (indépendant du cwd)
         # → résout le bug de cache différent selon le lanceur (bat vs terminal)
         _src_dir = os.path.dirname(os.path.abspath(__file__))
         _cache_env = os.getenv('CACHE_DIR', 'cache')
-        config_data['cache_dir'] = _cache_env if os.path.isabs(_cache_env) else os.path.join(_src_dir, _cache_env)
+        config_data['cache_dir'] = (
+            _cache_env if os.path.isabs(_cache_env)
+            else os.path.join(_src_dir, _cache_env))
         _states_env = os.getenv('STATES_DIR', 'states')
-        config_data['states_dir'] = _states_env if os.path.isabs(_states_env) else os.path.join(_src_dir, _states_env)
+        config_data['states_dir'] = (
+            _states_env if os.path.isabs(_states_env)
+            else os.path.join(_src_dir, _states_env))
         config_data['state_file'] = os.getenv('STATE_FILE', 'bot_state.json')  # C-17
         config_data['atr_period'] = int(os.getenv('ATR_PERIOD', '14'))
         config_data['atr_multiplier'] = float(os.getenv('ATR_MULTIPLIER', '8.0'))
@@ -169,28 +182,50 @@ class Config:
         config_data['trailing_activation_pct'] = float(os.getenv('TRAILING_ACTIVATION_PCT', '0.03'))
         config_data['target_volatility_pct'] = float(os.getenv('TARGET_VOLATILITY_PCT', '0.02'))
         config_data['backtest_min_notional'] = float(os.getenv('BACKTEST_MIN_NOTIONAL', '5.0'))
-        config_data['oos_sharpe_min'] = float(os.getenv('OOS_SHARPE_MIN', '0.8'))       # P1-THRESH
-        config_data['oos_win_rate_min'] = float(os.getenv('OOS_WIN_RATE_MIN', '30.0'))  # P1-THRESH
-        config_data['oos_decay_min'] = float(os.getenv('OOS_DECAY_MIN', '0.15'))        # anti-overfit
-        config_data['schedule_interval_minutes'] = int(os.getenv('SCHEDULE_INTERVAL_MINUTES', '2'))  # P2-02
-        config_data['risk_free_rate'] = float(os.getenv('RISK_FREE_RATE', '0.04'))  # P2-03
-        config_data['email_cooldown_seconds'] = int(os.getenv('EMAIL_COOLDOWN_SECONDS', '300'))  # P2-07
-        config_data['stoch_rsi_buy_max'] = float(os.getenv('STOCH_RSI_BUY_MAX', '0.8'))  # P2-08
-        config_data['stoch_rsi_buy_min'] = float(os.getenv('STOCH_RSI_BUY_MIN', '0.05'))  # P2-08
-        config_data['stoch_rsi_sell_exit'] = float(os.getenv('STOCH_RSI_SELL_EXIT', '0.4'))  # C-1
-        config_data['adx_threshold'] = float(os.getenv('ADX_THRESHOLD', '25.0'))  # P2-08
-        config_data['volume_filter_enabled'] = os.getenv('VOLUME_FILTER_ENABLED', 'false').lower() in ('true', '1', 'yes')  # A-1
-        config_data['volume_sma_period'] = int(os.getenv('VOLUME_SMA_PERIOD', '20'))  # A-1
-        config_data['breakeven_enabled'] = os.getenv('BREAKEVEN_ENABLED', 'true').lower() in ('true', '1', 'yes')  # B-3
-        config_data['breakeven_trigger_pct'] = float(os.getenv('BREAKEVEN_TRIGGER_PCT', '0.02'))  # B-3
-        config_data['stop_loss_cooldown_candles'] = int(os.getenv('STOP_LOSS_COOLDOWN_CANDLES', '12'))  # A-3
-        config_data['mtf_filter_enabled'] = os.getenv('MTF_FILTER_ENABLED', 'true').lower() in ('true', '1', 'yes')  # A-2
+        config_data['oos_sharpe_min'] = float(
+            os.getenv('OOS_SHARPE_MIN', '0.8'))       # P1-THRESH
+        config_data['oos_win_rate_min'] = float(
+            os.getenv('OOS_WIN_RATE_MIN', '30.0'))  # P1-THRESH
+        config_data['oos_decay_min'] = float(
+            os.getenv('OOS_DECAY_MIN', '0.15'))        # anti-overfit
+        config_data['schedule_interval_minutes'] = int(
+            os.getenv('SCHEDULE_INTERVAL_MINUTES', '2'))  # P2-02
+        config_data['risk_free_rate'] = float(
+            os.getenv('RISK_FREE_RATE', '0.04'))  # P2-03
+        config_data['email_cooldown_seconds'] = int(
+            os.getenv('EMAIL_COOLDOWN_SECONDS', '300'))  # P2-07
+        config_data['stoch_rsi_buy_max'] = float(
+            os.getenv('STOCH_RSI_BUY_MAX', '0.8'))  # P2-08
+        config_data['stoch_rsi_buy_min'] = float(
+            os.getenv('STOCH_RSI_BUY_MIN', '0.05'))  # P2-08
+        config_data['stoch_rsi_sell_exit'] = float(
+            os.getenv('STOCH_RSI_SELL_EXIT', '0.4'))  # C-1
+        config_data['adx_threshold'] = float(
+            os.getenv('ADX_THRESHOLD', '25.0'))  # P2-08
+        config_data['volume_filter_enabled'] = (
+            os.getenv('VOLUME_FILTER_ENABLED', 'false').lower()
+            in ('true', '1', 'yes'))  # A-1
+        config_data['volume_sma_period'] = int(
+            os.getenv('VOLUME_SMA_PERIOD', '20'))  # A-1
+        config_data['breakeven_enabled'] = (
+            os.getenv('BREAKEVEN_ENABLED', 'true').lower()
+            in ('true', '1', 'yes'))  # B-3
+        config_data['breakeven_trigger_pct'] = float(
+            os.getenv('BREAKEVEN_TRIGGER_PCT', '0.02'))  # B-3
+        config_data['stop_loss_cooldown_candles'] = int(
+            os.getenv('STOP_LOSS_COOLDOWN_CANDLES', '12'))  # A-3
+        config_data['mtf_filter_enabled'] = (
+            os.getenv('MTF_FILTER_ENABLED', 'true').lower()
+            in ('true', '1', 'yes'))  # A-2
         config_data['mtf_ema_fast'] = int(os.getenv('MTF_EMA_FAST', '18'))  # A-2
         config_data['mtf_ema_slow'] = int(os.getenv('MTF_EMA_SLOW', '58'))  # A-2
-        config_data['max_parallel_pairs'] = int(os.getenv('MAX_PARALLEL_PAIRS', '5'))  # P2-09
-        config_data['backtest_throttle_seconds'] = float(os.getenv('BACKTEST_THROTTLE_SECONDS', '3600.0'))  # P3-02
+        config_data['max_parallel_pairs'] = int(
+            os.getenv('MAX_PARALLEL_PAIRS', '5'))  # P2-09
+        config_data['backtest_throttle_seconds'] = float(
+            os.getenv('BACKTEST_THROTTLE_SECONDS', '3600.0'))  # P3-02
         config_data['project_name'] = os.getenv('BOT_PROJECT_NAME', 'MULTI_ASSETS')
-        config_data['daily_loss_limit_pct'] = float(os.getenv('DAILY_LOSS_LIMIT_PCT', '0.05'))  # P5-A
+        config_data['daily_loss_limit_pct'] = float(
+            os.getenv('DAILY_LOSS_LIMIT_PCT', '0.05'))  # P5-A
 
         self = cls()
         for k, v in config_data.items():
@@ -200,21 +235,23 @@ class Config:
         self._validate()
         return self
 
-    def _validate(self):
+    def _validate(self) -> None:
         """Valide la cohérence des valeurs de configuration."""
         errors = []
         # Frais et slippage doivent être positifs et raisonnables (< 10%)
-        for name in ('taker_fee', 'maker_fee', 'backtest_taker_fee', 'backtest_maker_fee', 'slippage_buy', 'slippage_sell'):
+        for name in ('taker_fee', 'maker_fee', 'backtest_taker_fee',
+                     'backtest_maker_fee', 'slippage_buy', 'slippage_sell'):
             val = getattr(self, name)
-            if not (0 <= val < 0.10):
+            if not 0 <= val < 0.10:
                 errors.append(f"{name}={val} hors limites [0, 0.10)")
         # Risk per trade entre 0.1% et 50%
-        if not (0.001 <= self.risk_per_trade <= 0.50):
+        if not 0.001 <= self.risk_per_trade <= 0.50:
             errors.append(f"risk_per_trade={self.risk_per_trade} hors limites [0.001, 0.50]")
         # Sizing mode valide
         valid_modes = {'baseline', 'risk', 'fixed_notional', 'volatility_parity'}
         if self.sizing_mode not in valid_modes:
-            errors.append(f"sizing_mode='{self.sizing_mode}' invalide. Valides: {valid_modes}")
+            errors.append(
+                f"sizing_mode='{self.sizing_mode}' invalide. Valides: {valid_modes}")
         # Partial thresholds cohérents
         if self.partial_threshold_2 <= self.partial_threshold_1:
             errors.append(
@@ -224,7 +261,7 @@ class Config:
         # Partial percentages entre 0 et 1
         for name in ('partial_pct_1', 'partial_pct_2'):
             val = getattr(self, name)
-            if not (0 < val <= 1.0):
+            if not 0 < val <= 1.0:
                 errors.append(f"{name}={val} hors limites (0, 1.0]")
         # Wallet et backtest_days positifs
         if self.initial_wallet <= 0:
@@ -247,19 +284,19 @@ class Config:
         #   DEF ATR_MULTIPLIER      = 8.0   (trailing activation) — E-1
         #   DEF ATR_STOP_MULTIPLIER = 3.0   (initial stop)
         # If config differs, live trading behaviour won't match backtest outcomes.
-        _CYTHON_ATR_MULTIPLIER = 8.0
-        _CYTHON_ATR_STOP_MULTIPLIER = 3.0
-        if abs(self.atr_multiplier - _CYTHON_ATR_MULTIPLIER) > 1e-9:
+        cython_atr_multiplier = 8.0
+        cython_atr_stop_multiplier = 3.0
+        if abs(self.atr_multiplier - cython_atr_multiplier) > 1e-9:
             logger.warning(
                 "[CONFIG C-15] atr_multiplier=%.4f diffère de la constante Cython "
                 "ATR_MULTIPLIER=%.4f — live et backtest ne seront pas alignés.",
-                self.atr_multiplier, _CYTHON_ATR_MULTIPLIER,
+                self.atr_multiplier, cython_atr_multiplier,
             )
-        if abs(self.atr_stop_multiplier - _CYTHON_ATR_STOP_MULTIPLIER) > 1e-9:
+        if abs(self.atr_stop_multiplier - cython_atr_stop_multiplier) > 1e-9:
             logger.warning(
                 "[CONFIG C-15] atr_stop_multiplier=%.4f diffère de la constante Cython "
                 "ATR_STOP_MULTIPLIER=%.4f — live et backtest ne seront pas alignés.",
-                self.atr_stop_multiplier, _CYTHON_ATR_STOP_MULTIPLIER,
+                self.atr_stop_multiplier, cython_atr_stop_multiplier,
             )
 
         if errors:
@@ -273,19 +310,21 @@ config = Config.from_env()
 
 # ─── Décorateurs ─────────────────────────────────────────────────────────────
 
-def log_exceptions(default_return=None):
+def log_exceptions(default_return: object = None) -> Callable[[Callable[P, T]], Callable[P, T]]:
     """Décorateur qui log les exceptions et retourne une valeur par défaut.
 
     Si un callback d'erreur est configuré (via set_error_notification_callback),
     il sera appelé pour envoyer une alerte. Protégé contre les boucles récursives.
     """
-    def decorator(func):
-        def wrapper(*args, **kwargs):
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             try:
                 return func(*args, **kwargs)
             except Exception as e:
                 logger.error(f"[EXCEPTION] {func.__name__}: {e}", exc_info=True)
-                if _error_notification_callback and not getattr(_alert_sending, 'active', False):
+                if _error_notification_callback and not getattr(
+                        _alert_sending, 'active', False):
                     _alert_sending.active = True
                     try:
                         _error_notification_callback(func.__name__, e, args, kwargs)
@@ -293,21 +332,23 @@ def log_exceptions(default_return=None):
                         logger.error(f"[EXCEPTION] Echec callback d'alerte: {cb_exc}")
                     finally:
                         _alert_sending.active = False
-                return default_return if default_return is not None else None
-        wrapper.__name__ = func.__name__
-        wrapper.__doc__ = func.__doc__
+                return cast(T, default_return)  # caller guarantees default_return ∈ T
         return wrapper
     return decorator
 
 
-def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0):
+def retry_with_backoff(
+        max_retries: int = 3,
+        base_delay: float = 1.0,
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
     """Décorateur pour retry avec backoff exponentiel + jitter (P1-01).
 
     Le jitter évite le thundering-herd quand plusieurs threads retrytent simultanément
     après une erreur API commune.
     """
-    def decorator(func):
-        def wrapper(*args, **kwargs):
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             for attempt in range(max_retries):
                 try:
                     return func(*args, **kwargs)
@@ -322,9 +363,11 @@ def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0):
                         f"Retry dans {delay:.2f}s"
                     )
                     time.sleep(delay)
-            return None
-        wrapper.__name__ = func.__name__
-        wrapper.__doc__ = func.__doc__
+            # unreachable: the last iteration (attempt == max_retries-1) always re-raises
+            raise AssertionError(
+                "retry_with_backoff: all retries exhausted — "
+                "last iteration always re-raises the caught exception"
+            )
         return wrapper
     return decorator
 
