@@ -27,7 +27,7 @@ code/src/
 
 ## Prérequis
 
-- **Python 3.13+**
+- **Python 3.11+**
 - Compte Binance avec clés API (Lecture + Spot Trading)
 - Compte Gmail avec mot de passe d'application (pour les alertes)
 

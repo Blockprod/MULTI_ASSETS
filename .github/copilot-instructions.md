@@ -1,7 +1,7 @@
 # MULTI_ASSETS — Copilot Instructions
 
 ## Stack
-- **Python 3.13** · Binance **Spot uniquement** (pas Futures) · Pandas 3.0 / NumPy 2.4
+- **Python 3.11.9** · Binance **Spot uniquement** (pas Futures) · Pandas 3.0 / NumPy 2.4
 - Quote currency: **USDC** (jamais USDT) sur toutes les paires
 - Venv: `.venv/` · Tests: `pytest tests/ -x -q` (depuis la racine du repo)
 - PM2 + `code/src/watchdog.py` assurent la continuité de service
@@ -78,6 +78,9 @@ Chaque module critique dispose d'un fichier de contexte dans `code/src/` :
 - `exchange_client.context.md` — règles du client Binance (rate limiter, idempotence)
 - `MULTI_SYMBOLS.context.md` — architecture de l'orchestrateur principal
 - `state_manager.context.md` — format état JSON_V1 + HMAC-SHA256
+
+Comportement agent (workflow, plan mode, self-improvement) : `CLAUDE.md` (racine).
+Leçons et erreurs récurrentes capturées : `tasks/lessons.md`.
 - `walk_forward.context.md` — OOS gates + métriques anti-overfit
 
 Consulter le fichier `.context.md` du module concerné avant toute modification.
