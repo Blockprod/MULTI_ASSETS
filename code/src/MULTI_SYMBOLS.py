@@ -3340,7 +3340,7 @@ if __name__ == "__main__":
     logger.info("Bot crypto H24/7 - Mode ultra-robuste avec privileges admin")
 
     crypto_pairs = [
-        {"backtest_pair": "SOLUSDT", "real_pair": "SOLUSDC"},
+        {"backtest_pair": "HBARUSDT", "real_pair": "HBARUSDC"},
     ]
     _voluntary_event   = threading.Event()
     _shutdown_verified = threading.Event()
