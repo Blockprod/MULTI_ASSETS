@@ -76,6 +76,25 @@ def _notify_watchdog_stopped(restart_count: int, reason: str) -> None:
     except Exception as e:
         logger.error(f"[WATCHDOG] Echec envoi email d'alerte: {e}")
 
+def _notify_bot_restarted(restart_count: int, reason: str) -> None:
+    """Envoie un email d'information quand le bot est redémarré par le watchdog."""
+    if not _EMAIL_AVAILABLE:
+        return
+    try:
+        subject = f"[RESTART #{restart_count}] Bot redémarré — {reason}"
+        body = (
+            f"Le watchdog a redémarré le bot de trading.\n\n"
+            f"Raison         : {reason}\n"
+            f"Redémarrage n° : {restart_count}\n"
+            f"Horodatage     : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"Le bot est de nouveau actif.\n"
+        )
+        _send_email_alert(subject, body)
+        logger.info(f"[WATCHDOG] Email de redémarrage envoyé (raison: {reason}).")
+    except Exception as e:
+        logger.error(f"[WATCHDOG] Echec envoi email de redémarrage: {e}")
+
+
 # Heartbeat staleness threshold (seconds). If heartbeat.json is older than
 # this, the bot is considered hung even if the process is still running.
 HEARTBEAT_STALE_SECONDS = 600  # 10 minutes (main loop sleeps 120s)
@@ -185,6 +204,7 @@ class TradingBotWatchdog:
             self.restart_count += 1
             self.restart_times.append(datetime.now())
             logger.info(f"Bot redémarré (#{self.restart_count})")
+            _notify_bot_restarted(self.restart_count, reason)
             return True
         return False
 

@@ -11,7 +11,7 @@ import time
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, Optional, Union, cast
+from typing import Any, Callable, Dict, Optional, Tuple, Union, cast
 
 import requests
 import schedule
@@ -19,7 +19,7 @@ from binance.client import Client
 from binance.exceptions import BinanceAPIException
 
 from bot_config import log_exceptions, retry_with_backoff, config as _config
-from exceptions import BalanceUnavailableError, OrderError
+from exceptions import BalanceUnavailableError, CircuitOpenError, OrderError
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,20 @@ class _TokenBucket:
 # 18 req/s = 1080 req/min — marge de sécurité par rapport
 # à la limite Binance (1200 req/min)
 _api_rate_limiter = _TokenBucket(rate=18.0, capacity=18.0)
+
+# ─── Circuit breaker (TS-P2-01) ───────────────────────────────────────────────────────
+# Quarantaine temporaire de l'API Binance après N échecs réseau consécutifs.
+# Évite la saturation des workers PM2 pendant un outage prolongé (429/503).
+# Utilise un dict mutable pour éviter les déclarations `global` dans les méthodes.
+_circuit_state: Dict[str, Any] = {'failure_count': 0, 'open_until': 0.0}
+_circuit_lock = threading.Lock()
+_circuit_alert_callback: Optional[Callable] = None  # enregistré par MULTI_SYMBOLS.py
+
+
+def set_circuit_alert_callback(callback: Optional[Callable]) -> None:
+    """Enregistre la fonction d'alerte email pour l'ouverture du circuit (TS-P2-01)."""
+    global _circuit_alert_callback
+    _circuit_alert_callback = callback
 
 
 # ─── Client Binance robuste ────────────────────────────────────────────────
@@ -150,6 +164,15 @@ class BinanceFinalClient(Client):
         """Override MINIMAL - only handle timestamp sync, let parent handle params."""
         max_retries = 3
         for attempt in range(max_retries):
+            # TS-P2-01: circuit breaker — bloquer si l'API Binance est en quarantaine
+            with _circuit_lock:
+                _cb_open_until: float = _circuit_state['open_until']
+            if _cb_open_until > 0 and time.time() < _cb_open_until:
+                _remaining = _cb_open_until - time.time()
+                raise CircuitOpenError(
+                    f"Circuit breaker ouvert — API Binance en quarantaine "
+                    f"({_remaining:.0f}s restantes)."
+                )
             try:
                 # C-05: Rate limiting — acquérir un token avant tout appel réseau
                 _api_rate_limiter.acquire(timeout=30.0)
@@ -174,6 +197,9 @@ class BinanceFinalClient(Client):
                     method, uri, signed, force_params=force_params, **kwargs
                 )
                 self._error_count = max(0, self._error_count - 1)
+                # TS-P2-01: succès → réinitialiser le compteur d'échecs circuit breaker
+                with _circuit_lock:
+                    _circuit_state['failure_count'] = 0
                 return result
             except BinanceAPIException as e:
                 if getattr(e, 'code', None) == -1021:
@@ -218,6 +244,34 @@ class BinanceFinalClient(Client):
                     )
                     time.sleep(_backoff)
                     continue
+                # TS-P2-01: échec définitif (retries épuisés) → incrémenter compteur circuit breaker
+                with _circuit_lock:
+                    _circuit_state['failure_count'] += 1
+                    _threshold: int = getattr(_config, 'circuit_breaker_threshold', 10)
+                    _reset_s: int = getattr(_config, 'circuit_breaker_reset_seconds', 60)
+                    if _circuit_state['failure_count'] >= _threshold:
+                        _circuit_state['open_until'] = time.time() + _reset_s
+                        _circuit_state['failure_count'] = 0
+                        logger.critical(
+                            "[CIRCUIT-BREAKER TS-P2-01] Circuit ouvert après %d échecs "
+                            "réseau consécutifs — API Binance en quarantaine %ds. "
+                            "Tous les appels API sont bloqués.",
+                            _threshold, _reset_s,
+                        )
+                        _cb = _circuit_alert_callback
+                        if _cb is not None:
+                            try:
+                                _cb(
+                                    f"Le circuit breaker API Binance s'est ouvert après "
+                                    f"{_threshold} échecs réseau consécutifs.\n\n"
+                                    f"Les appels API sont en quarantaine pour {_reset_s}s.\n"
+                                    f"Dernière erreur: {e}\n\n"
+                                    f"Le circuit se réouvrira automatiquement après {_reset_s}s."
+                                )
+                            except Exception as _cb_err:
+                                logger.warning(
+                                    "[CIRCUIT-BREAKER] Alerte email impossible: %s", _cb_err
+                                )
                 raise
         return None
 
@@ -342,6 +396,9 @@ def _direct_market_order(client: Any, symbol: str, side: str,
 def safe_market_buy(client: Any, symbol: str, quoteOrderQty: float,  # pylint: disable=invalid-name
                     max_retries: int = 4, send_alert: Any = None) -> Dict[str, Any]:
     """Place a market BUY by quote amount with idempotency/retry and safety checks."""
+    if _config.bot_mode == 'DEMO':  # C-01: dry-run guard
+        logger.info("[DRY-RUN] safe_market_buy simulé pour %s quoteQty=%s", symbol, quoteOrderQty)
+        return {"orderId": "DRYRUN-BUY-0", "status": "FILLED", "fills": []}
     client_id = _generate_client_order_id('buy')
     last_exc = None
     # Min notional check
@@ -414,6 +471,9 @@ def safe_market_buy(client: Any, symbol: str, quoteOrderQty: float,  # pylint: d
 def safe_market_sell(client: Any, symbol: str, quantity: Union[float, str],
                      max_retries: int = 4, send_alert: Any = None) -> Dict[str, Any]:
     """Place a market SELL with idempotent retries and safety checks."""
+    if _config.bot_mode == 'DEMO':  # C-01: dry-run guard
+        logger.info("[DRY-RUN] safe_market_sell simulé pour %s qty=%s", symbol, quantity)
+        return {"orderId": "DRYRUN-SELL-0", "status": "FILLED", "fills": []}
     client_id = _generate_client_order_id('sell')
     last_exc = None
     for attempt in range(max_retries):
@@ -637,6 +697,9 @@ def place_exchange_stop_loss(
     Raises:
         OrderError: Si le placement échoue après retry
     """
+    if _config.bot_mode == 'DEMO':  # C-01: dry-run guard
+        logger.info("[DRY-RUN] place_exchange_stop_loss simulé pour %s stop=%s", symbol, stop_price)
+        return {"orderId": "DRYRUN-SL-0", "status": "NEW"}
     client._sync_server_time()  # pylint: disable=protected-access
     timestamp = int(time.time() * 1000) + client._server_time_offset  # pylint: disable=protected-access
     client_id = _generate_client_order_id('sl')
@@ -794,3 +857,22 @@ def get_spot_balance_usdc(client: Any) -> float:
         raise BalanceUnavailableError(
             f"Impossible de récupérer le solde USDC depuis l'exchange: {exc}"
         ) from exc
+
+
+def _get_coin_balance(account_info: Dict[str, Any], asset: str) -> Tuple[bool, float, float, float]:
+    """Retourne (found, free, locked, total) pour un asset depuis account_info.
+
+    C-13: helper centralisé — élimine la duplication free+locked.
+    Extrait de MULTI_SYMBOLS.py (C-03).
+    found:  True si l'asset existe dans les balances.
+    free / locked / total : floats (0.0 si not found).
+    """
+    bal = next(
+        (b for b in account_info.get('balances', []) if b['asset'] == asset),
+        None,
+    )
+    if bal is None:
+        return False, 0.0, 0.0, 0.0
+    free = float(bal.get('free', 0))
+    locked = float(bal.get('locked', 0))
+    return True, free, locked, free + locked

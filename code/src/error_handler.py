@@ -15,6 +15,7 @@ import threading
 from datetime import datetime
 from typing import Dict, Callable, Any, Optional, Tuple
 from enum import Enum
+from email_templates import error_handler_alert_body, handle_error_alert
 
 import time as _time
 
@@ -137,27 +138,12 @@ class ErrorHandler:
         try:
             from email_utils import send_email_alert
 
-            text_content = f"""
-ALERTE ERREUR DU BOT DE TRADING
-
-Heure: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Mode: {self.circuit_breaker.mode.value}
-
-DETAILS:
-{body}
-
-ACTION RECOMMANDÉE:
-1. Consulter les logs en temps réel
-2. Vérifier l'état du bot
-3. Corriger manuellement si nécessaire
-4. Le bot reprendra après {self.circuit_breaker.timeout_seconds}s si pas d'intervention
-
----
-Message automatique du Bot de Trading Crypto
-            """
-
-            if error_details:
-                text_content += f"\n\nDETAILS TECHNIQUES:\n{json.dumps(error_details, indent=2, default=str)}"
+            text_content = error_handler_alert_body(
+                inner_body=body,
+                mode_value=self.circuit_breaker.mode.value,
+                timeout_seconds=self.circuit_breaker.timeout_seconds,
+                error_details=error_details,
+            )
 
             send_email_alert(f"[BOT ALERT] {subject}", text_content)
             logger.info("[ALERT] Email sent successfully")
@@ -218,27 +204,40 @@ Message automatique du Bot de Trading Crypto
         # Record failure only when no fallback succeeded
         self.circuit_breaker.record_failure()
 
-        # Send alert
-        alert_body = f"""
-Contexte: {context}
-Erreur: {type(error).__name__}
-Message: {str(error)[:200]}
+        # Notify operator when circuit just opened (tripped to PAUSED)
+        if (self.circuit_breaker.is_open
+                and self.circuit_breaker.failure_count == self.circuit_breaker.failure_threshold):
+            self.send_alert_email(
+                "CIRCUIT BREAKER OUVERT — Bot en mode PAUSED",
+                f"Le circuit breaker a atteint le seuil de "
+                f"{self.circuit_breaker.failure_threshold} erreurs consecutives.\n\n"
+                f"Le bot est en mode PAUSED. Aucun nouvel ordre ne sera passe.\n"
+                f"Recuperation automatique dans {self.circuit_breaker.timeout_seconds}s.\n\n"
+                f"Derniere erreur : {context} — {type(error).__name__}: {str(error)[:200]}",
+                critical=True,
+            )
 
-Mode Circuit: {self.circuit_breaker.mode.value}
-Nombre d'erreurs: {self.circuit_breaker.failure_count}
-        """
+        # Send alert
+        _alert_subject, alert_body = handle_error_alert(
+            context=context,
+            error_type=type(error).__name__,
+            error_msg=str(error),
+            mode_value=self.circuit_breaker.mode.value,
+            failure_count=self.circuit_breaker.failure_count,
+            critical=critical,
+        )
 
         if critical:
             self.circuit_breaker.mode = SafeMode.ALERT
             self.send_alert_email(
-                f"ERREUR CRITIQUE - {context}",
+                _alert_subject,
                 alert_body,
                 error_details=error_record,
                 critical=True,
             )
         else:
             self.send_alert_email(
-                f"Erreur détectée - {context}",
+                _alert_subject,
                 alert_body,
                 error_details=error_record,
             )

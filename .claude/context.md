@@ -25,7 +25,7 @@ exécution live toutes les 2 minutes par paire, en parallèle.
 ## Modules et responsabilités
 | Module | Responsabilité |
 |--------|---------------|
-| `MULTI_SYMBOLS.py` | Orchestrateur principal (~3400 lignes) |
+| `MULTI_SYMBOLS.py` | Orchestrateur principal (~1634 lignes, refactorisé C-01→C-13) |
 | `bot_config.py` | Config singleton + décorateurs |
 | `exchange_client.py` | Client Binance robuste + rate limiter |
 | `state_manager.py` | Persistance JSON+HMAC |
@@ -33,6 +33,9 @@ exécution live toutes les 2 minutes par paire, en parallèle.
 | `backtest_runner.py` | Moteur backtest (Cython first) |
 | `indicators_engine.py` | Indicateurs TA (Cython first) |
 | `walk_forward.py` | Métriques OOS + gates anti-overfit |
+| `backtest_orchestrator.py` | Coordination WF, assemblage résultats par scénario |
+| `order_manager.py` | Cycle de vie des ordres SL (place, check, cancel) |
+| `position_reconciler.py` | Réconciliation positions / soldes avec l'exchange au démarrage |
 | `position_sizing.py` | 3 modes de sizing |
 | `data_fetcher.py` | Fetch + validation données |
 | `cache_manager.py` | Cache disque pickle (TTL 30j) |

@@ -156,7 +156,7 @@ class TestP0Save:
     @patch("MULTI_SYMBOLS.send_trading_alert_email")
     @patch("MULTI_SYMBOLS.save_state")
     def test_single_failure_increments_counter(self, mock_save, mock_email):
-        """One save failure increments _save_failure_count but no halt."""
+        """One save failure increments _save_failure_count but no halt and no email (deferred to 3rd failure)."""
         import MULTI_SYMBOLS as MS
 
         mock_save.side_effect = Exception("disk full")
@@ -165,7 +165,7 @@ class TestP0Save:
 
         assert MS._save_failure_count == 1
         assert 'emergency_halt' not in MS.bot_state
-        assert mock_email.called, "Alert email should be sent on save failure"
+        assert not mock_email.called, "Alert email should only be sent at the 3rd failure, not before"
 
     @patch("MULTI_SYMBOLS.send_trading_alert_email")
     @patch("MULTI_SYMBOLS.save_state")

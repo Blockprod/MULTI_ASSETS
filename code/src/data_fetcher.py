@@ -306,7 +306,7 @@ def fetch_historical_data(
 
 def get_binance_trading_fees(
     client: Any,
-    symbol: str = 'TRXUSDC',
+    symbol: Optional[str] = None,
     default_taker: float = 0.001,
     default_maker: float = 0.001,
 ) -> Tuple[float, float]:
@@ -316,8 +316,9 @@ def get_binance_trading_fees(
     ----------
     client : BinanceFinalClient
         Client Binance.
-    symbol : str
-        Symbole pour la recherche de frais.
+    symbol : str, optional
+        Symbole pour la recherche de frais. Si None, utilise
+        ``config.fee_reference_symbol`` (MI-02).
     default_taker, default_maker : float
         Valeurs de repli si l'appel API échoue.
 
@@ -326,6 +327,9 @@ def get_binance_trading_fees(
     tuple[float, float]
         ``(taker_fee, maker_fee)`` en fraction (ex. 0.001 = 0.1 %).
     """
+    if symbol is None:
+        from bot_config import config as _cfg_fees
+        symbol = getattr(_cfg_fees, 'fee_reference_symbol', 'TRXUSDC')  # MI-02
     try:
         account_info = client.get_account()
         taker_commission = account_info.get('takerCommission', 10) / 10000

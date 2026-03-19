@@ -18,7 +18,7 @@ def _timestamp() -> str:
 def order_error_email(side: str, error_code, error_msg: str, params) -> Tuple[str, str]:
     """Erreur lors de l'exécution d'un ordre (BUY/SELL/STOP_LOSS/TRAILING)."""
     return (
-        f"[BOT CRYPTO] ERREUR EXECUTION {side.upper()} ORDER",
+        f"[CRIT] ERREUR EXECUTION {side.upper()} ORDER",
         f"Erreur lors de l'execution de l'ordre {side.upper()} : {error_code} - {error_msg}\n\nParams : {params}"
     )
 
@@ -26,7 +26,7 @@ def order_error_email(side: str, error_code, error_msg: str, params) -> Tuple[st
 def order_success_email(side: str, params, result) -> Tuple[str, str]:
     """Ordre exécuté avec succès."""
     return (
-        f"[BOT CRYPTO] {side.upper()} ORDER EXECUTE",
+        f"[INFO] {side.upper()} ORDER EXECUTE",
         f"Ordre {side.upper()} exécuté avec succès.\n\nParams : {params}\nRéponse : {result}"
     )
 
@@ -34,35 +34,35 @@ def order_success_email(side: str, params, result) -> Tuple[str, str]:
 def order_exception_email(side: str, error, params) -> Tuple[str, str]:
     """Exception Python pendant l'appel API d'ordre."""
     return (
-        f"[BOT CRYPTO] EXCEPTION {side.upper()} ORDER",
+        f"[CRIT] EXCEPTION {side.upper()} ORDER",
         f"Exception lors de l'appel API {side.upper()} : {error}\n\nParams : {params}"
     )
 
 
 def trailing_stop_error_email(error_code, error_msg: str, params) -> Tuple[str, str]:
     return (
-        "[BOT CRYPTO] ERREUR EXECUTION TRAILING STOP",
+        "[CRIT] ERREUR EXECUTION TRAILING STOP",
         f"Erreur TRAILING STOP: {error_code} - {error_msg}\n\nParams: {params}"
     )
 
 
 def trailing_stop_success_email(params, result) -> Tuple[str, str]:
     return (
-        "[BOT CRYPTO] TRAILING STOP EXECUTE",
+        "[INFO] TRAILING STOP EXECUTE",
         f"TRAILING STOP exécuté.\n\nParams: {params}\nRéponse: {result}"
     )
 
 
 def stop_loss_error_email(error_code, error_msg: str, params) -> Tuple[str, str]:
     return (
-        "[BOT CRYPTO] ERREUR EXECUTION STOP LOSS",
+        "[CRIT] ERREUR EXECUTION STOP LOSS",
         f"Erreur STOP LOSS: {error_code} - {error_msg}\n\nParams: {params}"
     )
 
 
 def stop_loss_success_email(params, result) -> Tuple[str, str]:
     return (
-        "[BOT CRYPTO] STOP LOSS EXECUTE",
+        "[INFO] STOP LOSS EXECUTE",
         f"STOP LOSS exécuté.\n\nParams: {params}\nRéponse: {result}"
     )
 
@@ -73,7 +73,7 @@ def api_connection_failure_email(error: str) -> Tuple[str, str]:
     """Échec de connexion à l'API Binance."""
     error_short = str(error)[:150] + ('...' if len(str(error)) > 150 else '')
     return (
-        "[BOT CRYPTO] ERREUR Connexion API",
+        "[CRIT] ERREUR Connexion API",
         f"""=== ECHEC DE CONNEXION API BINANCE ===
 
 Le bot n'a pas pu etablir une connexion avec l'API Binance.
@@ -105,7 +105,7 @@ def data_retrieval_error_email(pair_symbol: str, time_interval: str,
     """Erreur lors de la récupération des données historiques."""
     error_short = str(error)[:200] + ('...' if len(str(error)) > 200 else '')
     return (
-        f"[BOT CRYPTO] ERREUR Donnees - {pair_symbol}",
+        f"[WARN] ERREUR Donnees - {pair_symbol}",
         f"""=== ERREUR RECUPERATION DONNEES ===
 
 Le bot n'a pas pu recuperer les donnees historiques.
@@ -130,7 +130,7 @@ Le bot continuera avec les autres paires si disponibles.
 def network_error_email(pair_symbol: str, error: str) -> Tuple[str, str]:
     """Erreur réseau pendant le téléchargement de données."""
     return (
-        f"[BOT CRYPTO] ERREUR Reseau - {pair_symbol}",
+        f"[WARN] ERREUR Reseau - {pair_symbol}",
         f"""=== ERREUR RESEAU ===
 
 Problème de connectivité détecté lors du téléchargement des données.
@@ -153,7 +153,7 @@ ACTIONS RECOMMANDEES:
 def indicator_error_email(error: str) -> Tuple[str, str]:
     """Erreur critique lors du calcul des indicateurs."""
     return (
-        "[BOT CRYPTO] ERREUR CRITIQUE Indicateurs",
+        "[CRIT] ERREUR CRITIQUE Indicateurs",
         f"""=== ERREUR CRITIQUE CALCUL INDICATEURS ===
 
 Une erreur critique s'est produite lors du calcul des indicateurs techniques.
@@ -179,9 +179,10 @@ def buy_executed_email(pair: str, qty: float, price: float,
                        extra_details: str = "") -> Tuple[str, str]:
     """Email après achat réussi."""
     return (
-        f"[BOT CRYPTO] Achat execute - {pair}",
+        f"[INFO] Achat execute - {pair}",
         f"""=== ACHAT EXECUTE ===
 
+Horodatage          : {_timestamp()}
 Paire               : {pair}
 Quantite            : {qty:.8f}
 Prix d'entree       : {price:.4f} USDC
@@ -201,9 +202,10 @@ def sell_executed_email(pair: str, qty: float, price: float,
     """Email après vente réussie (signal ou stop-loss)."""
     pnl_str = f"P&L             : {pnl_pct:+.2f}%" if pnl_pct is not None else ""
     return (
-        f"[BOT CRYPTO] Vente executee - {pair} ({sell_reason})",
+        f"[INFO] Vente executee - {pair} ({sell_reason})",
         f"""=== VENTE EXECUTEE ===
 
+Horodatage          : {_timestamp()}
 Paire               : {pair}
 Quantite vendue     : {qty:.8f}
 Prix de sortie      : {price:.4f} USDC
@@ -222,7 +224,7 @@ def trading_execution_error_email(error: str, traceback_str: str = "") -> Tuple[
     """Erreur pendant l'exécution du trading."""
     tb = traceback_str[:500] if traceback_str else ""
     return (
-        "[ALERTE BOT CRYPTO] Erreur execution trading",
+        "[WARN] Erreur execution trading",
         f"Erreur lors de l'exécution du trading:\n{error}\n\n{tb}"
     )
 
@@ -231,7 +233,7 @@ def trading_pair_error_email(pair: str, error: str, traceback_str: str = "") -> 
     """Erreur pendant le trading d'une paire spécifique."""
     tb = traceback_str[:500] if traceback_str else ""
     return (
-        f"[BOT CRYPTO] ERREUR Trading - {pair}",
+        f"[WARN] ERREUR Trading - {pair}",
         f"""=== ERREUR TRADING ===
 
 DETAILS DE L'INCIDENT:
@@ -253,23 +255,29 @@ def critical_startup_error_email(error: str, traceback_str: str = "") -> Tuple[s
     """Erreur critique au démarrage du bot."""
     tb = traceback_str[:500] if traceback_str else ""
     return (
-        "[BOT CRYPTO] ARRET CRITIQUE",
+        "[CRIT] ARRET CRITIQUE",
         f"Le bot s'est arrêté suite à une erreur critique:\n{error}\n\n{tb}"
     )
 
 
 def generic_exception_email(func_name: str, error, args=None, kwargs=None) -> Tuple[str, str]:
     """Exception dans une fonction décorée @log_exceptions."""
+    _SENSITIVE = {'api_key', 'secret_key', 'secret', 'password', 'token'}
+    safe_args = str(args)[:200] if args is not None else "None"
+    safe_kwargs = (
+        {k: '***' if k in _SENSITIVE else v for k, v in kwargs.items()}
+        if isinstance(kwargs, dict) else str(kwargs)[:200]
+    ) if kwargs is not None else "None"
     return (
-        f"[BOT CRYPTO] EXCEPTION: {func_name}",
-        f"Exception dans {func_name}: {error}\n\nArgs: {args}\nKwargs: {kwargs}"
+        f"[CRIT] EXCEPTION: {func_name}",
+        f"Exception dans {func_name}: {error}\n\nArgs: {safe_args}\nKwargs: {safe_kwargs}"
     )
 
 
 def cache_cleanup_email(cleaned_count: int, size_mb: float) -> Tuple[str, str]:
     """Notification après nettoyage mensuel du cache."""
     return (
-        "[BOT CRYPTO] INFO Nettoyage Cache",
+        "[INFO] Nettoyage Cache",
         f"""=== NETTOYAGE MENSUEL DU CACHE EFFECTUE ===
 
 Le nettoyage automatique du cache a ete realise avec succes.
@@ -288,3 +296,57 @@ Aucune intervention manuelle requise.
 
 --- Message automatique du Bot de Trading Crypto ---"""
     )
+
+
+# ─── Error handler ────────────────────────────────────────────────────────
+
+def error_handler_alert_body(
+    inner_body: str,
+    mode_value: str,
+    timeout_seconds: float,
+    error_details: Optional[dict] = None,
+) -> str:
+    """Corps d'email pour send_alert_email() dans ErrorHandler (EM-P2-04)."""
+    text = f"""
+ALERTE ERREUR DU BOT DE TRADING
+
+Heure: {_timestamp()}
+Mode: {mode_value}
+
+DETAILS:
+{inner_body}
+
+ACTION RECOMMANDEE:
+1. Consulter les logs en temps reel
+2. Verifier l'etat du bot
+3. Corriger manuellement si necessaire
+4. Le bot reprendra apres {int(timeout_seconds)}s si pas d'intervention
+
+---
+Message automatique du Bot de Trading Crypto
+    """
+    if error_details:
+        import json
+        text += f"\n\nDETAILS TECHNIQUES:\n{json.dumps(error_details, indent=2, default=str)}"
+    return text
+
+
+def handle_error_alert(
+    context: str,
+    error_type: str,
+    error_msg: str,
+    mode_value: str,
+    failure_count: int,
+    critical: bool = False,
+) -> Tuple[str, str]:
+    """Sujet + corps pour les alertes de handle_error() (EM-P2-04)."""
+    severity = "[CRIT]" if critical else "[WARN]"
+    subject = f"{severity} ERREUR CRITIQUE - {context}" if critical else f"{severity} Erreur detectee - {context}"
+    body = (
+        f"Contexte: {context}\n"
+        f"Erreur: {error_type}\n"
+        f"Message: {error_msg[:200]}\n\n"
+        f"Mode Circuit: {mode_value}\n"
+        f"Nombre d'erreurs: {failure_count}"
+    )
+    return subject, body

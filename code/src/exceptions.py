@@ -9,6 +9,7 @@ TradingBotError (base)
 ├── ConfigError           — Invalid or missing configuration
 ├── ExchangeError         — Exchange connectivity / API issues
 │   ├── RateLimitError    — Rate limit exceeded (back off & retry)
+│   ├── CircuitOpenError  — Circuit breaker open (repeated network failures)
 │   ├── InsufficientFundsError — Not enough balance
 │   └── OrderError        — Order placement/cancellation failure
 ├── DataError             — Market data fetching / processing
@@ -39,6 +40,16 @@ class ExchangeError(TradingBotError):
 
 class RateLimitError(ExchangeError):
     """Exchange rate limit exceeded — caller should back off and retry."""
+    pass
+
+
+class CircuitOpenError(ExchangeError):  # TS-P2-01
+    """Circuit breaker ouvert — API Binance en quarantaine après des échecs réseau répétés.
+
+    Levée par _request() dans exchange_client.py lorsque le nombre d'échecs consécutifs
+    atteint `circuit_breaker_threshold`. L'API reste bloquée pendant `circuit_breaker_reset_seconds`.
+    Les appelants ne doivent pas intercepter cette exception sans la propager.
+    """
     pass
 
 

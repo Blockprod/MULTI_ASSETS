@@ -53,7 +53,7 @@ def _JSON_HEADER() -> bytes:
 # (total=False), mais les clés inconnues sont loguées en warning.
 _KNOWN_PAIR_KEYS: Set[str] = {
     'last_run_time', 'last_best_params', 'execution_count', 'last_execution',
-    'last_order_side', 'entry_price', 'initial_position_size', 'in_position',
+    'last_order_side', 'entry_price', 'initial_position_size',  # 'in_position' supprimé C-06
     'atr_at_entry', 'stop_loss', 'stop_loss_at_entry',
     'trailing_activation_price_at_entry', 'trailing_activation_price',
     'trailing_stop_activated', 'trailing_stop', 'max_price', 'sl_order_id',
@@ -64,6 +64,7 @@ _KNOWN_PAIR_KEYS: Set[str] = {
     'buy_timestamp',
     '_stop_loss_cooldown_until',
     'oos_blocked', 'oos_blocked_since',
+    'drawdown_halted',                         # ST-P2-02
     'quote_currency', 'ticker_spot_price', 'latest_best_params',
 }
 
@@ -71,6 +72,7 @@ _KNOWN_PAIR_KEYS: Set[str] = {
 _KNOWN_GLOBAL_KEYS: Set[str] = {
     'emergency_halt', 'emergency_halt_reason',
     '_daily_pnl_tracker', '_state_version',
+    'reconcile_failed',                        # TS-P2-02
 }
 
 
@@ -251,3 +253,32 @@ def load_state() -> Dict:
         # P1-06: re-raise — un fichier corrompu ne doit pas être masqué
         logger.error(f"Erreur inattendue lors du chargement: {e}")
         raise StateError(f"Erreur inattendue lors du chargement: {e}") from e
+
+
+# ─── C-13: Centralized state mutation helpers ─────────────────────────────────
+
+def set_emergency_halt(bot_state: Dict, reason: str) -> None:
+    """Active l'arrêt d'urgence du bot de manière atomique (C-13).
+
+    Doit être appelée depuis un contexte protégé par _bot_state_lock.
+
+    Args:
+        bot_state: dictionnaire d'état global du bot.
+        reason: description courte de la cause du halt.
+    """
+    bot_state['emergency_halt'] = True
+    bot_state['emergency_halt_reason'] = reason
+    logger.critical("[EMERGENCY HALT] Activé — %s", reason)
+
+
+def update_pair_state(bot_state: Dict, pair: str, **kwargs: Any) -> None:
+    """Met à jour atomiquement une ou plusieurs clés du pair_state (C-13).
+
+    Doit être appelée depuis un contexte protégé par _bot_state_lock.
+
+    Args:
+        bot_state: dictionnaire d'état global du bot.
+        pair: clé de paire dans bot_state (ex: 'BTCUSDC').
+        **kwargs: clés/valeurs à mettre à jour dans pair_state.
+    """
+    bot_state.setdefault(pair, {}).update(kwargs)

@@ -431,19 +431,19 @@ def run_walk_forward_validation(
         ``any_passed``     : whether any config passed OOS gates
     """
     # 1. Select top-N candidates with timeframe diversity.
-    # Rank by profit (final_wallet) — unambiguous and immune to the Calmar bias
-    # toward low-frequency configs (fewer trades → lower DD → inflated Calmar
-    # regardless of OOS quality).  Cap at top-2 per timeframe, then take global
-    # top_n.  This guarantees 1h/4h/1d candidates all get WF-tested with fold
-    # windows sized for their own granularity (1h folds have ~6500 bars vs
-    # 1d folds with only 272 bars, giving far better OOS statistics for 1h).
+    # ST-P2-01: Rank by sharpe_ratio (risk-adjusted) with fallback to final_wallet.
+    # Using sharpe_ratio avoids selecting high-variance configs that got lucky on the IS
+    # window but are unlikely to survive OOS. The decay gate (OOS/IS >= 0.15) provides
+    # a second filter, but pre-selecting by Sharpe reduces the risk of the best OOS
+    # config being eliminated before WF testing.
+    # Cap at top-2 per timeframe to ensure 1h/4h/1d diversity.
     _tf_buckets: Dict[str, List] = {}
-    for _r in sorted(full_sample_results, key=lambda x: x.get('final_wallet', 0.0), reverse=True):
+    for _r in sorted(full_sample_results, key=lambda x: x.get('sharpe_ratio', x.get('final_wallet', 0.0)), reverse=True):
         _tf = _r.get('timeframe', '')
         if len(_tf_buckets.get(_tf, [])) < 2:
             _tf_buckets.setdefault(_tf, []).append(_r)
     _all_candidates = [c for _bucket in _tf_buckets.values() for c in _bucket]
-    top_configs = sorted(_all_candidates, key=lambda x: x.get('final_wallet', 0.0), reverse=True)[:top_n]
+    top_configs = sorted(_all_candidates, key=lambda x: x.get('sharpe_ratio', x.get('final_wallet', 0.0)), reverse=True)[:top_n]
 
     if not top_configs:
         logger.warning("No full-sample results to validate")

@@ -101,6 +101,19 @@ class Config:
     project_name: str = "MULTI_ASSETS"  # Préfixe de tous les sujets d'alertes mail
     # P5-A: bloquer les achats si perte journalière > 5 % du capital initial
     daily_loss_limit_pct: float = 0.05
+    # EM-P2-05: seuil de drawdown non réalisé par position (alerte CRITIQUE, pas de vente auto)
+    max_drawdown_pct: float = 0.15
+    fee_reference_symbol: str = 'TRXUSDC'  # MI-02: paire de référence pour les frais
+    position_size_cushion: float = 0.98     # MI-04: coussin capital position (98% du solde)
+    reconcile_min_qty: float = 0.01         # MI-05: quantité minimale pour réconciliation
+    reconcile_min_notional: float = 5.0     # MI-05: valeur notionnelle minimale pour réconciliation
+    # ST-P1-01: nombre max de positions longues simultanées (guard anti-corrélation)
+    max_concurrent_long: int = 4
+    # TS-P2-01: circuit breaker — quarantaine API Binance après N échecs réseau consécutifs
+    circuit_breaker_threshold: int = 10
+    circuit_breaker_reset_seconds: int = 60
+    # C-01: mode d'exécution — 'DEMO' (dry-run, aucun ordre réel) ou 'LIVE'
+    bot_mode: str = 'DEMO'
 
     def __init__(self) -> None:
         pass
@@ -226,6 +239,22 @@ class Config:
         config_data['project_name'] = os.getenv('BOT_PROJECT_NAME', 'MULTI_ASSETS')
         config_data['daily_loss_limit_pct'] = float(
             os.getenv('DAILY_LOSS_LIMIT_PCT', '0.05'))  # P5-A
+        config_data['max_drawdown_pct'] = float(
+            os.getenv('MAX_DRAWDOWN_PCT', '0.15'))  # EM-P2-05
+        config_data['max_concurrent_long'] = int(
+            os.getenv('MAX_CONCURRENT_LONG', '4'))  # ST-P1-01
+        config_data['circuit_breaker_threshold'] = int(
+            os.getenv('CIRCUIT_BREAKER_THRESHOLD', '10'))  # TS-P2-01
+        config_data['circuit_breaker_reset_seconds'] = int(
+            os.getenv('CIRCUIT_BREAKER_RESET_SECONDS', '60'))  # TS-P2-01
+        config_data['fee_reference_symbol'] = os.getenv('FEE_REFERENCE_SYMBOL', 'TRXUSDC')  # MI-02
+        config_data['position_size_cushion'] = float(
+            os.getenv('POSITION_SIZE_CUSHION', '0.98'))  # MI-04
+        config_data['reconcile_min_qty'] = float(
+            os.getenv('RECONCILE_MIN_QTY', '0.01'))  # MI-05
+        config_data['reconcile_min_notional'] = float(
+            os.getenv('RECONCILE_MIN_NOTIONAL', '5.0'))  # MI-05
+        config_data['bot_mode'] = os.getenv('BOT_MODE', 'DEMO')  # C-01
 
         self = cls()
         for k, v in config_data.items():
