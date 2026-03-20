@@ -295,9 +295,10 @@ class TestBacktestEngineVectorized:
     def _get_backtest_engine(self) -> Any:
         try:
             _here = os.path.dirname(__file__)
-            sys.path.insert(0, os.path.join(_here, '..', 'code', 'bin'))
-            sys.path.insert(0, os.path.join(_here, '..', 'code'))
-            import backtest_engine as be
+            # backtest_engine (legacy) is archived in code/bin/legacy/
+            sys.path.insert(0, os.path.join(_here, '..', 'code', 'bin', 'legacy'))
+            sys.path.insert(0, os.path.join(_here, '..', 'code', 'legacy'))
+            import backtest_engine as be  # type: ignore[import]
             return be
         except ImportError:
             pytest.skip("Cython backtest_engine not available")
