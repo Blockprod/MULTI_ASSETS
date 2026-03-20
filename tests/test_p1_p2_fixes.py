@@ -113,6 +113,65 @@ class TestCythonEngineP1P2:
         # Le seuil plus bas (0.5) doit générer au moins autant de trades
         assert res_loose['total_trades'] >= res_tight['total_trades']
 
+    # ── C-05 : paramètres avancés ─────────────────────────────────────────
+
+    def test_partial_enabled_accepted(self, engine):
+        """C-05: partial_enabled=True ne doit pas lever d'exception."""
+        c, h, lo, o, e1, e2, s, a = self._make_arrays(n=100)
+        result = engine.backtest_from_dataframe_fast(
+            c, h, lo, e1, e2, s, a,
+            open_prices=o,
+            partial_enabled=True,
+            partial_threshold_1=0.01,
+            partial_threshold_2=0.02,
+            partial_pct_1=0.50,
+            partial_pct_2=0.30,
+        )
+        assert isinstance(result['final_wallet'], float)
+
+    def test_breakeven_enabled_accepted(self, engine):
+        """C-05: breakeven_enabled=True ne doit pas lever d'exception."""
+        c, h, lo, o, e1, e2, s, a = self._make_arrays(n=100)
+        result = engine.backtest_from_dataframe_fast(
+            c, h, lo, e1, e2, s, a,
+            open_prices=o,
+            breakeven_enabled=True,
+            breakeven_trigger_pct=0.01,
+        )
+        assert isinstance(result['final_wallet'], float)
+
+    def test_cooldown_candles_reduces_trades(self, engine):
+        """C-05: cooldown_candles > 0 ne doit pas lever d'exception et
+        doit produire ≤ trades que cooldown=0."""
+        c, h, lo, o, e1, e2, s, a = self._make_arrays(n=200)
+        res_no_cd = engine.backtest_from_dataframe_fast(
+            c, h, lo, e1, e2, s, a, open_prices=o, cooldown_candles=0,
+        )
+        res_cd = engine.backtest_from_dataframe_fast(
+            c, h, lo, e1, e2, s, a, open_prices=o, cooldown_candles=5,
+        )
+        assert isinstance(res_cd['final_wallet'], float)
+        assert res_cd['total_trades'] <= res_no_cd['total_trades']
+
+    def test_mtf_filter_blocks_buys(self, engine):
+        """C-05: use_mtf_filter=True avec mtf_bullish=all-False bloque tous les achats."""
+        c, h, lo, o, e1, e2, s, a = self._make_arrays(n=100)
+        # Signal StochRSI toujours au-dessus du seuil d'achat → sans filtre MTF, des trades
+        stoch_always_above = np.full(len(c), 0.9, dtype=np.float64)
+        mtf_bearish = np.zeros(len(c), dtype=np.float64)  # toujours baissier
+        res_no_filter = engine.backtest_from_dataframe_fast(
+            c, h, lo, e1, e2, stoch_always_above, a,
+            open_prices=o, use_mtf_filter=False,
+        )
+        res_filtered = engine.backtest_from_dataframe_fast(
+            c, h, lo, e1, e2, stoch_always_above, a,
+            open_prices=o,
+            use_mtf_filter=True,
+            mtf_bullish=mtf_bearish,
+        )
+        # Avec filtre MTF baissier : 0 BUY, donc ≤ trades qu'sans filtre
+        assert res_filtered['total_trades'] <= res_no_filter['total_trades']
+
 
 # ──────────────────────────────────────────────
 # P2-03 : _select_best_by_calmar

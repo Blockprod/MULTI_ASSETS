@@ -161,6 +161,38 @@ with patch('order_manager.display_buy_signal_panel'):
 
 ---
 
+## Cython
+
+### L-14 · Stub `.pyi` orphelin — fonction déclarée absente du `.pyx`
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-03-20
+
+**Contexte** : Audit Cython de `backtest_engine_standard.pyi` — `calculate_indicators_fast()` déclarée dans le stub, absente de `backtest_engine_standard.pyx`.  
+**Erreur** : Pyright / mypy ne signalent aucune erreur (le stub fait foi), mais l'appel échoue avec `AttributeError` à l'exécution car la fonction n'existe pas dans le `.pyd` compilé.  
+**Règle** : Après toute restructuration Cython (ajout, renommage ou suppression de fonction dans un `.pyx`), vérifier la cohérence `.pyx` ↔ `.pyi` avec :
+```powershell
+grep -n "^def " code/<module>.pyx          # fonctions publiques dans la source
+grep -n "^def " code/bin/<module>.pyi      # fonctions déclarées dans le stub
+```
+Toute fonction dans `.pyi` sans `def` correspondant dans `.pyx` est un stub orphelin à supprimer.  
+**Ref** : audit_cython_multi_assets.md — BLOC 2 · C-01 · commit post-60a0a0f
+
+---
+
+### L-15 · Module Cython compilé mais jamais importé en production
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-03-20
+
+**Contexte** : `backtest_engine` (legacy) compilé pour cp311 + cp313, listé dans `config/setup.py`, mais aucun import dans `code/src/` — uniquement `backtest_engine_standard` est utilisé en production.  
+**Erreur** : Le module legacy dérive silencieusement à chaque évolution du moteur actif. Sa signature incompatible (`open_prices` pos 2 vs 11, DEF constants vs runtime params) peut induire des bugs difficiles à diagnostiquer si quelqu'un l'importe par erreur ou confusion de nom.  
+**Règle** : Avant tout audit Cython, vérifier pour chaque `.pyx` / `.pyd` qu'il est effectivement importé en production :
+```powershell
+grep -r "import <module_name>" code/src/
+```
+Si aucun résultat → archiver dans `code/legacy/` et retirer de `config/setup.py`.  
+**Action appliquée** : `backtest_engine.pyx` + `.cpp` → `code/legacy/` ; `.pyd` + `.pyi` → `code/bin/legacy/` ; extension retirée de `config/setup.py`.  
+**Ref** : audit_cython_multi_assets.md — BLOC 3 · C-02 · commit post-60a0a0f
+
+---
+
 ## Référence — Patterns P0 appliqués (historique)
 
 > Ces patterns sont actifs dans le code. Mettre à jour si une correction change le comportement.

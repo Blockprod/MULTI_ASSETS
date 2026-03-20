@@ -1,0 +1,43 @@
+#!/bin/sh
+# ─────────────────────────────────────────────────────────────────────────────
+# post-commit hook — MULTI_ASSETS
+# Vérifie après chaque commit si tasks/lessons.md aurait dû être mis à jour.
+#
+# Logique :
+#   Si le commit touche *.py / *.pyx / *.pyi / tasks/audits/ / tasks/plans/
+#   ET ne touche PAS tasks/lessons.md
+#   → avertissement coloré + liste des patterns à évaluer
+#
+# Installation : exécuter code/scripts/install_hooks.ps1
+# ─────────────────────────────────────────────────────────────────────────────
+
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+RESET='\033[0m'
+
+# Fichiers modifiés dans ce commit (par rapport au parent)
+# Pour le tout premier commit (pas de parent), on liste tous les fichiers
+if git rev-parse HEAD~1 >/dev/null 2>&1; then
+    CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null)
+else
+    CHANGED=$(git diff --name-only --cached 2>/dev/null)
+fi
+
+# Vérifier si des fichiers "sources" ont changé
+SOURCE_CHANGED=$(echo "$CHANGED" | grep -E '\.(py|pyx|pyi)$|tasks/audits/|tasks/plans/' || true)
+LESSONS_CHANGED=$(echo "$CHANGED" | grep -F 'tasks/lessons.md' || true)
+
+# Si des sources ont changé mais pas lessons.md → avertissement
+if [ -n "$SOURCE_CHANGED" ] && [ -z "$LESSONS_CHANGED" ]; then
+    printf "\n${YELLOW}⚠  lessons.md non modifié — évaluation requise${RESET}\n"
+    printf "${CYAN}Fichiers modifiés dans ce commit nécessitant revue :\n"
+    echo "$SOURCE_CHANGED" | sed 's/^/  · /'
+    printf "\n${RESET}"
+    printf "Questions à se poser :\n"
+    printf "  1. Un nouveau pattern d'erreur a-t-il été découvert ?\n"
+    printf "  2. Une règle existante (L-01..L-15) doit-elle être mise à jour ?\n"
+    printf "  3. Un nouveau module/mécanisme mérite-t-il une entrée INFO ?\n"
+    printf "\nSi oui → mettre à jour tasks/lessons.md et amender ce commit.\n\n"
+fi
+
+exit 0

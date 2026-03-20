@@ -49,17 +49,3 @@ def backtest_from_dataframe_fast(
     mtf_bullish: Optional[npt.NDArray[np.float64]] = None,
     use_mtf_filter: bool = False,
 ) -> Dict[str, Any]: ...
-
-
-def calculate_indicators_fast(
-    close_prices: npt.NDArray[np.float64],
-    high_prices: npt.NDArray[np.float64],
-    low_prices: npt.NDArray[np.float64],
-    ema1_period: int,
-    ema2_period: int,
-    stoch_period: int,
-    sma_long: int = 0,
-    adx_period: int = 0,
-    trix_length: int = 0,
-    trix_signal: int = 0,
-) -> Any: ...

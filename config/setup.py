@@ -11,12 +11,6 @@ extensions = [
         language="c++",
     ),
     Extension(
-        "backtest_engine",
-        ["../code/backtest_engine.pyx"],
-        include_dirs=[np.get_include()],
-        language="c++",
-    ),
-    Extension(
         "backtest_engine_standard",
         ["../code/backtest_engine_standard.pyx"],
         include_dirs=[np.get_include()],

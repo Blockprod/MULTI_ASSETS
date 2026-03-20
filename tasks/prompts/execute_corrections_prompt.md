@@ -78,6 +78,40 @@ Fichier .py modifié :
 Fichier config (.env.example, pyproject.toml) :
   validation manuelle uniquement
 
+─────────────────────────────────────────────
+ÉTAPE FINALE OBLIGATOIRE — LEÇONS
+─────────────────────────────────────────────
+Après validation de TOUTES les corrections (⏳ → ✅),
+TOUJOURS évaluer si tasks/lessons.md doit être mis à jour.
+
+CRITÈRES — mettre à jour SI au moins un est vrai :
+  1. Un nouveau pattern d'erreur a été découvert
+     (bug silencieux, mauvaise hypothèse, écueil d'API...)
+  2. Une règle existante (L-XX) est désormais incomplète ou inexacte
+  3. Un nouveau module ou mécanisme a été introduit
+     et son comportement non-évident mérite d'être documenté
+  4. Un test a révélé un comportement contre-intuitif
+     du Cython, de l'exchange ou du thread model
+
+NE PAS mettre à jour si :
+  → La correction est purement documentaire (README, WORKFLOW, plan)
+  → Le pattern est déjà couvert par une entrée existante (L-01..L-15+)
+  → La correction est triviale et sans risque de répétition
+
+FORMAT D'UNE NOUVELLE ENTRÉE :
+### L-[N+1] · [Titre court décrivant le pattern]
+**Sévérité** : 🔴 CRITIQUE / 🟡 IMPORTANT / 🔵 INFO · **Date** : [date]
+
+**Contexte** : [où et quand ce pattern apparaît]
+**Erreur** : [ce qui se passe si on ne respecte pas la règle]
+**Règle** : [ce qu'il faut faire à la place]
+**Ref** : [commit, fichier, audit, ou test concerné]
+
+CONFIRMATION dans le chat :
+  "✅ lessons.md mis à jour — L-[N+1] ajoutée : [titre]"
+  ou
+  "✅ lessons.md inchangé — aucun nouveau pattern à capturer"
+
 Affiche après chaque correction :
 "✅ [ID] terminée — tests OK
  ⏳ Suivante : [ID+1] [titre] ([sévérité])"

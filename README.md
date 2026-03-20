@@ -124,6 +124,30 @@ de trades, alertes e-mail, indicateurs et watchdog.
 | `architecture/decisions.md` | Décisions d'architecture documentées |
 | `architecture/system_design.md` | Design système global |
 
+## Build Cython
+
+Les modules Cython compilés (`.pyd` / `.so`) ne sont **pas commités** (`.gitignore`).
+Après un `git clone` ou toute modification d'un fichier `.pyx`, recompiler via :
+
+```powershell
+# Depuis la racine du repo
+.venv\Scripts\python.exe config/setup.py build_ext --inplace
+
+# Déplacer les compilés générés dans code/ vers code/bin/
+Move-Item code\indicators*.pyd code\bin\
+Move-Item code\backtest_engine_standard*.pyd code\bin\
+```
+
+**Modules Cython actifs** (dans `code/bin/`) :
+
+| Module | Rôle |
+|--------|------|
+| `backtest_engine_standard` | Moteur de backtest principal (params runtime, risk sizing) |
+| `indicators` | Calcul des indicateurs techniques (EMA, RSI, ATR, StochRSI…) |
+
+> Le module `backtest_engine` (legacy) est archivé dans `code/legacy/` — ne pas réactiver
+> sans migration complète vers des paramètres runtime (voir `code/legacy/backtest_engine.pyx`).
+
 ## Fonctionnalités
 
 - **Multi-paires** : Trading simultané sur plusieurs paires (BTC, ETH, SOL, etc.)

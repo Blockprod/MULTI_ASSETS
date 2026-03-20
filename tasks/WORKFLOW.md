@@ -3,7 +3,7 @@ type: guide
 projet: MULTI_ASSETS
 exchange: Binance Spot (USDC)
 stack: Python 3.11.9 · PM2 · Windows
-derniere_revision: 2026-03-18
+derniere_revision: 2026-03-20
 ---
 
 # WORKFLOW — Audit → Plan → Corrections
@@ -267,6 +267,47 @@ Démarre l'exécution du plan d'action disponible.
 
 ---
 
+### Audit Cython
+
+#### Étape A — Audit
+
+**Prompt** : `tasks/prompts/audit_cython_prompt.md`
+**Mode**   : Agent
+**Modèle** : Sonnet 4.6
+**Dimension** : Cohérence .pyx ↔ .pyi · Reproductibilité build ·
+               Imports runtime & fallback · Stubs dans les tests
+**Produit** : `tasks/audits/audit_cython_multi_assets.md`
+```
+#file:tasks/prompts/audit_cython_prompt.md
+Lance cet audit sur le workspace.
+```
+
+#### Étape B — Génération du plan d'action
+
+**Prompt** : `tasks/prompts/generate_action_plan_prompt.md`
+**Mode**   : Agent
+**Modèle** : Sonnet 4.6
+**Lit**    : `tasks/audits/audit_cython_multi_assets.md`
+**Produit** : `tasks/plans/PLAN_ACTION_cython_[DATE].md`
+```
+#file:tasks/prompts/generate_action_plan_prompt.md
+Génère le plan d'action depuis l'audit disponible.
+```
+
+#### Étape C — Exécution des corrections
+
+**Prompt** : `tasks/prompts/execute_corrections_prompt.md`
+**Mode**   : Agent
+**Modèle** : Sonnet 4.6
+**Lit**    : `tasks/plans/PLAN_ACTION_cython_[DATE].md`
+**Produit** : corrections appliquées · statuts ⏳ → ✅
+```
+#file:tasks/prompts/execute_corrections_prompt.md
+Démarre l'exécution du plan d'action disponible.
+```
+
+---
+
 ### Génération AI-Driven & File Engineering
 
 #### Étape A — Audit
@@ -365,6 +406,7 @@ tasks/
 │   ├── audit_structural_prompt.md
 │   ├── audit_email_alerts_prompt.md
 │   ├── audit_ia_ml_prompt.md
+│   ├── audit_cython_prompt.md
 │   └── audit_ai_driven_prompt.md
 │
 ├── audits/                           ← résultats d'audit
@@ -374,6 +416,7 @@ tasks/
 │   ├── audit_structural.md
 │   ├── audit_email_alerts.md
 │   ├── audit_IA_ML_multi_assets.md
+│   ├── audit_cython_multi_assets.md
 │   └── audit_ai_driven.md
 │
 └── plans/                            ← plans d'action générés
@@ -383,6 +426,7 @@ tasks/
     ├── PLAN_ACTION_audit_structural_[DATE].md
     ├── PLAN_ACTION_audit_email_alerts_[DATE].md
     ├── PLAN_ACTION_ia_ml_[DATE].md
+    ├── PLAN_ACTION_audit_cython_multi_assets_[DATE].md
     └── PLAN_ACTION_audit_ai_driven_[DATE].md
 ```
 
