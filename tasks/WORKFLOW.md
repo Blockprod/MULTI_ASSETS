@@ -2,7 +2,7 @@
 type: guide
 projet: MULTI_ASSETS
 exchange: Binance Spot (USDC)
-stack: Python 3.13 · PM2 · Windows
+stack: Python 3.11.9 · PM2 · Windows
 derniere_revision: 2026-03-18
 ---
 
@@ -265,6 +265,23 @@ Génère le plan d'action depuis l'audit disponible.
 #file:tasks/prompts/execute_corrections_prompt.md
 Démarre l'exécution du plan d'action disponible.
 ```
+
+---
+
+## MISE À JOUR DES LEÇONS
+
+Après chaque correction appliquée (via `execute_corrections_prompt.md`) ou toute correction manuelle :
+si une nouvelle erreur de pattern a été découverte, ajouter une entrée dans `tasks/lessons.md`.
+
+```
+#file:tasks/lessons.md
+Ajoute une nouvelle entrée L-[N+1] pour le pattern d'erreur suivant :
+[description de l'erreur, contexte, règle corrective, ref commit ou fichier]
+Sévérité : 🔴 CRITIQUE / 🟡 IMPORTANT / 🔵 INFO
+Date : [date du jour]
+```
+
+**Règle** : Ne jamais clôturer une session de correction sans avoir vérifié si une leçon mérite d'être ajoutée.
 
 ---
 
