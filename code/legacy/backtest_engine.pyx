@@ -1,3 +1,7 @@
+# ARCHIVED 2026-03-20 — Module legacy remplacé par backtest_engine_standard.
+# Raison : DEF constants (ATR_MULTIPLIER, STOP_LOSS_ATR_MULT…) non configurables
+# runtime ; signature incompatible avec backtest_engine_standard (open_prices pos 2 vs 11).
+# Ne PAS réactiver sans migration complète vers des paramètres runtime.
 # cython: language_level=3
 # distutils: language = c++
 # Moteur de backtest optimisé en Cython pour 30-50x accélération
