@@ -478,9 +478,32 @@ def run_walk_forward_validation(
             if col not in full_df.columns:
                 full_df[col] = full_df['close'].ewm(span=period, adjust=False).mean()
 
+        # ML-06: Adaptive initial_train_pct based on ATR percentile (last 30 days).
+        # In high-volatility regimes (ATR >= 80th percentile), shorten the initial IS
+        # window so recent market behaviour is better represented in OOS folds.
+        _adaptive_train_pct = initial_train_pct
+        if 'atr' in full_df.columns and isinstance(full_df.index, pd.DatetimeIndex) and len(full_df) >= 20:
+            try:
+                _cutoff_30d = full_df.index[-1] - pd.Timedelta(days=30)
+                _atr_recent = full_df.loc[full_df.index >= _cutoff_30d, 'atr'].dropna()
+                if len(_atr_recent) >= 10:
+                    _p80 = full_df['atr'].dropna().quantile(0.80)
+                    _atr_current = float(_atr_recent.iloc[-1])
+                    if _atr_current >= _p80:
+                        _adaptive_train_pct = 0.60  # shorter IS in high-volatility regime
+                    else:
+                        _adaptive_train_pct = 0.70  # standard IS in normal regime
+                    _adaptive_train_pct = max(0.55, min(0.75, _adaptive_train_pct))
+                    logger.debug(
+                        "[ML-06] %s %s adaptive train_pct=%.2f (ATR_cur=%.6f P80=%.6f)",
+                        tf, scenario_name, _adaptive_train_pct, _atr_current, _p80,
+                    )
+            except Exception as _ml06_err:
+                logger.debug("[ML-06] ATR adaptive initial_train_pct fallback: %s", _ml06_err)
+
         # Split into folds
         folds = split_walk_forward_folds(
-            full_df, n_folds=n_folds, initial_train_pct=initial_train_pct,
+            full_df, n_folds=n_folds, initial_train_pct=_adaptive_train_pct,
         )
         if not folds:
             logger.warning(f"No WF folds for {tf}; skipping config {scenario_name} EMA({ema1},{ema2})")
@@ -593,3 +616,261 @@ def run_walk_forward_validation(
         'all_wf_results': wf_results,
         'any_passed': len(passed_configs) > 0,
     }
+
+
+# ──────────────────────────────────────────────────────────────
+# ML-07: Optuna Bayesian WF Optimisation
+# ──────────────────────────────────────────────────────────────
+def run_walk_forward_optuna(
+    base_dataframes: Dict[str, pd.DataFrame],
+    scenarios: List[Dict[str, Any]],
+    backtest_fn: Callable,
+    initial_capital: float = 10000.0,
+    sizing_mode: str = 'risk',
+    n_folds: int = 4,
+    initial_train_pct: float = 0.40,
+    n_trials: int = 100,
+    random_seed: int = 42,
+) -> Dict[str, Any]:
+    """Bayesian walk-forward optimisation via Optuna (ML-07).
+
+    Replaces the fixed grid-search over WF_SCENARIOS with a TPE sampler
+    searching the continuous EMA space and the categorical scenario/timeframe
+    space.  Objective = average IS Sharpe across folds (no look-ahead: OOS
+    data never seen during the study).  Best params are then audited on OOS
+    folds with the same quality gates as ``run_walk_forward_validation``.
+
+    Parameters
+    ----------
+    base_dataframes : dict
+        ``{timeframe: DataFrame}`` with indicator columns already computed.
+    scenarios : list of dict
+        Scenario definitions — same format as ``WF_SCENARIOS``.
+    backtest_fn : callable
+        ``backtest_from_dataframe(df, ema1_period, ema2_period, ...) -> dict``
+    initial_capital : float
+        Not used directly in the backtest call but stored in result for
+        caller reference.
+    sizing_mode : str
+        Forwarded to ``backtest_fn``.
+    n_folds : int
+        Number of anchored WF folds.
+    initial_train_pct : float
+        Initial IS fraction (passed to ``split_walk_forward_folds``).
+    n_trials : int
+        Number of Optuna trials (default 100; use smaller for tests).
+    random_seed : int
+        TPE sampler seed for reproducibility.
+
+    Returns
+    -------
+    dict
+        Same structure as ``run_walk_forward_validation``:
+        ``best_wf_config``, ``all_wf_results``, ``any_passed``.
+        Extra key ``method='optuna'`` for caller identification.
+    """
+    try:
+        import optuna
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+    except ImportError:
+        logger.warning("[ML-07] optuna not installed — falling back to grid WF")
+        return run_walk_forward_validation(
+            base_dataframes=base_dataframes,
+            full_sample_results=[],
+            scenarios=scenarios,
+            backtest_fn=backtest_fn,
+            initial_capital=initial_capital,
+            sizing_mode=sizing_mode,
+            n_folds=n_folds,
+            initial_train_pct=initial_train_pct,
+        )
+
+    _EMPTY: Dict[str, Any] = {'best_wf_config': None, 'all_wf_results': [], 'any_passed': False, 'method': 'optuna'}
+
+    scenario_params_map = {s['name']: s['params'] for s in scenarios}
+    scenario_names = [s['name'] for s in scenarios]
+    tf_list = [tf for tf, df in base_dataframes.items() if df is not None and not df.empty and len(df) >= 50]
+
+    if not tf_list or not scenario_names:
+        return _EMPTY
+
+    # Pre-build IS/OOS folds per timeframe (OOS never touched during study)
+    folds_by_tf: Dict[str, List[Tuple[pd.DataFrame, pd.DataFrame]]] = {}
+    for tf in tf_list:
+        folds = split_walk_forward_folds(
+            base_dataframes[tf], n_folds=n_folds, initial_train_pct=initial_train_pct,
+        )
+        if folds:
+            folds_by_tf[tf] = folds
+
+    if not folds_by_tf:
+        return _EMPTY
+
+    # Load OOS thresholds
+    oos_sharpe_min, oos_win_rate_min = _get_oos_thresholds()
+    try:
+        from bot_config import config as _bot_cfg
+        _oos_decay_min = getattr(_bot_cfg, 'oos_decay_min', OOS_DECAY_MIN)
+    except Exception:
+        _oos_decay_min = OOS_DECAY_MIN
+
+    def _objective(trial: 'optuna.Trial') -> float:  # type: ignore[name-defined]
+        tf = trial.suggest_categorical('tf', list(folds_by_tf.keys()))
+        ema1 = trial.suggest_int('ema1', 5, 50)
+        ema2 = trial.suggest_int('ema2', ema1 + 5, 120)
+        scenario_name = trial.suggest_categorical('scenario', scenario_names)
+
+        full_df = base_dataframes[tf]
+        ppy = timeframe_to_periods_per_year(tf)
+        s_params = scenario_params_map.get(scenario_name, {})
+
+        # Ensure EMA columns exist on full_df (mutates in-place — safe, pandas copy-on-write)
+        for period in (ema1, ema2):
+            col = f'ema_{period}'
+            if col not in full_df.columns:
+                full_df[col] = full_df['close'].ewm(span=period, adjust=False).mean()
+
+        is_sharpes: List[float] = []
+        for train_df, _oos_df in folds_by_tf[tf]:
+            # Ensure EMA on IS slice without mutating shared df
+            train_slice = train_df
+            for period in (ema1, ema2):
+                col = f'ema_{period}'
+                if col not in train_slice.columns:
+                    train_slice = train_slice.copy()
+                    train_slice[col] = train_slice['close'].ewm(span=period, adjust=False).mean()
+            try:
+                res = backtest_fn(
+                    df=train_slice, ema1_period=ema1, ema2_period=ema2,
+                    sma_long=s_params.get('sma_long'),
+                    adx_period=s_params.get('adx_period'),
+                    trix_length=s_params.get('trix_length'),
+                    trix_signal=s_params.get('trix_signal'),
+                    sizing_mode=sizing_mode,
+                    periods_per_year=ppy,
+                )
+                sr = res.get('sharpe_ratio', 0.0)
+                if isinstance(sr, (int, float)) and sr == sr:  # not NaN
+                    is_sharpes.append(float(sr))
+            except Exception as _e:
+                logger.debug("[ML-07] trial %d IS fold failed: %s", trial.number, _e)
+
+        if not is_sharpes:
+            return float('-inf')
+        return float(sum(is_sharpes) / len(is_sharpes))
+
+    study = optuna.create_study(
+        direction='maximize',
+        sampler=optuna.samplers.TPESampler(seed=random_seed),
+    )
+    study.optimize(_objective, n_trials=n_trials, show_progress_bar=False)
+
+    if study.best_trial is None or study.best_value == float('-inf'):
+        logger.warning("[ML-07] Optuna study found no valid trial")
+        return _EMPTY
+
+    best_params = study.best_trial.params
+    best_tf = best_params['tf']
+    best_ema1 = best_params['ema1']
+    best_ema2 = best_params['ema2']
+    best_scenario = best_params['scenario']
+
+    logger.info(
+        "[ML-07] Best IS params: %s %s EMA(%d,%d) | IS Sharpe=%.3f | %d trials",
+        best_scenario, best_tf, best_ema1, best_ema2, study.best_value, n_trials,
+    )
+
+    # OOS audit with best params (data never seen during study)
+    full_df = base_dataframes[best_tf]
+    ppy = timeframe_to_periods_per_year(best_tf)
+    s_params = scenario_params_map.get(best_scenario, {})
+
+    for period in (best_ema1, best_ema2):
+        col = f'ema_{period}'
+        if col not in full_df.columns:
+            full_df[col] = full_df['close'].ewm(span=period, adjust=False).mean()
+
+    oos_sharpes: List[float] = []
+    oos_win_rates: List[float] = []
+    fold_details: List[Dict[str, Any]] = []
+
+    for fold_idx, (train_df, test_df) in enumerate(folds_by_tf[best_tf]):
+        train_slice = train_df
+        test_slice = test_df
+        for period in (best_ema1, best_ema2):
+            col = f'ema_{period}'
+            if col not in train_slice.columns:
+                train_slice = train_slice.copy()
+                train_slice[col] = train_slice['close'].ewm(span=period, adjust=False).mean()
+            if col not in test_slice.columns:
+                test_slice = test_slice.copy()
+                test_slice[col] = test_slice['close'].ewm(span=period, adjust=False).mean()
+        try:
+            is_res = backtest_fn(
+                df=train_slice, ema1_period=best_ema1, ema2_period=best_ema2,
+                sma_long=s_params.get('sma_long'), adx_period=s_params.get('adx_period'),
+                trix_length=s_params.get('trix_length'), trix_signal=s_params.get('trix_signal'),
+                sizing_mode=sizing_mode, periods_per_year=ppy,
+            )
+            oos_res = backtest_fn(
+                df=test_slice, ema1_period=best_ema1, ema2_period=best_ema2,
+                sma_long=s_params.get('sma_long'), adx_period=s_params.get('adx_period'),
+                trix_length=s_params.get('trix_length'), trix_signal=s_params.get('trix_signal'),
+                sizing_mode=sizing_mode, periods_per_year=ppy,
+            )
+            oos_sr = float(oos_res.get('sharpe_ratio', 0.0))
+            is_sr = float(is_res.get('sharpe_ratio', 0.0))
+            oos_wr = float(oos_res.get('win_rate', 0.0))
+            decay = (oos_sr / is_sr) if is_sr > 0.0 else 0.0
+            oos_sharpes.append(oos_sr)
+            oos_win_rates.append(oos_wr)
+            fold_details.append({
+                'fold': fold_idx, 'is_sharpe': is_sr, 'oos_sharpe': oos_sr,
+                'win_rate': oos_wr, 'decay': decay,
+            })
+        except Exception as _e:
+            logger.debug("[ML-07] OOS fold %d failed: %s", fold_idx, _e)
+
+    if not oos_sharpes:
+        return _EMPTY
+
+    avg_oos_sharpe = sum(oos_sharpes) / len(oos_sharpes)
+    avg_oos_win_rate = sum(oos_win_rates) / len(oos_win_rates)
+    avg_is_sharpe = sum(d['is_sharpe'] for d in fold_details) / len(fold_details)
+    decay = (avg_oos_sharpe / avg_is_sharpe) if avg_is_sharpe > 0.0 else 0.0
+
+    passed = (
+        avg_oos_sharpe >= oos_sharpe_min
+        and avg_oos_win_rate >= oos_win_rate_min
+        and decay >= _oos_decay_min
+    )
+
+    best_cfg: Dict[str, Any] = {
+        'scenario': best_scenario,
+        'timeframe': best_tf,
+        'ema_periods': (best_ema1, best_ema2),
+        'avg_oos_sharpe': round(avg_oos_sharpe, 4),
+        'avg_oos_win_rate': round(avg_oos_win_rate, 2),
+        'avg_is_sharpe': round(avg_is_sharpe, 4),
+        'oos_is_decay': round(decay, 4),
+        'passed_oos_gates': passed,
+        'folds': fold_details,
+        'optuna_n_trials': n_trials,
+        'optuna_best_is_sharpe': round(study.best_value, 4),
+        **{k: v for k, v in s_params.items()},
+    }
+
+    logger.info(
+        "[ML-07] Optuna OOS audit: %s %s EMA(%d,%d) | OOS Sharpe=%.3f WR=%.1f%% decay=%.2f | %s",
+        best_scenario, best_tf, best_ema1, best_ema2,
+        avg_oos_sharpe, avg_oos_win_rate * 100.0, decay,
+        "PASSED" if passed else "FAILED",
+    )
+
+    return {
+        'best_wf_config': best_cfg if passed else None,
+        'all_wf_results': [{'config': best_cfg, 'fold_details': fold_details}],
+        'any_passed': passed,
+        'method': 'optuna',
+    }
+

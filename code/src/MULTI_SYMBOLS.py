@@ -972,7 +972,7 @@ def _fetch_indicators(real_trading_pair: str, time_interval: str, best_params: D
         )
         return None
 
-    row = df.iloc[-2]
+    row = df.iloc[-2].copy()  # mutable copy — safe for feature injection below
 
     # A-2: Multi-timeframe filter — compute 4h EMA trend for the signal row
     if getattr(config, 'mtf_filter_enabled', False) and isinstance(df.index, pd.DatetimeIndex):
@@ -985,11 +985,19 @@ def _fetch_indicators(real_trading_pair: str, time_interval: str, best_params: D
             _ema_s_4h = _df_4h_close.ewm(span=_ema_slow, adjust=False).mean()
             _bullish_4h = (_ema_f_4h > _ema_s_4h).astype(float).shift(1).fillna(0.0)
             _bullish_1h = _bullish_4h.reindex(df.index, method='ffill').fillna(0.0)
-            # Inject into the row as a mutable copy
-            row = row.copy()
             row['mtf_bullish'] = _bullish_1h.iloc[-2] if len(_bullish_1h) >= 2 else 0.0
         except Exception as _mtf_err:
             logger.warning("[A-2] MTF computation failed: %s — filter disabled for this cycle", _mtf_err)
+
+    # ML-03: Inject ATR median (last 30 days) for adaptive stop multiplier at entry
+    if 'atr' in df.columns and isinstance(df.index, pd.DatetimeIndex):
+        try:
+            _cutoff_30d = df.index[-1] - pd.Timedelta(days=30)
+            _atr_median = df.loc[df.index >= _cutoff_30d, 'atr'].dropna().median()
+            if pd.notna(_atr_median) and _atr_median > 0:
+                row['atr_median_30d'] = float(_atr_median)
+        except Exception as _atr_med_err:
+            logger.debug("[ML-03] ATR median 30d skipped: %s", _atr_med_err)
 
     current_price = float(client.get_symbol_ticker(symbol=real_trading_pair)['price'])
     return df, row, current_price

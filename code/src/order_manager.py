@@ -159,6 +159,18 @@ def _sync_entry_state(ctx: '_TradeCtx', last_side: Optional[str], deps: '_Tradin
 
     atr_value = ctx.row.get('atr')
     atr_stop_multiplier = deps.config.atr_stop_multiplier
+    # ML-03: Adaptive ATR stop multiplier at entry — scale with current vs 30d median volatility.
+    # Falls back to config value if atr_median_30d is not available in row.
+    _atr_median_30d = ctx.row.get('atr_median_30d') if hasattr(ctx.row, 'get') else None
+    if (
+        _atr_median_30d is not None
+        and _atr_median_30d > 0
+        and atr_value is not None
+        and atr_value > 0
+    ):
+        _vol_ratio = atr_value / _atr_median_30d
+        atr_stop_multiplier = atr_stop_multiplier * (_vol_ratio ** 0.5)
+        atr_stop_multiplier = max(1.5, min(5.0, atr_stop_multiplier))
     atr_multiplier = deps.config.atr_multiplier
     ps = ctx.pair_state
     # Set entry variables ONLY if not already set (never update after entry)

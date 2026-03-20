@@ -11,11 +11,32 @@ state — all behaviour is locked-in at closure creation time.
 from __future__ import annotations
 
 import logging
+import os
+import pickle
 import pandas as pd
 from typing import Any, Callable, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+# ── ML-08: Lazy model cache (shadow mode — never blocks signals) ─
+_ML08_CACHE: Dict[str, Any] = {}
+
+def _get_ml08_model() -> Optional[Dict[str, Any]]:
+    """Load ML confidence model from cache/ if present; return None if missing."""
+    if "loaded" not in _ML08_CACHE:
+        _ML08_CACHE["loaded"] = True  # mark as attempted (even on failure)
+        _model_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "cache", "ml_confidence_model.pkl"
+        )
+        try:
+            with open(_model_path, "rb") as _fh:
+                _ML08_CACHE["payload"] = pickle.load(_fh)
+            logger.info("[ML-08] Confidence model loaded from %s", _model_path)
+        except FileNotFoundError:
+            pass  # model not yet trained — expected
+        except Exception as _e:
+            logger.warning("[ML-08] Model load failed: %s", _e)
+    return _ML08_CACHE.get("payload")
 
 def generate_buy_condition_checker(
     best_params: Dict[str, Any],
@@ -95,6 +116,34 @@ def generate_buy_condition_checker(
             _mtf = row.get('mtf_bullish') if hasattr(row, 'get') else row.get('mtf_bullish', None)
             if _mtf is not None and float(_mtf) < 0.5:
                 return False, "MTF 4h trend baissier (EMA_fast_4h <= EMA_slow_4h)"
+
+        # ML-08 shadow: log ML confidence probability — NEVER blocks signal
+        try:
+            _m08 = _get_ml08_model()
+            if _m08 is not None:
+                _close = float(row.get('close', 0.0) or 0.0)
+                _atr = float(row.get('atr', 0.0) or 0.0)
+                _ema1_v = float(row.get('ema1', 1.0) or 1.0)
+                _ema2_v = float(row.get('ema2', 1.0) or 1.0)
+                _atr_med = float(row.get('atr_median_30d', 0.0) or 0.0)
+                _f = {
+                    'atr_pct': _atr / _close if _close > 0 else 0.0,
+                    'stop_dist_pct': _atr * float(best_params.get('atr_stop_multiplier', 2.0)) / _close if _close > 0 else 0.0,
+                    'ema_ratio': _ema1_v / max(_ema2_v, 1e-9),
+                    'equity_before': 0.0,
+                    'scenario': str(best_params.get('scenario', 'StochRSI')),
+                    'timeframe': str(best_params.get('timeframe', '1h')),
+                }
+                _fcols = _m08.get('feature_cols', [])
+                _X = pd.DataFrame([{c: _f.get(c, 0.0) for c in _fcols}])
+                _prob = float(_m08['model'].predict_proba(_X)[0][1])
+                _threshold = float(_m08.get('threshold', 0.55))
+                logger.debug(
+                    "[ML-08 SHADOW] BUY confidence P(profitable)=%.3f (thr=%.2f) %s",
+                    _prob, _threshold, "✓" if _prob >= _threshold else "↓",
+                )
+        except Exception as _ml08_err:
+            logger.debug("[ML-08 shadow] prediction skipped: %s", _ml08_err)
 
         # Toutes les conditions sont remplies
         return True, "[OK] Signal d'achat valide"

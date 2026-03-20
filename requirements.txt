@@ -25,6 +25,12 @@ schedule==1.2.2
 rich==14.3.3
 tqdm==4.67.3
 
+# === ML / ANALYSIS (offline scripts only — code/scripts/) ===
+xgboost==3.2.0
+shap==0.51.0
+hmmlearn==0.3.3
+optuna==4.3.0
+
 # === TESTING ===
 pytest==8.3.5
 pytest-mock==3.14.0

@@ -223,26 +223,41 @@ def _execute_scheduled_trading(
                 )
 
                 # P2-01: Walk-Forward OOS validation pour la sélection planifiée.
+                # ML-07: Optuna bayésien en priorité, fallback vers grid WF.
                 _sched_wf_best = None
                 try:
+                    from walk_forward import run_walk_forward_optuna as _run_wf_optuna
                     from walk_forward import run_walk_forward_validation as _run_wf_sched
                     _wf_dfs_sched = {}
                     for _tf_s in deps.timeframes:
                         _df_s = deps.prepare_base_dataframe_fn(backtest_pair, _tf_s, dynamic_start_date, 14)
                         _wf_dfs_sched[_tf_s] = _df_s if _df_s is not None and not _df_s.empty else __import__('pandas').DataFrame()
-                    _wf_res_sched = _run_wf_sched(
+                    # ML-07: Try Optuna first (wider EMA search space)
+                    _wf_res_sched = _run_wf_optuna(
                         base_dataframes=_wf_dfs_sched,
-                        full_sample_results=backtest_results,
                         scenarios=deps.wf_scenarios,
                         backtest_fn=deps.backtest_from_dataframe_fn,
                         initial_capital=deps.config.initial_wallet,
                         sizing_mode=sizing_mode,
+                        n_trials=100,
                     )
+                    # Fallback to grid WF if Optuna found nothing valid
+                    if not _wf_res_sched.get('any_passed'):
+                        logger.info("[SCHEDULED ML-07] Optuna WF: aucun config valide — fallback grid WF")
+                        _wf_res_sched = _run_wf_sched(
+                            base_dataframes=_wf_dfs_sched,
+                            full_sample_results=backtest_results,
+                            scenarios=deps.wf_scenarios,
+                            backtest_fn=deps.backtest_from_dataframe_fn,
+                            initial_capital=deps.config.initial_wallet,
+                            sizing_mode=sizing_mode,
+                        )
                     if _wf_res_sched.get('any_passed'):
                         _sched_wf_best = _wf_res_sched['best_wf_config']
                         logger.info(
-                            "[SCHEDULED P2-01] Sélection Walk-Forward OOS: %s EMA(%s,%s) %s — "
+                            "[SCHEDULED P2-01] Sélection Walk-Forward OOS (%s): %s EMA(%s,%s) %s — "
                             "OOS Sharpe=%.2f.",
+                            _wf_res_sched.get('method', 'grid'),
                             _sched_wf_best['scenario'],
                             _sched_wf_best['ema_periods'][0],
                             _sched_wf_best['ema_periods'][1],
@@ -486,24 +501,36 @@ def _backtest_and_display_results(
         logger.error("Aucune donnee de backtest n'a ete generee")
         return
 
-    # === WALK-FORWARD VALIDATION (Phase 2) ===
+    # === WALK-FORWARD VALIDATION — ML-07: Optuna bayésien (prioritaire) ===
     wf_result: Dict[str, Any] = {}
     try:
-        from walk_forward import run_walk_forward_validation
+        from walk_forward import run_walk_forward_optuna, run_walk_forward_validation
         # Recréer base_dataframes pour WF (données déjà en cache)
         wf_base_dataframes = {}
         for tf in deps.timeframes:
             df_wf = deps.prepare_base_dataframe_fn(backtest_pair, tf, dynamic_start_date, 14)
             wf_base_dataframes[tf] = df_wf if df_wf is not None and not df_wf.empty else __import__('pandas').DataFrame()
 
-        wf_result = run_walk_forward_validation(
+        # ML-07: Optuna en priorité (espace EMA + scenario continu)
+        wf_result = run_walk_forward_optuna(
             base_dataframes=wf_base_dataframes,
-            full_sample_results=results,
             scenarios=deps.wf_scenarios,
             backtest_fn=deps.backtest_from_dataframe_fn,
             initial_capital=deps.config.initial_wallet,
             sizing_mode=sizing_mode,
+            n_trials=100,
         )
+        # Fallback: grid WF si Optuna ne passe pas les OOS gates
+        if not wf_result.get('any_passed'):
+            logger.info("[ML-07] Optuna WF: aucun config valide — fallback grid WF")
+            wf_result = run_walk_forward_validation(
+                base_dataframes=wf_base_dataframes,
+                full_sample_results=results,
+                scenarios=deps.wf_scenarios,
+                backtest_fn=deps.backtest_from_dataframe_fn,
+                initial_capital=deps.config.initial_wallet,
+                sizing_mode=sizing_mode,
+            )
 
         if wf_result.get('any_passed'):
             console.print(Panel(
