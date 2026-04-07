@@ -2,6 +2,9 @@ import logging
 import os
 import sys
 import pytest
+import numpy as np
+import pandas as pd
+from unittest.mock import MagicMock
 
 # E2E testnet tests require real credentials — excluded from default collection.
 # Run manually: pytest tests/test_e2e_testnet.py -m testnet -v
@@ -10,9 +13,6 @@ collect_ignore = ["test_e2e_testnet.py"]
 # C-01: forcer BOT_MODE=LIVE pour les tests (avant tout import de bot_config)
 # Sans cela, le défaut DEMO bloquerait safe_market_buy/sell dans les tests d'ordre.
 os.environ.setdefault('BOT_MODE', 'LIVE')
-import numpy as np
-import pandas as pd
-from unittest.mock import MagicMock
 
 # Ensure code/src is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
