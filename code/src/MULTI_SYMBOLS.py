@@ -1316,7 +1316,7 @@ if __name__ == "__main__":
     logger.info("Bot crypto H24/7 - Mode ultra-robuste avec privileges admin")
 
     crypto_pairs = [
-        {"backtest_pair": "HBARUSDT", "real_pair": "HBARUSDC"},
+        {"backtest_pair": "ONDOUSDT", "real_pair": "ONDOUSDC"},
     ]
     _voluntary_event   = threading.Event()
     _shutdown_verified = threading.Event()
@@ -1735,7 +1735,11 @@ if __name__ == "__main__":
                     except Exception as hb_err:
                         logger.error(f"[HEARTBEAT] Erreur écriture: {hb_err}")
 
-                    _shutdown_event.wait(120)
+                    # Attente réactive en tranches de 1s — CTRL+C répond dans la seconde
+                    # sur Windows (Event.wait(120) bloque jusqu'à 2 min avant de vérifier)
+                    _t0 = time.monotonic()
+                    while not _shutdown_event.wait(1) and time.monotonic() - _t0 < 120:
+                        pass
 
                 except Exception as e:
                     # Use error handler to manage main loop exceptions
