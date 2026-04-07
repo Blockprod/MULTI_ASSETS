@@ -111,7 +111,7 @@ def prepare_df(pair: str, timeframe: str) -> pd.DataFrame:
     return df
 
 
-def run_benchmark(param_name: str, values: list, pair: str = 'HBARUSDC'):  # MI-01
+def run_benchmark(param_name: str, values: list, pair: str = 'ONDOUSDC'):  # MI-01
     """Run backtests for each value of the parameter and print comparison."""
     print(f"\n{'='*80}")
     print(f"  BENCHMARK: {param_name}")
@@ -250,7 +250,7 @@ def main():
                         help='Parameter name to optimize')
     parser.add_argument('--values', type=str, default=None,
                         help='Comma-separated values to test (e.g., 0.2,0.4,0.5)')
-    parser.add_argument('--pair', type=str, default='HBARUSDC',  # MI-07
+    parser.add_argument('--pair', type=str, default='ONDOUSDC',  # MI-07
                         help='Trading pair (USDC quote uniquement)')
     args = parser.parse_args()
 
