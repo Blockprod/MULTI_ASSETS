@@ -478,6 +478,8 @@ def _execute_one_partial(ctx: '_TradeCtx', deps: '_TradingDeps', *, partial_numb
                 _entry_px = ps.get('entry_price') or 0
                 _pnl = (float(executed_price) - _entry_px) * float(qty_str) if _entry_px else None
                 _pnl_pct = ((float(executed_price) / _entry_px) - 1) if _entry_px else None
+                _buy_ts = ps.get('buy_timestamp')
+                _duration_s = (time.time() - _buy_ts) if _buy_ts else None
                 log_trade(
                     logs_dir=logs_dir,
                     pair=ctx.real_trading_pair,
@@ -489,7 +491,7 @@ def _execute_one_partial(ctx: '_TradeCtx', deps: '_TradingDeps', *, partial_numb
                     timeframe=ctx.time_interval,
                     pnl=_pnl,
                     pnl_pct=_pnl_pct,
-                    extra={'sell_reason': label, 'position_closed': position_closed},
+                    extra={'sell_reason': label, 'position_closed': position_closed, 'duration_s': _duration_s},
                 )
             except Exception as journal_err:
                 logger.error(f"[JOURNAL] Erreur écriture vente partielle: {journal_err}")
@@ -657,6 +659,8 @@ def _handle_exchange_sl_fill(
             _pnl = (executed_price - _saved_entry_price) * _sl_exec_qty if _saved_entry_price else None
             _pnl_pct_j = ((executed_price / _saved_entry_price) - 1) if _saved_entry_price else None
             deps.update_daily_pnl_fn(_pnl)
+            _buy_ts_sl = ps.get('buy_timestamp')
+            _duration_s_sl = (time.time() - _buy_ts_sl) if _buy_ts_sl else None
             log_trade(
                 logs_dir=logs_dir,
                 pair=ctx.real_trading_pair,
@@ -668,7 +672,7 @@ def _handle_exchange_sl_fill(
                 timeframe=ctx.time_interval,
                 pnl=_pnl,
                 pnl_pct=_pnl_pct_j,
-                extra={'sell_reason': f'{stop_type} (exchange-filled)'},
+                extra={'sell_reason': f'{stop_type} (exchange-filled)', 'duration_s': _duration_s_sl},
             )
         except Exception as _journal_err:
             logger.error("[JOURNAL] Erreur écriture vente SL exchange: %s", _journal_err)
@@ -791,6 +795,8 @@ def _handle_manual_sl_trigger(
                 _pnl = (_exec_price - _saved_entry_price) * _qty if _saved_entry_price and _exec_price else None
                 _pnl_pct = ((_exec_price / _saved_entry_price) - 1) if _saved_entry_price and _exec_price else None
                 deps.update_daily_pnl_fn(_pnl)
+                _buy_ts_m = ps.get('buy_timestamp')
+                _duration_s_m = (time.time() - _buy_ts_m) if _buy_ts_m else None
                 log_trade(
                     logs_dir=logs_dir,
                     pair=ctx.real_trading_pair,
@@ -802,7 +808,7 @@ def _handle_manual_sl_trigger(
                     timeframe=ctx.time_interval,
                     pnl=_pnl,
                     pnl_pct=_pnl_pct,
-                    extra={'sell_reason': stop_type},
+                    extra={'sell_reason': stop_type, 'duration_s': _duration_s_m},
                 )
             except Exception as journal_err:
                 logger.error("[JOURNAL] Erreur écriture vente stop: %s", journal_err)
@@ -1087,6 +1093,9 @@ def _execute_signal_sell(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                             _entry_px = ps.get('entry_price') or 0
                             _pnl = (float(executed_price) - _entry_px) * float(qty_str) if _entry_px and executed_price and qty_str else None
                             _pnl_pct = ((float(executed_price) / _entry_px) - 1) if _entry_px and executed_price else None
+                            _buy_ts_sig = ps.get('buy_timestamp')
+                            _duration_s_sig = (time.time() - _buy_ts_sig) if _buy_ts_sig else None
+                            _, _equity_after, _, _ = _get_coin_balance(account_info, 'USDC')
                             log_trade(
                                 logs_dir=logs_dir,
                                 pair=ctx.real_trading_pair,
@@ -1098,7 +1107,8 @@ def _execute_signal_sell(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                                 timeframe=ctx.time_interval,
                                 pnl=_pnl,
                                 pnl_pct=_pnl_pct,
-                                extra={'sell_reason': 'SIGNAL', 'position_closed': position_closed},
+                                equity_after=_equity_after,
+                                extra={'sell_reason': 'SIGNAL', 'position_closed': position_closed, 'duration_s': _duration_s_sig},
                             )
                         except Exception as journal_err:
                             logger.error(f"[JOURNAL] Erreur écriture vente: {journal_err}")

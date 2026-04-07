@@ -357,6 +357,9 @@ _pair_locks_mutex = threading.Lock()
 _indicators_cache_lock = threading.Lock()
 indicators_cache: OrderedDict[str, Any] = OrderedDict()
 
+# Dernier solde USDC connu — mis à jour à chaque fetch_balances, lu par le heartbeat
+_last_usdc_balance: float | None = None
+
 
 # Paramètres par défaut des scénarios — constante partagée (3 emplacements)
 SCENARIO_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
@@ -911,6 +914,8 @@ def _fetch_balances(real_trading_pair: str) -> Optional[Tuple[Any, str, str, flo
 
     _, usdc_balance_free_val, _, _ = _get_coin_balance(account_info, 'USDC')
     usdc_balance = usdc_balance_free_val
+    global _last_usdc_balance
+    _last_usdc_balance = usdc_balance
 
     _coin_found, coin_balance_free, coin_balance_locked, coin_balance = _get_coin_balance(
         account_info, coin_symbol
@@ -1719,12 +1724,20 @@ if __name__ == "__main__":
 
                     # Écriture du heartbeat (Phase 2 — watchdog support)
                     try:
+                        # Rafraîchir le solde USDC à chaque cycle pour le dashboard
+                        try:
+                            _acc = client.get_account()
+                            _, _usdc_free, _, _ = _get_coin_balance(_acc, 'USDC')
+                            _last_usdc_balance = _usdc_free
+                        except Exception:
+                            pass  # solde conservé depuis le dernier fetch réussi
                         heartbeat = {
                             "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                             "pid": os.getpid(),
                             "circuit_mode": error_handler.circuit_breaker.mode.value,
                             "error_count": len(error_handler.error_history),
                             "loop_counter": running_counter,
+                            "usdc_balance": _last_usdc_balance,
                         }
                         hb_path = os.path.join(os.path.dirname(__file__), "states", "heartbeat.json")
                         os.makedirs(os.path.dirname(hb_path), exist_ok=True)
