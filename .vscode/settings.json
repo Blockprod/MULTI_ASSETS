@@ -4,6 +4,18 @@
   // est gérée par pyrightconfig.json à la racine (priorité sur python.analysis.*)
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
 
+  // ── Terminal — activation automatique du venv ────────────────────────────
+  // python.terminal.activateEnvironment désactivé : l'activation est gérée
+  // silencieusement via le profil PowerShell ci-dessous (pas d'echo dans le terminal)
+  "python.terminal.activateEnvironment": false,
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "terminal.integrated.profiles.windows": {
+    "PowerShell": {
+      "source": "PowerShell",
+      "args": ["-NoExit", "-Command", "& '${workspaceFolder}\\.venv\\Scripts\\Activate.ps1'"]
+    }
+  },
+
   // Analyse tout le workspace en arrière-plan (pas seulement les fichiers ouverts)
   "python.analysis.diagnosticMode": "workspace",
 

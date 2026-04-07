@@ -11,7 +11,7 @@ import time
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Callable, Dict, Optional, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union, cast
 
 import requests
 import schedule
@@ -22,6 +22,37 @@ from bot_config import log_exceptions, retry_with_backoff, config as _config
 from exceptions import BalanceUnavailableError, CircuitOpenError, OrderError
 
 logger = logging.getLogger(__name__)
+
+
+# ─── P2-01: Interface structurelle du client d'échange ────────────────────────
+class ExchangePort(Protocol):
+    """Interface structurelle du client d'échange (P2-01).
+
+    BinanceFinalClient implémente ce protocole structurellement via python-binance Client.
+    Utilisé pour le typage des DI deps (_TradingDeps, _ReconcileDeps, _BacktestDeps).
+    Aucun changement fonctionnel — refactoring de type uniquement.
+    """
+
+    # Lecture de soldes et infos marché
+    def get_account(self, **kwargs: Any) -> Dict[str, Any]: ...
+    def get_all_tickers(self, **kwargs: Any) -> List[Dict[str, Any]]: ...
+    def get_exchange_info(self, **kwargs: Any) -> Dict[str, Any]: ...
+    def get_symbol_ticker(self, **kwargs: Any) -> Dict[str, Any]: ...
+    def get_symbol_info(self, symbol: str) -> Any: ...
+    def get_server_time(self, **kwargs: Any) -> Dict[str, Any]: ...
+
+    # Lecture d'ordres
+    def get_order(self, **kwargs: Any) -> Dict[str, Any]: ...
+    def get_all_orders(self, **kwargs: Any) -> List[Dict[str, Any]]: ...
+    def get_open_orders(self, **kwargs: Any) -> List[Dict[str, Any]]: ...
+    def get_my_trades(self, **kwargs: Any) -> List[Dict[str, Any]]: ...
+    def get_trade_fee(self, **kwargs: Any) -> List[Dict[str, Any]]: ...
+
+    # Placement d'ordres
+    def order_market_buy(self, **kwargs: Any) -> Dict[str, Any]: ...
+    def order_market_sell(self, **kwargs: Any) -> Dict[str, Any]: ...
+    def create_order(self, **kwargs: Any) -> Dict[str, Any]: ...
+    def cancel_order(self, **kwargs: Any) -> Dict[str, Any]: ...
 
 
 # ─── Token-bucket rate limiter (C-05) ─────────────────────────────────────
@@ -228,16 +259,13 @@ class BinanceFinalClient(Client):
                     if next_run:
                         delta = next_run - now
                         minutes_left = max(0, int(delta.total_seconds() // 60))
-                        print(
-                            f"[TIME] {now.strftime('%H:%M:%S')} - "
-                            f"Bot actif (RUNNING) | Prochaine execution "
-                            f"dans {minutes_left} min "
-                            f"({next_run.strftime('%H:%M:%S')})")
+                        logger.debug(
+                            "[RETRY] %s - Bot actif (RUNNING) | Prochaine execution dans %s min (%s)",
+                            now.strftime('%H:%M:%S'), minutes_left, next_run.strftime('%H:%M:%S'))
                     else:
-                        print(
-                            f"[TIME] {now.strftime('%H:%M:%S')} - "
-                            f"Bot actif (RUNNING) | "
-                            f"Prochaine execution non planifiée")
+                        logger.debug(
+                            "[RETRY] %s - Bot actif (RUNNING) | Prochaine execution non planifiee",
+                            now.strftime('%H:%M:%S'))
                     _backoff = min(10 * (2 ** attempt), 30)  # 10s, 20s, 30s max
                     logger.warning(
                         f"_request: retry {attempt+1}/{max_retries} après {_backoff}s"
@@ -388,8 +416,8 @@ def _direct_market_order(client: Any, symbol: str, side: str,
                         f"{side.upper()} : {e}\n\nParams : {params_order}"),
                     client=client
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("[exchange_client] send_alert a échoué: %s", _exc)
         raise OrderError(f"Exception {side.upper()} order: {e}", symbol=symbol) from e
 
 
@@ -674,7 +702,7 @@ def place_exchange_stop_loss(
     symbol: str,
     quantity: str,
     stop_price: float,
-    limit_slippage: float = 0.005,
+    _limit_slippage: float = 0.005,
     send_alert: Any = None,
 ) -> Dict[str, Any]:
     """Place un ordre STOP_LOSS (market trigger) sur Binance Spot après un achat.

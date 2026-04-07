@@ -248,8 +248,8 @@ def fetch_historical_data(
                     pair_symbol, time_interval, start_date, str(e)
                 )
                 send_alert_fn(subject=subj, body_main=body, client=client)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("[data_fetcher] send_alert (data_error) a échoué: %s", _exc)
         raise
     except Exception as e:
         error_str = str(e)
@@ -297,8 +297,8 @@ def fetch_historical_data(
             try:
                 subj, body = network_error_template_fn(pair_symbol, str(e))
                 send_alert_fn(subject=subj, body_main=body, client=client)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("[data_fetcher] send_alert (network_error) a échoué: %s", _exc)
         return pd.DataFrame()
 
 

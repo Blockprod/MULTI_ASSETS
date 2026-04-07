@@ -131,6 +131,18 @@ class Config:
     def __str__(self) -> str:
         return self.__repr__()
 
+    def __setattr__(self, name: str, value: object) -> None:
+        """Empêche toute mutation de Config après initialisation (P0-01)."""
+        if name == '_frozen':
+            object.__setattr__(self, name, value)
+            return
+        if getattr(self, '_frozen', False):
+            raise AttributeError(
+                f"Config is frozen — cannot set '{name}' after initialization. "
+                "Store runtime state in module-level variables instead."
+            )
+        object.__setattr__(self, name, value)
+
     @classmethod
     def from_env(cls) -> 'Config':
         """Charge la configuration depuis les variables d'environnement."""
@@ -331,6 +343,9 @@ class Config:
         if errors:
             msg = "Erreur(s) de configuration:\n  - " + "\n  - ".join(errors)
             raise ValueError(msg)
+
+        # P0-01: gel de la config après validation — toute mutation ultérieure lève AttributeError
+        object.__setattr__(self, '_frozen', True)
 
 
 # Singleton de configuration — créé à l'import

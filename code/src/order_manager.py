@@ -9,6 +9,7 @@ Signature type: fn(ctx: _TradeCtx, deps: _TradingDeps, ...) -> ...
 """
 from __future__ import annotations
 
+import math
 import os
 import random
 import time
@@ -20,7 +21,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from bot_config import config
 from display_ui import display_closure_panel, display_sell_signal_panel, display_buy_signal_panel
 from email_templates import buy_executed_email, sell_executed_email
-from exchange_client import _get_coin_balance, can_execute_partial_safely
+from exchange_client import _get_coin_balance, can_execute_partial_safely, ExchangePort
 from state_manager import set_emergency_halt
 from position_sizing import (
     compute_position_size_by_risk,
@@ -28,12 +29,14 @@ from position_sizing import (
     compute_position_size_volatility_parity,
 )
 from trade_journal import log_trade
+from constants import (
+    QTY_OVERSHOOT_TOLERANCE as _QTY_OVERSHOOT_TOLERANCE,
+    SL_MAX_RETRIES,
+    SL_BACKOFF_BASE,
+    TIMEFRAME_SECONDS,
+)
 
 logger = __import__('logging').getLogger(__name__)
-
-# ─── Constantes module ────────────────────────────────────────────────────────
-_QTY_OVERSHOOT_TOLERANCE = Decimal('1.02')  # 2% de tolérance sur min_qty (MI-03)
-_DUST_FINAL_FRACTION = Decimal('0.20')       # 20% du solde restant — seuil filtre dust (MI-03)
 
 
 @dataclass
@@ -45,7 +48,7 @@ class _TradingDeps:
     effectifs dans les fonctions extraites.
     """
     # Runtime state
-    client: Any
+    client: ExchangePort
     bot_state: Dict[str, Any]
     bot_state_lock: Any              # _bot_state_lock (RLock)
     # Callables (patched in tests at ms.* level)
@@ -513,189 +516,191 @@ def _execute_one_partial(ctx: '_TradeCtx', deps: '_TradingDeps', *, partial_numb
         logger.error(f"[{label}] Erreur lors de l'exécution de la vente partielle: {e}")
 
 
-def _check_and_execute_stop_loss(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
-    """C-15: Vérifie et exécute le stop-loss/trailing. Retourne True si position fermée."""
+
+def _handle_exchange_sl_fill(
+    ctx: '_TradeCtx',
+    deps: '_TradingDeps',
+    is_trailing_stop: bool,
+    stop_loss_fixed: 'Optional[float]',
+    trailing_stop: 'Optional[float]',
+) -> bool:
+    """P0-04: Coins locked — check exchange SL order status, reconcile if FILLED.
+
+    Called when coin_balance_free < min_qty (coins are inside a SL limit order on Binance).
+    Returns True in all cases (position handled by Binance or just reconciled).
+    """
     ps = ctx.pair_state
-    if ps.get('last_order_side') != 'BUY' or ctx.coin_balance <= 0:
-        return False
+    sl_oid = ps.get('sl_order_id')
+    _sl_filled = False
+    _sl_fill_price: float = ctx.current_price
+    _sl_exec_qty: float = 0.0
 
-    stop_loss_fixed = ps.get('stop_loss_at_entry')  # Stop-loss FIXE à 3×ATR
-    trailing_stop = ps.get('trailing_stop', 0)  # Trailing (si activé)
-    trailing_activated = ps.get('trailing_stop_activated', False)
-
-    # Déterminer le niveau de stop effectif
-    effective_stop = stop_loss_fixed
-    is_trailing_stop = False
-    if trailing_activated and trailing_stop is not None and stop_loss_fixed is not None and trailing_stop > (stop_loss_fixed or 0):
-        effective_stop = trailing_stop
-        is_trailing_stop = True
-
-    if effective_stop is None or ctx.current_price is None or ctx.current_price > effective_stop:
-        return False
-
-    # === Prix <= effective_stop — exécuter le stop-loss ===
-    # Si les coins sont verrouillés dans un ordre SL exchange (STOP_LOSS_LIMIT pending),
-    # Binance gère la vente automatiquement — ne pas tenter un market-sell en doublon.
-    # MAIS il faut vérifier si l'ordre a DÉJÀ été FILLED pour réconcilier l'état.
-    executed_price: Optional[float] = None
-    if ctx.coin_balance_free < ctx.min_qty:
-        sl_oid = ps.get('sl_order_id')
-        _sl_filled = False
-        _sl_fill_price = ctx.current_price  # fallback
-        _sl_exec_qty = 0.0
-
-        # Vérifier le statut réel de l'ordre SL sur l'exchange
-        if sl_oid:
-            try:
-                _sl_info = deps.client.get_order(
-                    symbol=ctx.real_trading_pair, orderId=sl_oid,
-                )
-                _sl_status = _sl_info.get('status', '')
-                if _sl_status == 'FILLED':
-                    _sl_filled = True
-                    _eq = float(_sl_info.get('executedQty', 0))
-                    _cq = float(_sl_info.get('cummulativeQuoteQty', 0))
-                    if _eq > 0:
-                        _sl_exec_qty = _eq
-                    if _eq > 0 and _cq > 0:
-                        _sl_fill_price = _cq / _eq
-                    logger.info(
-                        "[SL-EXCHANGE] Ordre SL %s FILLED — prix moyen %.4f USDC, qty %.8f",
-                        sl_oid, _sl_fill_price, _sl_exec_qty,
-                    )
-                else:
-                    logger.info(
-                        "[STOP-LOSS SOFTWARE] Ordre SL exchange %s statut=%s — "
-                        "vente gérée automatiquement par Binance.",
-                        sl_oid, _sl_status,
-                    )
-            except Exception as _sl_check_err:
-                logger.warning(
-                    "[SL-EXCHANGE] Impossible de vérifier l'ordre SL %s: %s",
-                    sl_oid, _sl_check_err,
-                )
-        else:
-            # Pas de sl_order_id — vérifier si balance indique une clôture
-            if ctx.coin_balance_locked < ctx.min_qty:
+    if sl_oid:
+        try:
+            _sl_info = deps.client.get_order(
+                symbol=ctx.real_trading_pair, orderId=sl_oid,
+            )
+            _sl_status = _sl_info.get('status', '')
+            if _sl_status == 'FILLED':
                 _sl_filled = True
-                logger.warning(
-                    "[SL-EXCHANGE] Aucun sl_order_id mais coins absents "
-                    "(free=%.8f, locked=%.8f) — SL probablement FILLED.",
-                    ctx.coin_balance_free, ctx.coin_balance_locked,
+                _eq = float(_sl_info.get('executedQty', 0))
+                _cq = float(_sl_info.get('cummulativeQuoteQty', 0))
+                if _eq > 0:
+                    _sl_exec_qty = _eq
+                if _eq > 0 and _cq > 0:
+                    _sl_fill_price = _cq / _eq
+                logger.info(
+                    "[SL-EXCHANGE] Ordre SL %s FILLED — prix moyen %.4f USDC, qty %.8f",
+                    sl_oid, _sl_fill_price, _sl_exec_qty,
                 )
-
-        if not _sl_filled:
-            return True
-
-        # === SL exchange FILLED — réconciliation complète ===
-        executed_price = _sl_fill_price  # SL always has a fill price
-        total_usdc_received = _sl_exec_qty * executed_price if _sl_exec_qty else 0.0
-
-        if is_trailing_stop:
-            stop_type = "TRAILING-STOP (dynamique)"
-            stop_desc = (
-                f"Prix max atteint : {ps.get('max_price', 0):.4f} USDC\n"
-                f"Trailing stop : {trailing_stop:.4f} USDC"
-            )
-        else:
-            stop_type = "STOP-LOSS (fixe à 3×ATR)"
-            stop_desc = f"Stop-loss fixe : {stop_loss_fixed:.4f} USDC"
-
-        # Email d'alerte SL exchange
-        _entry_px_sl = ps.get('entry_price') or 0
-        _pnl_pct_sl = ((executed_price / _entry_px_sl) - 1) * 100 if _entry_px_sl > 0 else None
-        if deps.is_valid_stop_loss_fn(ctx.real_trading_pair, str(_sl_exec_qty or 1), executed_price):
-            extra = (
-                f"DETAILS DU STOP (ordre exchange natif):\n{stop_desc}\n"
-                f"Prix d'entree : {_entry_px_sl:.4f} USDC\n"
-                f"Timeframe : {ctx.time_interval}\n"
-                f"EMA : {ctx.ema1_period}/{ctx.ema2_period}\n"
-                f"Scenario : {ctx.scenario}"
-            )
-            subj, body = sell_executed_email(
-                pair=ctx.real_trading_pair, qty=_sl_exec_qty or 0,
-                price=executed_price, usdc_received=total_usdc_received,
-                sell_reason=stop_type, pnl_pct=_pnl_pct_sl,
-                extra_details=extra,
-            )
-            try:
-                deps.send_alert_fn(subject=subj, body_main=body, client=deps.client)
-                logger.info("[SL-EXCHANGE] E-mail d'alerte envoyé pour SL exchange")
-            except Exception as _email_err:
-                logger.error("[SL-EXCHANGE] Échec envoi e-mail: %s", _email_err)
-        else:
+            else:
+                logger.info(
+                    "[STOP-LOSS SOFTWARE] Ordre SL exchange %s statut=%s — "
+                    "vente gérée automatiquement par Binance.",
+                    sl_oid, _sl_status,
+                )
+        except Exception as _sl_check_err:
             logger.warning(
-                "[SL-EXCHANGE] Email NON ENVOYÉ : paramètres invalides "
-                "(symbol=%s, qty=%s, price=%s)",
-                ctx.real_trading_pair, _sl_exec_qty, executed_price,
+                "[SL-EXCHANGE] Impossible de vérifier l'ordre SL %s: %s",
+                sl_oid, _sl_check_err,
+            )
+    else:
+        # Pas de sl_order_id — inférer depuis les balances
+        if ctx.coin_balance_locked < ctx.min_qty:
+            _sl_filled = True
+            logger.warning(
+                "[SL-EXCHANGE] Aucun sl_order_id mais coins absents "
+                "(free=%.8f, locked=%.8f) — SL probablement FILLED.",
+                ctx.coin_balance_free, ctx.coin_balance_locked,
             )
 
-        # Capturer entry_price AVANT le reset pour le journal PnL
-        _saved_entry_price = ps.get('entry_price') or 0.0
-
-        # Reset complet de l'état — identique au path SL software
-        ps.update({
-            'entry_price': None, 'max_price': None, 'stop_loss': None,
-            'trailing_stop': None, 'trailing_stop_activated': False,
-            'atr_at_entry': None, 'stop_loss_at_entry': None,
-            'trailing_activation_price_at_entry': None,
-            'initial_position_size': None,
-            'last_order_side': 'SELL',
-            'breakeven_triggered': False,
-            'entry_scenario': None, 'entry_timeframe': None,
-            'entry_ema1': None, 'entry_ema2': None,
-            'sl_order_id': None, 'sl_exchange_placed': False,
-        })
-
-        # A-3: cooldown post-stop-loss
-        _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
-        if _cd_candles > 0:
-            _TF_SEC = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800,
-                       '1h': 3600, '4h': 14400, '1d': 86400}
-            _candle_sec = _TF_SEC.get(ctx.time_interval, 3600)
-            ps['_stop_loss_cooldown_until'] = time.time() + (_cd_candles * _candle_sec)
-            logger.info(
-                "[A-3 COOLDOWN] Post-stop-loss exchange: %d bougies x %ds = %.1fh",
-                _cd_candles, _candle_sec, (_cd_candles * _candle_sec) / 3600,
-            )
-
-        deps.save_fn(force=True)
-
-        # Journal de trading
-        if _sl_exec_qty > 0:
-            try:
-                logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
-                _pnl = (executed_price - _saved_entry_price) * _sl_exec_qty if _saved_entry_price else None
-                _pnl_pct_j = ((executed_price / _saved_entry_price) - 1) if _saved_entry_price else None
-                deps.update_daily_pnl_fn(_pnl)
-                log_trade(
-                    logs_dir=logs_dir,
-                    pair=ctx.real_trading_pair,
-                    side='sell',
-                    quantity=_sl_exec_qty,
-                    price=executed_price,
-                    fee=_sl_exec_qty * deps.config.taker_fee * executed_price,
-                    scenario=ctx.scenario,
-                    timeframe=ctx.time_interval,
-                    pnl=_pnl,
-                    pnl_pct=_pnl_pct_j,
-                    extra={'sell_reason': f'{stop_type} (exchange-filled)'},
-                )
-            except Exception as _journal_err:
-                logger.error("[JOURNAL] Erreur écriture vente SL exchange: %s", _journal_err)
-
-        # Affichage panel de clôture
-        if is_trailing_stop:
-            stop_loss_info = f"{trailing_stop:.4f} USDC (dynamique : trailing)"
-        else:
-            stop_loss_info = f"{stop_loss_fixed:.4f} USDC (fixe à l'entrée)"
-        display_closure_panel(stop_loss_info, ctx.current_price, ctx.coin_symbol, ctx.coin_balance, deps.console)
-
-        ps['last_execution'] = datetime.now(timezone.utc).isoformat()
-        deps.save_fn()
+    if not _sl_filled:
+        # Binance gère la vente — attendre le prochain cycle
         return True
 
-    # Exécution vente immédiate sur stop-loss (coins libres)
+    # === SL exchange FILLED — réconciliation complète ===
+    executed_price = _sl_fill_price
+    total_usdc_received = _sl_exec_qty * executed_price if _sl_exec_qty else 0.0
+
+    if is_trailing_stop:
+        stop_type = "TRAILING-STOP (dynamique)"
+        stop_desc = (
+            f"Prix max atteint : {ps.get('max_price', 0):.4f} USDC\n"
+            f"Trailing stop : {trailing_stop:.4f} USDC"
+        )
+    else:
+        stop_type = "STOP-LOSS (fixe à 3×ATR)"
+        stop_desc = f"Stop-loss fixe : {stop_loss_fixed:.4f} USDC"
+
+    # Email d'alerte SL exchange
+    _entry_px_sl = ps.get('entry_price') or 0
+    _pnl_pct_sl = ((executed_price / _entry_px_sl) - 1) * 100 if _entry_px_sl > 0 else None
+    if deps.is_valid_stop_loss_fn(ctx.real_trading_pair, str(_sl_exec_qty or 1), executed_price):
+        extra = (
+            f"DETAILS DU STOP (ordre exchange natif):\n{stop_desc}\n"
+            f"Prix d'entree : {_entry_px_sl:.4f} USDC\n"
+            f"Timeframe : {ctx.time_interval}\n"
+            f"EMA : {ctx.ema1_period}/{ctx.ema2_period}\n"
+            f"Scenario : {ctx.scenario}"
+        )
+        subj, body = sell_executed_email(
+            pair=ctx.real_trading_pair, qty=_sl_exec_qty or 0,
+            price=executed_price, usdc_received=total_usdc_received,
+            sell_reason=stop_type, pnl_pct=_pnl_pct_sl,
+            extra_details=extra,
+        )
+        try:
+            deps.send_alert_fn(subject=subj, body_main=body, client=deps.client)
+            logger.info("[SL-EXCHANGE] E-mail d'alerte envoyé pour SL exchange")
+        except Exception as _email_err:
+            logger.error("[SL-EXCHANGE] Échec envoi e-mail: %s", _email_err)
+    else:
+        logger.warning(
+            "[SL-EXCHANGE] Email NON ENVOYÉ : paramètres invalides "
+            "(symbol=%s, qty=%s, price=%s)",
+            ctx.real_trading_pair, _sl_exec_qty, executed_price,
+        )
+
+    # Capturer entry_price AVANT le reset pour le journal PnL
+    _saved_entry_price = ps.get('entry_price') or 0.0
+
+    # Reset complet de l'état
+    ps.update({
+        'entry_price': None, 'max_price': None, 'stop_loss': None,
+        'trailing_stop': None, 'trailing_stop_activated': False,
+        'atr_at_entry': None, 'stop_loss_at_entry': None,
+        'trailing_activation_price_at_entry': None,
+        'initial_position_size': None,
+        'last_order_side': 'SELL',
+        'breakeven_triggered': False,
+        'entry_scenario': None, 'entry_timeframe': None,
+        'entry_ema1': None, 'entry_ema2': None,
+        'sl_order_id': None, 'sl_exchange_placed': False,
+    })
+
+    # A-3: cooldown post-stop-loss
+    _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
+    if _cd_candles > 0:
+        _candle_sec = TIMEFRAME_SECONDS.get(ctx.time_interval, 3600)
+        ps['_stop_loss_cooldown_until'] = time.time() + (_cd_candles * _candle_sec)
+        logger.info(
+            "[A-3 COOLDOWN] Post-stop-loss exchange: %d bougies x %ds = %.1fh",
+            _cd_candles, _candle_sec, (_cd_candles * _candle_sec) / 3600,
+        )
+
+    deps.save_fn(force=True)
+
+    # Journal de trading
+    if _sl_exec_qty > 0:
+        try:
+            logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+            _pnl = (executed_price - _saved_entry_price) * _sl_exec_qty if _saved_entry_price else None
+            _pnl_pct_j = ((executed_price / _saved_entry_price) - 1) if _saved_entry_price else None
+            deps.update_daily_pnl_fn(_pnl)
+            log_trade(
+                logs_dir=logs_dir,
+                pair=ctx.real_trading_pair,
+                side='sell',
+                quantity=_sl_exec_qty,
+                price=executed_price,
+                fee=_sl_exec_qty * deps.config.taker_fee * executed_price,
+                scenario=ctx.scenario,
+                timeframe=ctx.time_interval,
+                pnl=_pnl,
+                pnl_pct=_pnl_pct_j,
+                extra={'sell_reason': f'{stop_type} (exchange-filled)'},
+            )
+        except Exception as _journal_err:
+            logger.error("[JOURNAL] Erreur écriture vente SL exchange: %s", _journal_err)
+
+    # Affichage panel de clôture
+    if is_trailing_stop:
+        stop_loss_info = f"{trailing_stop:.4f} USDC (dynamique : trailing)"
+    else:
+        stop_loss_info = f"{stop_loss_fixed:.4f} USDC (fixe à l'entrée)"
+    display_closure_panel(stop_loss_info, ctx.current_price, ctx.coin_symbol, ctx.coin_balance, deps.console)
+
+    ps['last_execution'] = datetime.now(timezone.utc).isoformat()
+    deps.save_fn()
+    return True
+
+
+def _handle_manual_sl_trigger(
+    ctx: '_TradeCtx',
+    deps: '_TradingDeps',
+    effective_stop: float,
+    is_trailing_stop: bool,
+    stop_loss_fixed: 'Optional[float]',
+    trailing_stop: 'Optional[float]',
+) -> bool:
+    """P0-04: Coins free — execute market-sell immediately for stop-loss.
+
+    Called when coin_balance_free >= min_qty (no pending exchange SL order).
+    Returns True always (position was triggered, whether or not the sell succeeded).
+    """
+    ps = ctx.pair_state
+
+    # Calculer la quantité à vendre (coins disponibles)
     quantity_decimal = Decimal(str(ctx.coin_balance_free))
     quantity_rounded = (quantity_decimal // ctx.step_size_dec) * ctx.step_size_dec
     if quantity_rounded < ctx.min_qty_dec:
@@ -703,73 +708,54 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool
     if quantity_rounded > ctx.max_qty_dec:
         quantity_rounded = ctx.max_qty_dec
 
-    # Vérification min_notional (valeur de l'ordre >= min_notional)
     order_value = float(quantity_rounded) * ctx.current_price
-    executed_price = None
-    _saved_entry_price = 0.0
-    stop_type = 'STOP-LOSS'
-    qty_str: str = ""
 
     if quantity_rounded >= ctx.min_qty_dec and order_value >= ctx.min_notional:
         qty_str = f"{quantity_rounded:.{ctx.step_decimals}f}"
         stop_loss_order = deps.market_sell_fn(symbol=ctx.real_trading_pair, quantity=qty_str)
-        if stop_loss_order and stop_loss_order.get('status') == 'FILLED':
-            logger.info(f"[STOP-LOSS] Vente exécutée et confirmée : {qty_str} {ctx.coin_symbol}")
 
-            # Récupérer le prix d'exécution
+        if stop_loss_order and stop_loss_order.get('status') == 'FILLED':
+            logger.info("[STOP-LOSS] Vente exécutée et confirmée : %s %s", qty_str, ctx.coin_symbol)
             executed_price = ctx.current_price
-        else:
-            # SL software sell NOT FILLED
-            _status = stop_loss_order.get('status', 'UNKNOWN') if stop_loss_order else 'None'
-            logger.warning(f"[STOP-LOSS] Ordre de vente SL non FILLED (statut={_status})")
-            try:
-                deps.send_alert_fn(
-                    subject=f"[ALERTE] Stop-Loss NON FILLED — {ctx.real_trading_pair}",
-                    body_main=(
-                        f"Ordre de vente stop-loss (software) non exécuté.\n\n"
-                        f"Paire : {ctx.real_trading_pair}\n"
-                        f"Quantité : {qty_str}\n"
-                        f"Stop effectif : {effective_stop:.4f} USDC\n"
-                        f"Prix courant : {ctx.current_price:.4f} USDC\n"
-                        f"Statut : {_status}\n\n"
-                        f"ATTENTION : position toujours exposée sans protection.\n"
-                        f"Action : le bot réessaiera au prochain cycle."
-                    ),
-                    client=deps.client,
-                )
-            except Exception as _email_err:
-                logger.error(f"[STOP-LOSS] Échec envoi email SL non-filled: {_email_err}")
-
-        if stop_loss_order and stop_loss_order.get('status') == 'FILLED':
-            executed_price = executed_price or ctx.current_price
             total_usdc_received = float(qty_str) * executed_price
 
-            # Déterminer le type de stop-loss
             if is_trailing_stop:
                 stop_type = "TRAILING-STOP (dynamique)"
-                stop_desc = f"Prix max atteint : {ps.get('max_price', 0):.4f} USDC\nTrailing stop : {trailing_stop:.4f} USDC"
+                stop_desc = (
+                    f"Prix max atteint : {ps.get('max_price', 0):.4f} USDC\n"
+                    f"Trailing stop : {trailing_stop:.4f} USDC"
+                )
             else:
                 stop_type = "STOP-LOSS (fixe à 3×ATR)"
                 stop_desc = f"Stop-loss fixe : {stop_loss_fixed:.4f} USDC"
 
-            # === EMAIL STOP-LOSS (sécurisé) ===
+            # === EMAIL STOP-LOSS ===
             if deps.is_valid_stop_loss_fn(ctx.real_trading_pair, qty_str, executed_price):
                 _entry_px_sl = ps.get('entry_price') or 0
                 _pnl_pct_sl = ((executed_price / _entry_px_sl) - 1) * 100 if _entry_px_sl > 0 else None
-                extra = f"DETAILS DU STOP:\n{stop_desc}\nPrix d'entree : {ps.get('entry_price', 0):.4f} USDC\nTimeframe : {ctx.time_interval}\nEMA : {ctx.ema1_period}/{ctx.ema2_period}\nScenario : {ctx.scenario}"
+                extra = (
+                    f"DETAILS DU STOP:\n{stop_desc}\n"
+                    f"Prix d'entree : {ps.get('entry_price', 0):.4f} USDC\n"
+                    f"Timeframe : {ctx.time_interval}\n"
+                    f"EMA : {ctx.ema1_period}/{ctx.ema2_period}\n"
+                    f"Scenario : {ctx.scenario}"
+                )
                 subj, body = sell_executed_email(
                     pair=ctx.real_trading_pair, qty=float(qty_str), price=executed_price,
                     usdc_received=total_usdc_received, sell_reason=stop_type,
-                    pnl_pct=_pnl_pct_sl,
-                    extra_details=extra
+                    pnl_pct=_pnl_pct_sl, extra_details=extra,
                 )
                 try:
                     deps.send_alert_fn(subject=subj, body_main=body, client=deps.client)
-                    logger.info("[STOP-LOSS] E-mail d'alerte envoye pour la vente")
+                    logger.info("[STOP-LOSS] E-mail d'alerte envoyé pour la vente")
                 except Exception as e:
-                    logger.error(f"[STOP-LOSS] L'envoi de l'e-mail a echoue : {e}")
+                    logger.error("[STOP-LOSS] L'envoi de l'e-mail a échoué : %s", e)
             else:
-                logger.warning(f"[STOP-LOSS] Email NON ENVOYÉ : paramètres invalides (symbol={ctx.real_trading_pair}, qty={qty_str}, price={executed_price})")
+                logger.warning(
+                    "[STOP-LOSS] Email NON ENVOYÉ : paramètres invalides "
+                    "(symbol=%s, qty=%s, price=%s)",
+                    ctx.real_trading_pair, qty_str, executed_price,
+                )
 
             # Capturer entry_price AVANT le reset pour le journal PnL
             _saved_entry_price = ps.get('entry_price') or 0.0
@@ -781,17 +767,15 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool
                 'atr_at_entry': None, 'stop_loss_at_entry': None,
                 'trailing_activation_price_at_entry': None,
                 'last_order_side': 'SELL',
-                'breakeven_triggered': False,  # B-3: réinitialiser pour la prochaine position
-                # F-COH: libérer le verrou des params d’entrée
+                'breakeven_triggered': False,
                 'entry_scenario': None, 'entry_timeframe': None,
                 'entry_ema1': None, 'entry_ema2': None,
             })
-            # A-3: set cooldown after stop-loss — durée basée sur la durée réelle de la bougie
+
+            # A-3: cooldown post-stop-loss
             _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
             if _cd_candles > 0:
-                _TF_SEC = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800,
-                           '1h': 3600, '4h': 14400, '1d': 86400}
-                _candle_sec = _TF_SEC.get(ctx.time_interval, 3600)
+                _candle_sec = TIMEFRAME_SECONDS.get(ctx.time_interval, 3600)
                 ps['_stop_loss_cooldown_until'] = time.time() + (_cd_candles * _candle_sec)
                 logger.info(
                     "[A-3 COOLDOWN] Post-stop-loss : %d bougies x %ds = %.1fh",
@@ -799,12 +783,11 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool
                 )
             deps.save_fn()
 
-        # Journal de trading (Phase 2) — STOP-LOSS / TRAILING
-        if executed_price:
+            # Journal de trading
             try:
                 logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
                 _exec_price = float(executed_price)
-                _qty = float(qty_str) if qty_str else 0.0
+                _qty = float(qty_str)
                 _pnl = (_exec_price - _saved_entry_price) * _qty if _saved_entry_price and _exec_price else None
                 _pnl_pct = ((_exec_price / _saved_entry_price) - 1) if _saved_entry_price and _exec_price else None
                 deps.update_daily_pnl_fn(_pnl)
@@ -822,18 +805,75 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool
                     extra={'sell_reason': stop_type},
                 )
             except Exception as journal_err:
-                logger.error(f"[JOURNAL] Erreur écriture vente stop: {journal_err}")
+                logger.error("[JOURNAL] Erreur écriture vente stop: %s", journal_err)
 
-    # Affichage explicite de la nature du stop-loss utilisé
+        else:
+            # NOT FILLED
+            _status = stop_loss_order.get('status', 'UNKNOWN') if stop_loss_order else 'None'
+            logger.warning("[STOP-LOSS] Ordre de vente SL non FILLED (statut=%s)", _status)
+            try:
+                deps.send_alert_fn(
+                    subject=f"[ALERTE] Stop-Loss NON FILLED — {ctx.real_trading_pair}",
+                    body_main=(
+                        f"Ordre de vente stop-loss (software) non exécuté.\n\n"
+                        f"Paire : {ctx.real_trading_pair}\n"
+                        f"Quantité : {qty_str}\n"
+                        f"Stop effectif : {effective_stop:.4f} USDC\n"
+                        f"Prix courant : {ctx.current_price:.4f} USDC\n"
+                        f"Statut : {_status}\n\n"
+                        f"ATTENTION : position toujours exposée sans protection.\n"
+                        f"Action : le bot réessaiera au prochain cycle."
+                    ),
+                    client=deps.client,
+                )
+            except Exception as _email_err:
+                logger.error("[STOP-LOSS] Échec envoi email SL non-filled: %s", _email_err)
+
+    # Affichage panel de clôture — toujours (même si la vente a échoué)
     if is_trailing_stop:
         stop_loss_info = f"{trailing_stop:.4f} USDC (dynamique : trailing)"
     else:
         stop_loss_info = f"{stop_loss_fixed:.4f} USDC (fixe à l'entrée)"
-
     display_closure_panel(stop_loss_info, ctx.current_price, ctx.coin_symbol, ctx.coin_balance, deps.console)
+
     ps['last_execution'] = datetime.now(timezone.utc).isoformat()
     deps.save_fn()
     return True
+
+
+def _check_and_execute_stop_loss(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
+    """C-15: Vérifie et exécute le stop-loss/trailing. Retourne True si position fermée.
+
+    P0-04: Dispatcher — calcule le stop effectif, puis délègue à :
+      _handle_exchange_sl_fill (coins verrouillés dans ordre exchange)
+      _handle_manual_sl_trigger (coins libres, market-sell immédiat)
+    """
+    ps = ctx.pair_state
+    if ps.get('last_order_side') != 'BUY' or ctx.coin_balance <= 0:
+        return False
+
+    stop_loss_fixed = ps.get('stop_loss_at_entry')  # Stop-loss FIXE à 3×ATR
+    trailing_stop = ps.get('trailing_stop', 0)       # Trailing (si activé)
+    trailing_activated = ps.get('trailing_stop_activated', False)
+
+    # Déterminer le niveau de stop effectif
+    effective_stop = stop_loss_fixed
+    is_trailing_stop = False
+    if (trailing_activated and trailing_stop is not None and stop_loss_fixed is not None
+            and trailing_stop > (stop_loss_fixed or 0)):
+        effective_stop = trailing_stop
+        is_trailing_stop = True
+
+    if effective_stop is None or ctx.current_price is None or ctx.current_price > effective_stop:
+        return False
+
+    # === Prix <= effective_stop — déléguer au handler approprié ===
+    if ctx.coin_balance_free < ctx.min_qty:
+        # Coins verrouillés dans un ordre SL exchange (STOP_LOSS_LIMIT pending)
+        return _handle_exchange_sl_fill(ctx, deps, is_trailing_stop, stop_loss_fixed, trailing_stop)
+
+    # Coins libres — exécuter le market-sell immédiatement
+    return _handle_manual_sl_trigger(ctx, deps, effective_stop, is_trailing_stop, stop_loss_fixed, trailing_stop)
 
 
 def _handle_dust_cleanup(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
@@ -955,8 +995,7 @@ def _execute_signal_sell(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
     # F-2: Protection min hold time — bloquer la vente signal si l'achat est trop récent.
     # On attend au moins 1 bougie complète pour éviter d'acheter et vendre dans la même bougie
     # (incohérence typique lors d'un changement de timeframe WF entre deux exécutions).
-    _TF_SECONDS = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '4h': 14400, '1d': 86400}
-    _min_hold = _TF_SECONDS.get(ctx.time_interval, 3600)  # default 1h
+    _min_hold = TIMEFRAME_SECONDS.get(ctx.time_interval, 3600)  # default 1h
     _buy_ts = ps.get('buy_timestamp', 0)
     if sell_triggered and sell_reason == 'SIGNAL' and _buy_ts > 0:
         _held_seconds = time.time() - _buy_ts
@@ -1231,8 +1270,403 @@ def _compute_buy_quantity(
     return None
 
 
+
+def _validate_buy_preconditions(
+    ctx: '_TradeCtx',
+    deps: '_TradingDeps',
+    buy_condition: bool,
+    usdc_for_buy: float,
+) -> bool:
+    """P0-03: Vérifie toutes les gardes pré-achat.
+
+    Returns True si l'achat peut procéder, False avec log explicite si bloqué.
+    Couvre : OOS gates, cooldown A-3, anti-double-buy, limite perte journalière,
+    buy_condition, capital et guard ATR.
+    """
+    ps = ctx.pair_state
+
+    if ps.get('oos_blocked'):
+        logger.warning(
+            "[BUY BLOCKED P0-03] %s — OOS gates non passées depuis %s. "
+            "Seule la gestion des stops est active.",
+            ctx.backtest_pair,
+            time.ctime(ps.get('oos_blocked_since', 0)),
+        )
+        return False
+
+    if ps.get('_stop_loss_cooldown_until', 0) > time.time():
+        _cd_remaining = ps.get('_stop_loss_cooldown_until', 0.0) - time.time()
+        logger.info(
+            "[BUY BLOCKED A-3] %s — Cooldown post-stop-loss actif (%.0f min restantes)",
+            ctx.backtest_pair, _cd_remaining / 60,
+        )
+        return False
+
+    if ctx.orders and deps.check_order_executed_fn(ctx.orders, 'BUY'):
+        logger.warning(
+            "[BUY] Anti-double-buy: dernier ordre détecté comme BUY FILLED – achat ignoré pour ce cycle"
+        )
+        return False
+
+    if deps.is_loss_limit_fn():
+        logger.warning(
+            "[BUY BLOCKED P5-A] %s — Limite perte journalière atteinte. "
+            "Aucun nouvel achat jusqu'à 00:00 UTC.",
+            ctx.backtest_pair,
+        )
+        return False
+
+    if not buy_condition or usdc_for_buy <= 0:
+        return False
+
+    # ATR guard: bloquer l'achat si ATR absent/NaN/<=0 -> stop-loss incalculable
+    atr_value = ctx.row.get('atr', None)
+    _atr_invalid = (
+        atr_value is None
+        or (isinstance(atr_value, float) and math.isnan(atr_value))
+        or float(atr_value) <= 0
+    )
+    if _atr_invalid:
+        logger.warning(
+            "[BUY BLOCKED P0-SL-GUARD] %s — ATR indisponible (atr=%s). "
+            "Impossible de calculer un stop-loss. Achat refusé.",
+            ctx.real_trading_pair, atr_value,
+        )
+        return False
+
+    return True
+
+
+def _compute_and_validate_quantity(
+    ctx: '_TradeCtx',
+    deps: '_TradingDeps',
+    usdc_for_buy: float,
+) -> 'Optional[Tuple[Decimal, str, float, float, float]]':
+    """P0-03: Optimise le prix d'entrée (sniper) et calcule la taille de position.
+
+    Précondition : ATR déjà validé par _validate_buy_preconditions.
+    Returns (quantity_rounded, qty_str, quote_amount, entry_price, atr_value) ou None.
+    """
+    atr_value = ctx.row.get('atr', None)  # validé par _validate_buy_preconditions
+    entry_price = ctx.current_price
+
+    # Optimisation sniper: chercher le meilleur prix d'entrée sur les 15min récents
+    optimized_entry = deps.get_sniper_entry_fn(ctx.real_trading_pair, entry_price)
+    if optimized_entry < entry_price:
+        logger.info(
+            "[BUY] Prix sniper optimisé: %.6f (vs spot %.6f, gain %.2f%%)",
+            optimized_entry,
+            entry_price,
+            (entry_price - optimized_entry) / entry_price * 100,
+        )
+        entry_price = optimized_entry
+
+    # C-02: Sizing délégué à _compute_buy_quantity (fonction pure, testable)
+    qty_result = _compute_buy_quantity(
+        sizing_mode=ctx.sizing_mode,
+        usdc_for_buy=usdc_for_buy,
+        usdc_balance=ctx.usdc_balance,
+        entry_price=entry_price,
+        atr_value=atr_value,
+        min_qty_dec=ctx.min_qty_dec,
+        max_qty_dec=ctx.max_qty_dec,
+        step_size_dec=ctx.step_size_dec,
+        step_decimals=ctx.step_decimals,
+        risk_per_trade=deps.config.risk_per_trade,
+        atr_stop_multiplier=deps.config.atr_stop_multiplier,
+    )
+    if qty_result is None:
+        logger.warning("[BUY] Quantité calculée < min_qty, achat annulé")
+        return None
+
+    quantity_rounded, qty_str, quote_amount = qty_result
+    return (quantity_rounded, qty_str, quote_amount, entry_price, atr_value)
+
+
+def _place_buy_and_verify(
+    ctx: '_TradeCtx',
+    deps: '_TradingDeps',
+    qty_str: str,
+    quote_amount: float,
+    entry_price: float,
+    atr_value: float,
+    quantity_rounded: 'Decimal',
+    usdc_for_buy: float,
+) -> 'Optional[str]':
+    """P0-03: Place l'ordre d'achat, traite le fill, envoie l'email et met à jour pair_state.
+
+    Returns actual_qty_str si l'ordre est FILLED, None sinon.
+    """
+    ps = ctx.pair_state
+
+    logger.info("[BUY] Sizing mode: %s", ctx.sizing_mode)
+    logger.info("[BUY] Quantité calculée: %s %s (~%.2f USDC)", qty_str, ctx.coin_symbol, quote_amount)
+
+    buy_order = deps.market_buy_fn(symbol=ctx.real_trading_pair, quoteOrderQty=quote_amount)
+
+    if not buy_order or buy_order.get('status') != 'FILLED':
+        _status = buy_order.get('status', 'UNKNOWN') if buy_order else 'None'
+        logger.warning("[BUY] Ordre d'achat non FILLED (statut=%s)", _status)
+        try:
+            deps.send_alert_fn(
+                subject=f"[ALERTE] Achat NON FILLED — {ctx.real_trading_pair}",
+                body_main=(
+                    f"Ordre d'achat non exécuté.\n\n"
+                    f"Paire : {ctx.real_trading_pair}\n"
+                    f"Quantité : {qty_str}\n"
+                    f"Montant : {quote_amount:.2f} USDC\n"
+                    f"Statut : {_status}\n"
+                    f"Prix courant : {ctx.current_price:.4f} USDC\n\n"
+                    f"Action : le bot réessaiera au prochain cycle."
+                ),
+                client=deps.client,
+            )
+        except Exception as _email_err:
+            logger.error("[BUY] Échec envoi email achat non-filled: %s", _email_err)
+        return None
+
+    # Quantité nette réellement reçue (commission déduite)
+    try:
+        _exec_raw = Decimal(str(buy_order.get('executedQty', qty_str)))
+        _fills = buy_order.get('fills', [])
+        _commission = sum(
+            Decimal(str(f.get('commission', '0')))
+            for f in _fills
+            if str(f.get('commissionAsset', '')).upper() == ctx.coin_symbol.upper()
+        )
+        _net_qty = _exec_raw - _commission
+        _exec_snapped = (_net_qty // ctx.step_size_dec) * ctx.step_size_dec
+        actual_qty_str = f"{_exec_snapped:.{ctx.step_decimals}f}"
+        if _commission > 0:
+            logger.info(
+                "[BUY] Commission déduite en %s: %s -> quantité nette: %s",
+                ctx.coin_symbol, _commission, actual_qty_str,
+            )
+    except Exception:
+        actual_qty_str = qty_str
+
+    logger.info("[BUY] Achat exécuté et confirmé : %s %s", actual_qty_str, ctx.coin_symbol)
+    logger.info("[BUY] Capital utilisé : %.2f USDC (provenant des ventes)", usdc_for_buy)
+    logger.info("[BUY] Quantité réellement exécutée : %s %s", buy_order.get('executedQty', 'N/A'), ctx.coin_symbol)
+
+    # === EMAIL ACHAT RÉUSSI ===
+    _sl_at_entry = entry_price - (deps.config.atr_stop_multiplier * atr_value) if atr_value else None
+    _sl_str = f"{_sl_at_entry:.4f} USDC" if _sl_at_entry else "N/A"
+    _usdc_after = max(ctx.usdc_balance - quote_amount, 0.0)
+    _sl_dist_email = entry_price - float(_sl_at_entry) if _sl_at_entry else None
+    if _sl_dist_email and _sl_dist_email > 0 and usdc_for_buy > 0:
+        _effective_risk_pct = float(actual_qty_str) * _sl_dist_email / usdc_for_buy * 100
+    else:
+        _effective_risk_pct = deps.config.risk_per_trade * 100
+    extra = (
+        f"Timeframe : {ctx.time_interval}\nEMA : {ctx.ema1_period}/{ctx.ema2_period}"
+        f"\nScenario : {ctx.scenario}"
+        f"\nStop-Loss : {_sl_str}"
+        f"\nRisque max : {_effective_risk_pct:.1f}% du capital"
+    )
+    subj, body = buy_executed_email(
+        pair=ctx.real_trading_pair,
+        qty=float(actual_qty_str),
+        price=entry_price,
+        usdc_spent=quote_amount,
+        usdc_balance_after=_usdc_after,
+        extra_details=extra,
+    )
+    try:
+        deps.send_alert_fn(subject=subj, body_main=body, client=deps.client)
+        logger.info("[BUY] E-mail d'alerte envoyé pour l'achat")
+    except Exception as e:
+        logger.error("[BUY] L'envoi de l'e-mail a échoué : %s", e)
+
+    # Vérifier si la position permet des partials sûrs
+    can_partial = can_execute_partial_safely(
+        coin_balance=float(quantity_rounded),
+        current_price=entry_price,
+        min_notional=ctx.min_notional,
+    )
+    ps.update({
+        'entry_price': entry_price,
+        'atr_at_entry': atr_value,
+        'stop_loss_at_entry': entry_price - (deps.config.atr_stop_multiplier * atr_value) if atr_value else None,
+        'trailing_activation_price_at_entry': (
+            entry_price + (deps.config.atr_multiplier * atr_value)
+            if atr_value
+            else entry_price * (1 + deps.config.trailing_activation_pct)
+        ),
+        'max_price': entry_price,
+        'trailing_stop_activated': False,
+        'initial_position_size': float(quantity_rounded),
+        'last_order_side': 'BUY',
+        'partial_enabled': can_partial,
+        'partial_taken_1': False,
+        'partial_taken_2': False,
+        'breakeven_triggered': False,  # B-3: réinitialiser à l'achat
+        'buy_timestamp': time.time(),  # F-2: timestamp achat pour min hold time
+        # F-COH: verrouiller les params d'entrée pour garantir la cohérence
+        # signal achat <-> signal vente (même scenario/TF/EMA jusqu'à clôture)
+        'entry_scenario': ctx.scenario,
+        'entry_timeframe': ctx.time_interval,
+        'entry_ema1': ctx.ema1_period,
+        'entry_ema2': ctx.ema2_period,
+    })
+    deps.save_fn()
+
+    return actual_qty_str
+
+
+def _rollback_on_sl_failure(
+    ctx: '_TradeCtx',
+    deps: '_TradingDeps',
+    actual_qty_str: str,
+    reason_err: 'Optional[Exception]',
+) -> None:
+    """P0-03: Exécute le market-sell de rollback quand le placement SL échoue.
+
+    Si le rollback lui-même échoue, active l'EMERGENCY HALT et envoie une alerte critique.
+    """
+    ps = ctx.pair_state
+    try:
+        deps.market_sell_fn(symbol=ctx.real_trading_pair, quantity=actual_qty_str)
+        ps.update({
+            'entry_price': None,
+            'last_order_side': 'SELL',
+            'sl_order_id': None,
+            'sl_exchange_placed': False,
+        })
+        deps.save_fn()
+        logger.critical(
+            "[SL-ORDER P0-STOP] Rollback (market-sell) exécuté pour %s.",
+            ctx.real_trading_pair,
+        )
+    except Exception as _rollback_err:
+        # P0-STOP: Double échec (SL + rollback) -> EMERGENCY HALT
+        logger.critical(
+            "[SL-ORDER P0-STOP] ROLLBACK AUSSI ÉCHOUÉ pour %s: %s — "
+            "ACTIVATION EMERGENCY HALT — POSITION EXPOSÉE SANS PROTECTION !",
+            ctx.real_trading_pair, _rollback_err,
+        )
+        with deps.bot_state_lock:
+            set_emergency_halt(
+                deps.bot_state,
+                f"Double échec SL+rollback pour {ctx.real_trading_pair} à "
+                f"{datetime.now(timezone.utc).isoformat()}",
+            )
+        deps.save_fn(force=True)
+        try:
+            deps.send_alert_fn(
+                subject=f"[EMERGENCY HALT] Position exposée {ctx.real_trading_pair}",
+                body_main=(
+                    f"ALERTE CRITIQUE: Le stop-loss ET le market-sell de rollback "
+                    f"ont tous deux échoué.\n\n"
+                    f"Paire: {ctx.real_trading_pair}\n"
+                    f"Erreur SL: {reason_err}\n"
+                    f"Erreur rollback: {_rollback_err}\n\n"
+                    f"EMERGENCY HALT ACTIVÉ — Tous les achats sont bloqués.\n"
+                    f"ACTION REQUISE: Vérifier la position manuellement sur Binance "
+                    f"et supprimer la clé 'emergency_halt' du deps.bot_state pour relancer."
+                ),
+                client=deps.client,
+            )
+        except Exception as _e:
+            logger.warning("[SL-ORDER] Email emergency halt impossible: %s", _e)
+
+
+def _place_sl_after_buy(
+    ctx: '_TradeCtx',
+    deps: '_TradingDeps',
+    actual_qty_str: str,
+) -> bool:
+    """P0-03: Place le STOP_LOSS_LIMIT exchange après achat (3 tentatives).
+
+    Si le placement échoue, déclenche le rollback via _rollback_on_sl_failure.
+    Gère aussi le cas SL-GUARD (stop_loss_at_entry nul = bug amont).
+    Returns True si le SL est confirmé sur l'exchange, False si rollback déclenché.
+    """
+    ps = ctx.pair_state
+    _sl_price = ps.get('stop_loss_at_entry')
+
+    if _sl_price and float(_sl_price) > 0:
+        _sl_placed = False
+        _sl_last_err: Optional[Exception] = None
+        for _sl_attempt in range(SL_MAX_RETRIES):
+            try:
+                _sl_result = deps.place_sl_fn(
+                    symbol=ctx.real_trading_pair,
+                    quantity=actual_qty_str,
+                    stop_price=float(_sl_price),
+                )
+                ps['sl_order_id'] = _sl_result.get('orderId')
+                ps['sl_exchange_placed'] = True
+                deps.save_fn()
+                logger.info(
+                    "[SL-ORDER P0-01] Stop-loss exchange placé (tentative %d): orderId=%s stop=%.8f",
+                    _sl_attempt + 1, ps['sl_order_id'], _sl_price,
+                )
+                _sl_placed = True
+                break
+            except Exception as _sl_err:
+                _sl_last_err = _sl_err
+                logger.warning(
+                    "[SL-ORDER P0-STOP] Tentative %d/3 échec SL pour %s: %s",
+                    _sl_attempt + 1, ctx.real_trading_pair, _sl_err,
+                )
+                if _sl_attempt < SL_MAX_RETRIES - 1:
+                    time.sleep(SL_BACKOFF_BASE * (2 ** _sl_attempt) + random.random())
+
+        if not _sl_placed:
+            logger.critical(
+                "[SL-ORDER P0-STOP] ÉCHEC placement stop-loss après 3 tentatives pour %s: %s — "
+                "ROLLBACK: market-sell d'urgence en cours.",
+                ctx.real_trading_pair, _sl_last_err,
+            )
+            try:
+                deps.send_alert_fn(
+                    subject=f"[CRITIQUE P0-STOP] Stop-loss non placé {ctx.real_trading_pair}",
+                    body_main=(
+                        f"Le stop-loss exchange n'a pas pu être placé après 3 tentatives\n"
+                        f"Paire: {ctx.real_trading_pair}\nDernière erreur: {_sl_last_err}\n\n"
+                        f"ROLLBACK: market-sell d'urgence en cours."
+                    ),
+                    client=deps.client,
+                )
+            except Exception as _e:
+                logger.warning("[SL-ORDER] Email alerte SL impossible: %s", _e)
+            _rollback_on_sl_failure(ctx, deps, actual_qty_str, _sl_last_err)
+            return False
+        return True
+
+    else:
+        # P0-SL-GUARD: Ce chemin ne devrait JAMAIS être atteint grâce au guard
+        # dans _validate_buy_preconditions. Si on arrive ici, c'est un bug.
+        logger.critical(
+            "[SL-ORDER P0-SL-GUARD] stop_loss_at_entry non défini pour %s "
+            "(atr=%s). BUG: le guard pré-achat n'a pas bloqué. ROLLBACK.",
+            ctx.real_trading_pair, ps.get('atr_at_entry'),
+        )
+        _rollback_on_sl_failure(ctx, deps, actual_qty_str, None)
+        try:
+            deps.send_alert_fn(
+                subject=f"[CRITIQUE P0-SL-GUARD] ATR null après achat {ctx.real_trading_pair}",
+                body_main=(
+                    f"Le stop-loss n'a pas pu être calculé (ATR absent après achat).\n"
+                    f"Paire: {ctx.real_trading_pair}\n"
+                    f"ATR: {ps.get('atr_at_entry')}\n\n"
+                    f"Rollback market-sell tenté automatiquement."
+                ),
+                client=deps.client,
+            )
+        except Exception as _e:
+            logger.warning("[SL-GUARD] Email alerte rollback impossible: %s", _e)
+        return False
+
+
 def _execute_buy(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
-    """C-15: Exécute un achat avec position sizing et placement SL."""
+    """C-15: Exécute un achat avec position sizing et placement SL.
+
+    P0-03: Orchestrateur — délègue à :
+      _validate_buy_preconditions -> _compute_and_validate_quantity ->
+      _place_buy_and_verify -> _place_sl_after_buy -> _rollback_on_sl_failure
+    """
     ps = ctx.pair_state
 
     # === CONDITIONS ACHAT (vérifier SEULEMENT si position fermée) ===
@@ -1244,360 +1678,69 @@ def _execute_buy(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
     usdc_for_buy = deps.get_usdc_sells_fn(ctx.real_trading_pair)
 
     if usdc_for_buy <= 0:
-        logger.error(f"[BUY] ERREUR : Aucun capital disponible ! USDC des ventes = {usdc_for_buy:.2f} USDC")
+        logger.error(
+            "[BUY] ERREUR : Aucun capital disponible ! USDC des ventes = %.2f USDC", usdc_for_buy
+        )
         logger.error("[BUY] Aucune vente trouvée dans l'historique depuis le dernier achat")
         logger.warning("[BUY] Conditions d'achat remplies mais TRADING BLOQUÉ - Capital insuffisant")
     else:
-        logger.info(f"[BUY] Capital disponible (ventes depuis dernier BUY) : {usdc_for_buy:.2f} USDC")
+        logger.info("[BUY] Capital disponible (ventes depuis dernier BUY) : %.2f USDC", usdc_for_buy)
 
-    # === EXÉCUTION ACHAT SI CONDITIONS REMPLIES (POSITION SIZING IDENTIQUE AU BACKTEST) ===
-    # Sécurité anti-double-buy: si le dernier ordre est déjà un BUY FILLED, on skip ce cycle
-    # P0-03: bloquer les nouveaux achats si OOS gates non passées
-    if ps.get('oos_blocked'):
-        logger.warning(
-            "[BUY BLOCKED P0-03] %s — OOS gates non passées depuis %s. "
-            "Seule la gestion des stops est active.",
-            ctx.backtest_pair,
-            time.ctime(ps.get('oos_blocked_since', 0)),
+    # === GARDES PRÉ-ACHAT (OOS, cooldown, anti-double-buy, loss limit, ATR) ===
+    if not _validate_buy_preconditions(ctx, deps, buy_condition, usdc_for_buy):
+        display_buy_signal_panel(
+            row=ctx.row, usdc_balance=usdc_balance_for_display, best_params=ctx.best_params,
+            scenario=ctx.scenario, buy_condition=buy_condition, console=deps.console,
+            pair_state=ps, buy_reason=buy_reason,
         )
-    # A-3: Block buy during cooldown after stop-loss/breakeven exit
-    elif ps.get('_stop_loss_cooldown_until', 0) > time.time():
-        _cd_remaining = ps.get('_stop_loss_cooldown_until', 0.0) - time.time()
-        logger.info(
-            "[BUY BLOCKED A-3] %s — Cooldown post-stop-loss actif (%.0f min restantes)",
-            ctx.backtest_pair, _cd_remaining / 60,
-        )
-    elif ctx.orders and deps.check_order_executed_fn(ctx.orders, 'BUY'):
-        logger.warning("[BUY] Anti-double-buy: dernier ordre détecté comme BUY FILLED – achat ignoré pour ce cycle")
-    elif deps.is_loss_limit_fn():
-        logger.warning(
-            "[BUY BLOCKED P5-A] %s — Limite perte journalière atteinte. Aucun nouvel achat jusqu'à 00:00 UTC.",
-            ctx.backtest_pair,
-        )
-    elif buy_condition and usdc_for_buy > 0:
-        try:
-            # POSITION SIZING - 100% IDENTIQUE AU BACKTEST
-            atr_value = ctx.row.get('atr', None)
-            entry_price = ctx.current_price
+        return
 
-            # P0-SL-GUARD: Bloquer l'achat si ATR absent/NaN/≤0 → stop-loss incalculable
-            import math
-            _atr_invalid = (
-                atr_value is None
-                or (isinstance(atr_value, float) and math.isnan(atr_value))
-                or float(atr_value) <= 0
+    try:
+        # === SIZING ===
+        qty_data = _compute_and_validate_quantity(ctx, deps, usdc_for_buy)
+        if qty_data is not None:
+            quantity_rounded, qty_str, quote_amount, entry_price, atr_value = qty_data
+
+            # === PLACE BUY + TRAITEMENT FILL + EMAIL + STATE ===
+            actual_qty_str = _place_buy_and_verify(
+                ctx, deps, qty_str, quote_amount, entry_price, atr_value, quantity_rounded, usdc_for_buy,
             )
-            if _atr_invalid:
-                logger.warning(
-                    "[BUY BLOCKED P0-SL-GUARD] %s — ATR indisponible (atr=%s). "
-                    "Impossible de calculer un stop-loss. Achat refusé.",
-                    ctx.real_trading_pair, atr_value,
-                )
-                return
+            if actual_qty_str is not None:
+                # === STOP LOSS (P0-01 / P0-STOP) ===
+                _place_sl_after_buy(ctx, deps, actual_qty_str)
 
-            # Optimisation sniper: chercher le meilleur prix d'entrée sur les 15min récents
-            optimized_entry = deps.get_sniper_entry_fn(ctx.real_trading_pair, entry_price)
-            if optimized_entry < entry_price:
-                logger.info(f"[BUY] Prix sniper optimisé: {optimized_entry:.6f} (vs spot {entry_price:.6f}, gain {(entry_price - optimized_entry) / entry_price * 100:.2f}%)")
-                entry_price = optimized_entry
-
-            # C-02: Sizing délégué à _compute_buy_quantity (fonction pure, testable)
-            qty_result = _compute_buy_quantity(
-                sizing_mode=ctx.sizing_mode,
-                usdc_for_buy=usdc_for_buy,
-                usdc_balance=ctx.usdc_balance,
-                entry_price=entry_price,
-                atr_value=atr_value,
-                min_qty_dec=ctx.min_qty_dec,
-                max_qty_dec=ctx.max_qty_dec,
-                step_size_dec=ctx.step_size_dec,
-                step_decimals=ctx.step_decimals,
-                risk_per_trade=deps.config.risk_per_trade,
-                atr_stop_multiplier=deps.config.atr_stop_multiplier,
-            )
-            if qty_result is not None:
-                quantity_rounded, qty_str, quote_amount = qty_result
-
-                logger.info(f"[BUY] Sizing mode: {ctx.sizing_mode}")
-                logger.info(f"[BUY] Quantité calculée: {qty_str} {ctx.coin_symbol} (~{quote_amount:.2f} USDC)")
-
-                buy_order = deps.market_buy_fn(symbol=ctx.real_trading_pair, quoteOrderQty=quote_amount)
-                if buy_order and buy_order.get('status') == 'FILLED':
-                    # Quantité nette réellement reçue
-                    try:
-                        _exec_raw = Decimal(str(buy_order.get('executedQty', qty_str)))
-                        _fills = buy_order.get('fills', [])
-                        _commission = sum(
-                            Decimal(str(f.get('commission', '0')))
-                            for f in _fills
-                            if str(f.get('commissionAsset', '')).upper() == ctx.coin_symbol.upper()
-                        )
-                        _net_qty = _exec_raw - _commission
-                        _exec_snapped = (_net_qty // ctx.step_size_dec) * ctx.step_size_dec
-                        actual_qty_str = f"{_exec_snapped:.{ctx.step_decimals}f}"
-                        if _commission > 0:
-                            logger.info(
-                                "[BUY] Commission déduite en %s: %s → quantité nette: %s",
-                                ctx.coin_symbol, _commission, actual_qty_str,
-                            )
-                    except Exception:
-                        actual_qty_str = qty_str
-                    logger.info(f"[BUY] Achat exécuté et confirmé : {actual_qty_str} {ctx.coin_symbol}")
-                    logger.info(f"[BUY] Capital utilisé : {usdc_for_buy:.2f} USDC (provenant des ventes)")
-                    logger.info(f"[BUY] Quantité réellement exécutée : {buy_order.get('executedQty', 'N/A')} {ctx.coin_symbol}")
-
-                    # === EMAIL ACHAT RÉUSSI ===
-                    _sl_at_entry = entry_price - (deps.config.atr_stop_multiplier * atr_value) if atr_value else None
-                    _sl_str = f"{_sl_at_entry:.4f} USDC" if _sl_at_entry else "N/A"
-                    # Solde USDC après achat = solde avant - montant réellement dépensé
-                    # (ctx.usdc_balance sera mis à jour par le refresh API plus bas, trop tard)
-                    _usdc_after = max(ctx.usdc_balance - quote_amount, 0.0)
-                    # Risque effectif au SL (peut être < risque cible si capital insuffisant pour sizing plein)
-                    _sl_dist_email = entry_price - float(_sl_at_entry) if _sl_at_entry else None
-                    if _sl_dist_email and _sl_dist_email > 0 and usdc_for_buy > 0:
-                        _effective_risk_pct = float(actual_qty_str) * _sl_dist_email / usdc_for_buy * 100
-                    else:
-                        _effective_risk_pct = deps.config.risk_per_trade * 100
-                    extra = (
-                        f"Timeframe : {ctx.time_interval}\nEMA : {ctx.ema1_period}/{ctx.ema2_period}"
-                        f"\nScenario : {ctx.scenario}"
-                        f"\nStop-Loss : {_sl_str}"
-                        f"\nRisque max : {_effective_risk_pct:.1f}% du capital"
+                # === JOURNAL DE TRADING ===
+                try:
+                    logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+                    log_trade(
+                        logs_dir=logs_dir,
+                        pair=ctx.real_trading_pair,
+                        side='buy',
+                        quantity=float(quantity_rounded),
+                        price=entry_price,
+                        fee=float(quantity_rounded) * deps.config.taker_fee * entry_price,
+                        slippage=deps.config.slippage_buy,
+                        scenario=ctx.scenario,
+                        timeframe=ctx.time_interval,
+                        ema1=ctx.best_params.get('ema1_period'),
+                        ema2=ctx.best_params.get('ema2_period'),
+                        atr_value=atr_value,
+                        stop_price=ps.get('stop_loss_at_entry'),
+                        equity_before=ctx.usdc_balance,
                     )
-                    subj, body = buy_executed_email(
-                        pair=ctx.real_trading_pair, qty=float(actual_qty_str), price=entry_price,
-                        usdc_spent=quote_amount, usdc_balance_after=_usdc_after,
-                        extra_details=extra
-                    )
-                    try:
-                        deps.send_alert_fn(subject=subj, body_main=body, client=deps.client)
-                        logger.info("[BUY] E-mail d'alerte envoye pour l'achat")
-                    except Exception as e:
-                        logger.error(f"[BUY] L'envoi de l'e-mail a echoue : {e}")
+                except Exception as journal_err:
+                    logger.error("[JOURNAL] Erreur écriture achat: %s", journal_err)
 
-                    # Vérifier si la position permet des partials sûrs
-                    can_partial = can_execute_partial_safely(
-                        coin_balance=float(quantity_rounded),
-                        current_price=entry_price,
-                        min_notional=ctx.min_notional
-                    )
-                    ps.update({
-                        'entry_price': entry_price,
-                        'atr_at_entry': atr_value,
-                        'stop_loss_at_entry': entry_price - (deps.config.atr_stop_multiplier * atr_value) if atr_value else None,
-                        'trailing_activation_price_at_entry': entry_price + (deps.config.atr_multiplier * atr_value) if atr_value else entry_price * (1 + deps.config.trailing_activation_pct),
-                        'max_price': entry_price,
-                        'trailing_stop_activated': False,
-                        'initial_position_size': float(quantity_rounded),
-                        'last_order_side': 'BUY',
-                        'partial_enabled': can_partial,
-                        'partial_taken_1': False,
-                        'partial_taken_2': False,
-                        'breakeven_triggered': False,  # B-3: réinitialiser à l'achat
-                        'buy_timestamp': time.time(),  # F-2: timestamp achat pour min hold time
-                        # F-COH: verrouiller les params d’entrée pour garantir la cohérence
-                        # signal achat ↔ signal vente (même scenario/TF/EMA jusqu’à clôture)
-                        'entry_scenario': ctx.scenario,
-                        'entry_timeframe': ctx.time_interval,
-                        'entry_ema1': ctx.ema1_period,
-                        'entry_ema2': ctx.ema2_period,
-                    })
-                    deps.save_fn()
+                # Rafraîchir le solde USDC après achat
+                account_info = deps.client.get_account()
+                _, ctx.usdc_balance, _, _ = _get_coin_balance(account_info, 'USDC')
 
-                    # P0-01: Placer immédiatement un STOP_LOSS_LIMIT sur l'exchange après achat
-                    # P0-STOP: retry SL 3x avant rollback, kill-switch si double échec
-                    _sl_price = ps.get('stop_loss_at_entry')
-                    if _sl_price and float(_sl_price) > 0:
-                        _sl_placed = False
-                        _sl_last_err = None
-                        for _sl_attempt in range(3):
-                            try:
-                                _sl_result = deps.place_sl_fn(
-                                    symbol=ctx.real_trading_pair,
-                                    quantity=actual_qty_str,
-                                    stop_price=float(_sl_price),
-                                )
-                                ps['sl_order_id'] = _sl_result.get('orderId')
-                                ps['sl_exchange_placed'] = True
-                                deps.save_fn()
-                                logger.info(
-                                    "[SL-ORDER P0-01] Stop-loss exchange placé (tentative %d): orderId=%s stop=%.8f",
-                                    _sl_attempt + 1, ps['sl_order_id'], _sl_price,
-                                )
-                                _sl_placed = True
-                                break
-                            except Exception as _sl_err:
-                                _sl_last_err = _sl_err
-                                logger.warning(
-                                    "[SL-ORDER P0-STOP] Tentative %d/3 échec SL pour %s: %s",
-                                    _sl_attempt + 1, ctx.real_trading_pair, _sl_err,
-                                )
-                                if _sl_attempt < 2:
-                                    time.sleep(1.5 * (2 ** _sl_attempt) + random.random())
-
-                        if not _sl_placed:
-                            logger.critical(
-                                "[SL-ORDER P0-STOP] ÉCHEC placement stop-loss après 3 tentatives pour %s: %s — "
-                                "ROLLBACK: market-sell d'urgence en cours.",
-                                ctx.real_trading_pair, _sl_last_err,
-                            )
-                            try:
-                                deps.send_alert_fn(
-                                    subject=f"[CRITIQUE P0-STOP] Stop-loss non placé {ctx.real_trading_pair}",
-                                    body_main=(
-                                        f"Le stop-loss exchange n'a pas pu être placé après 3 tentatives\n"
-                                        f"Paire: {ctx.real_trading_pair}\nDernière erreur: {_sl_last_err}\n\n"
-                                        f"ROLLBACK: market-sell d'urgence en cours."
-                                    ),
-                                    client=deps.client,
-                                )
-                            except Exception as _e:
-                                logger.warning("[SL-ORDER] Email alerte SL impossible: %s", _e)
-                            try:
-                                deps.market_sell_fn(symbol=ctx.real_trading_pair, quantity=actual_qty_str)
-                                ps.update({
-                                    'entry_price': None,
-                                    'last_order_side': 'SELL',
-                                    'sl_order_id': None,
-                                    'sl_exchange_placed': False,
-                                })
-                                deps.save_fn()
-                                logger.critical(
-                                    "[SL-ORDER P0-STOP] Rollback (market-sell) exécuté pour %s.",
-                                    ctx.real_trading_pair,
-                                )
-                            except Exception as _rollback_err:
-                                # P0-STOP: Double échec (SL + rollback) → EMERGENCY HALT
-                                logger.critical(
-                                    "[SL-ORDER P0-STOP] ROLLBACK AUSSI ÉCHOUÉ pour %s: %s — "
-                                    "ACTIVATION EMERGENCY HALT — POSITION EXPOSÉE SANS PROTECTION !",
-                                    ctx.real_trading_pair, _rollback_err,
-                                )
-                                with deps.bot_state_lock:
-                                    set_emergency_halt(
-                                        deps.bot_state,
-                                        f"Double échec SL+rollback pour {ctx.real_trading_pair} à {datetime.now().isoformat()}",
-                                    )
-                                deps.save_fn(force=True)
-                                try:
-                                    deps.send_alert_fn(
-                                        subject=f"[EMERGENCY HALT] Position exposée {ctx.real_trading_pair}",
-                                        body_main=(
-                                            f"ALERTE CRITIQUE: Le stop-loss ET le market-sell de rollback "
-                                            f"ont tous deux échoué.\n\n"
-                                            f"Paire: {ctx.real_trading_pair}\n"
-                                            f"Erreur SL: {_sl_last_err}\n"
-                                            f"Erreur rollback: {_rollback_err}\n\n"
-                                            f"EMERGENCY HALT ACTIVÉ — Tous les achats sont bloqués.\n"
-                                            f"ACTION REQUISE: Vérifier la position manuellement sur Binance "
-                                            f"et supprimer la clé 'emergency_halt' du deps.bot_state pour relancer."
-                                        ),
-                                        client=deps.client,
-                                    )
-                                except Exception as _e:
-                                    logger.warning("[SL-ORDER] Email emergency halt impossible: %s", _e)
-                    else:
-                        # P0-SL-GUARD: Ce chemin ne devrait JAMAIS être atteint grâce au guard
-                        # en amont. Si on arrive ici, c'est un bug — rollback immédiat.
-                        logger.critical(
-                            "[SL-ORDER P0-SL-GUARD] stop_loss_at_entry non défini pour %s "
-                            "(atr=%s). BUG: le guard pré-achat n'a pas bloqué. ROLLBACK.",
-                            ctx.real_trading_pair, ps.get('atr_at_entry'),
-                        )
-                        try:
-                            deps.market_sell_fn(symbol=ctx.real_trading_pair, quantity=actual_qty_str)
-                            ps.update({
-                                'entry_price': None,
-                                'last_order_side': 'SELL',
-                                'sl_order_id': None,
-                                'sl_exchange_placed': False,
-                            })
-                            deps.save_fn()
-                            logger.critical(
-                                "[SL-ORDER P0-SL-GUARD] Rollback (market-sell) exécuté pour %s.",
-                                ctx.real_trading_pair,
-                            )
-                        except Exception as _guard_err:
-                            logger.critical(
-                                "[SL-ORDER P0-SL-GUARD] ROLLBACK ÉCHOUÉ pour %s: %s — "
-                                "POSITION EXPOSÉE SANS STOP-LOSS !",
-                                ctx.real_trading_pair, _guard_err,
-                            )
-                            with deps.bot_state_lock:
-                                set_emergency_halt(
-                                    deps.bot_state,
-                                    f"SL impossible + rollback échoué pour {ctx.real_trading_pair} à {datetime.now().isoformat()}",
-                                )
-                            deps.save_fn(force=True)
-                        try:
-                            deps.send_alert_fn(
-                                subject=f"[CRITIQUE P0-SL-GUARD] ATR null après achat {ctx.real_trading_pair}",
-                                body_main=(
-                                    f"Le stop-loss n'a pas pu être calculé (ATR absent après achat).\n"
-                                    f"Paire: {ctx.real_trading_pair}\n"
-                                    f"ATR: {ps.get('atr_at_entry')}\n\n"
-                                    f"Rollback market-sell tenté automatiquement."
-                                ),
-                                client=deps.client,
-                            )
-                        except Exception as _e:
-                            logger.warning("[SL-GUARD] Email alerte rollback impossible: %s", _e)
-
-                    # Journal de trading (Phase 2)
-                    try:
-                        logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
-                        log_trade(
-                            logs_dir=logs_dir,
-                            pair=ctx.real_trading_pair,
-                            side='buy',
-                            quantity=float(quantity_rounded),
-                            price=entry_price,
-                            fee=float(quantity_rounded) * deps.config.taker_fee * entry_price,
-                            slippage=deps.config.slippage_buy,
-                            scenario=ctx.scenario,
-                            timeframe=ctx.time_interval,
-                            ema1=ctx.best_params.get('ema1_period'),
-                            ema2=ctx.best_params.get('ema2_period'),
-                            atr_value=atr_value,
-                            stop_price=ps.get('stop_loss_at_entry'),
-                            equity_before=ctx.usdc_balance,
-                        )
-                    except Exception as journal_err:
-                        logger.error(f"[JOURNAL] Erreur écriture achat: {journal_err}")
-
-                    # Rafraîchir le balance après achat
-                    account_info = deps.client.get_account()
-                    # C-13: helper centralisé
-                    _, ctx.usdc_balance, _, _ = _get_coin_balance(account_info, 'USDC')
-                else:
-                    # Buy order sent but NOT FILLED
-                    _status = buy_order.get('status', 'UNKNOWN') if buy_order else 'None'
-                    logger.warning(f"[BUY] Ordre d'achat non FILLED (statut={_status})")
-                    try:
-                        deps.send_alert_fn(
-                            subject=f"[ALERTE] Achat NON FILLED — {ctx.real_trading_pair}",
-                            body_main=(
-                                f"Ordre d'achat non exécuté.\n\n"
-                                f"Paire : {ctx.real_trading_pair}\n"
-                                f"Quantité : {qty_str}\n"
-                                f"Montant : {quote_amount:.2f} USDC\n"
-                                f"Statut : {_status}\n"
-                                f"Prix courant : {ctx.current_price:.4f} USDC\n\n"
-                                f"Action : le bot réessaiera au prochain cycle."
-                            ),
-                            client=deps.client,
-                        )
-                    except Exception as _email_err:
-                        logger.error(f"[BUY] Échec envoi email achat non-filled: {_email_err}")
-            else:
-                logger.warning("[BUY] Quantité calculée < min_qty, achat annulé")
-        except Exception as e:
-            logger.error(f"[ACHAT] Erreur lors de l'exécution : {e}")
+    except Exception as e:
+        logger.error("[ACHAT] Erreur lors de l'exécution : %s", e)
 
     # Afficher panel ACHAT (avec le solde AVANT achat si achat exécuté)
     display_buy_signal_panel(
         row=ctx.row, usdc_balance=usdc_balance_for_display, best_params=ctx.best_params,
         scenario=ctx.scenario, buy_condition=buy_condition, console=deps.console,
-        pair_state=ps, buy_reason=buy_reason
+        pair_state=ps, buy_reason=buy_reason,
     )
-

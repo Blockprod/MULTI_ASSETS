@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Tuple, cast
 
 from rich.console import Console
 from rich.panel import Panel
+from exchange_client import ExchangePort
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ class _BacktestDeps:
     bot_state: Dict[str, Any]
     bot_state_lock: Any                             # threading.RLock
     config: Any                                     # Config singleton
-    client: Any                                     # BinanceFinalClient
+    client: ExchangePort                            # BinanceFinalClient (ExchangePort structurellement)
     console: Any                                    # Rich Console (global)
     timeframes: List[str]
     schedule: Any                                   # schedule module
@@ -457,8 +458,8 @@ def _execute_live_trading_only(
 def _backtest_and_display_results(
     backtest_pair: str,
     real_trading_pair: str,
-    start_date: str,
-    timeframes: List[str],
+    _start_date: str,
+    _timeframes: List[str],
     sizing_mode: str,
     deps: '_BacktestDeps',
 ) -> None:

@@ -273,3 +273,138 @@ class TestPartialSellSimulation:
                 assert r_on['final_wallet'] != r_off['final_wallet'], (
                     "Les wallets devraient diverger quand des partiels se déclenchent"
                 )
+
+
+# =========================================================================
+# Tests: Slippage stochastique OOS (P2-02)
+# =========================================================================
+
+class TestBasicSlippageModel:
+    """P2-02: BasicSlippageModel unit tests."""
+
+    def _import_slippage_model(self):
+        with patch.dict(os.environ, {
+            'BINANCE_API_KEY': 'k', 'BINANCE_SECRET_KEY': 's',
+            'SENDER_EMAIL': 'a@b.c', 'RECEIVER_EMAIL': 'a@b.c',
+            'GOOGLE_MAIL_PASSWORD': 'p',
+        }):
+            try:
+                from backtest_runner import BasicSlippageModel
+                return BasicSlippageModel
+            except Exception:
+                pytest.skip("Cannot import backtest_runner")
+
+    def test_buy_factor_above_one(self):
+        """buy_factor doit toujours être > 1 (surcoût à l'achat)."""
+        SM = self._import_slippage_model()
+        model = SM(seed=42)
+        for _ in range(20):
+            assert model.buy_factor(0.5) > 1.0
+
+    def test_sell_factor_below_one(self):
+        """sell_factor doit toujours être < 1 (décote à la vente)."""
+        SM = self._import_slippage_model()
+        model = SM(seed=42)
+        for _ in range(20):
+            assert model.sell_factor(0.5) < 1.0
+
+    def test_low_volume_higher_impact(self):
+        """Volume faible (rank=0) doit produire un surcoût plus élevé que fort (rank=1)."""
+        SM = self._import_slippage_model()
+        model = SM(seed=0)
+        # Avec le même RNG, comparer buy_factor pour rank=0 vs rank=1
+        # Recréer deux modèles avec la même seed pour comparer équitablement
+        m_low = SM(seed=7)
+        m_high = SM(seed=7)
+        factor_low = m_low.buy_factor(volume_rank=0.0)
+        factor_high = m_high.buy_factor(volume_rank=1.0)
+        assert factor_low > factor_high, (
+            f"Faible volume devrait coûter plus cher ({factor_low:.6f} vs {factor_high:.6f})"
+        )
+
+    def test_deterministic_with_seed(self):
+        """Deux modèles avec la même seed produisent la même séquence."""
+        SM = self._import_slippage_model()
+        m1 = SM(seed=99)
+        m2 = SM(seed=99)
+        factors_1 = [m1.buy_factor(0.5) for _ in range(10)]
+        factors_2 = [m2.buy_factor(0.5) for _ in range(10)]
+        assert factors_1 == factors_2
+
+
+class TestBacktestWithSlippage:
+    """P2-02: backtest_from_dataframe avec slippage_model."""
+
+    def test_slippage_model_accepted_as_parameter(self):
+        """backtest_from_dataframe accepte slippage_model sans erreur."""
+        with patch.dict(os.environ, {
+            'BINANCE_API_KEY': 'k', 'BINANCE_SECRET_KEY': 's',
+            'SENDER_EMAIL': 'a@b.c', 'RECEIVER_EMAIL': 'a@b.c',
+            'GOOGLE_MAIL_PASSWORD': 'p',
+        }):
+            try:
+                from backtest_runner import backtest_from_dataframe, BasicSlippageModel
+            except Exception:
+                pytest.skip("Cannot import backtest_runner")
+
+        df = _make_ohlcv(n=300, start_price=100, trend='up')
+        model = BasicSlippageModel(seed=42)
+        result = backtest_from_dataframe(
+            df, ema1_period=12, ema2_period=22,
+            sizing_mode='baseline', slippage_model=model,
+        )
+        assert 'final_wallet' in result
+        assert result['final_wallet'] >= 0
+
+    def test_slippage_model_none_is_default(self):
+        """slippage_model=None est identique à l'absence du paramètre."""
+        with patch.dict(os.environ, {
+            'BINANCE_API_KEY': 'k', 'BINANCE_SECRET_KEY': 's',
+            'SENDER_EMAIL': 'a@b.c', 'RECEIVER_EMAIL': 'a@b.c',
+            'GOOGLE_MAIL_PASSWORD': 'p',
+        }):
+            try:
+                from backtest_runner import backtest_from_dataframe
+            except Exception:
+                pytest.skip("Cannot import backtest_runner")
+
+        df = _make_ohlcv(n=300, start_price=100, trend='up')
+        r_default = backtest_from_dataframe(df, ema1_period=12, ema2_period=22,
+                                             sizing_mode='baseline')
+        r_none = backtest_from_dataframe(df, ema1_period=12, ema2_period=22,
+                                          sizing_mode='baseline', slippage_model=None)
+        assert r_default['final_wallet'] == r_none['final_wallet']
+
+    def test_backtest_with_slippage_returns_lower_sharpe(self):
+        """P2-02: le slippage stochastique produit un wallet final inférieur ou égal.
+
+        Avec un uptrend fort et des trades actifs, l'ajout d'un surcoût
+        stochastique doit réduire le wallet final vs sans slippage modèle.
+        """
+        with patch.dict(os.environ, {
+            'BINANCE_API_KEY': 'k', 'BINANCE_SECRET_KEY': 's',
+            'SENDER_EMAIL': 'a@b.c', 'RECEIVER_EMAIL': 'a@b.c',
+            'GOOGLE_MAIL_PASSWORD': 'p',
+        }):
+            try:
+                from backtest_runner import backtest_from_dataframe, BasicSlippageModel
+            except Exception:
+                pytest.skip("Cannot import backtest_runner")
+
+        df = _make_ohlcv(n=500, start_price=100, trend='up')
+
+        r_no_slip = backtest_from_dataframe(
+            df, ema1_period=12, ema2_period=22,
+            sizing_mode='baseline', slippage_model=None,
+        )
+        r_slip = backtest_from_dataframe(
+            df, ema1_period=12, ema2_period=22,
+            sizing_mode='baseline',
+            slippage_model=BasicSlippageModel(seed=42),
+        )
+
+        # Le slippage stochastique doit dégrader ou égaler le wallet final
+        assert r_slip['final_wallet'] <= r_no_slip['final_wallet'], (
+            f"Le slippage stochastique devrait réduire le wallet final "
+            f"({r_slip['final_wallet']:.2f} vs {r_no_slip['final_wallet']:.2f})"
+        )

@@ -99,8 +99,8 @@ def _mock_df(n=100, close=100.0, atr=2.0):
 def _isolate(monkeypatch):
     """Isole le state global du module."""
     monkeypatch.setattr(ms, 'bot_state', {})
-    monkeypatch.setattr(ms, '_save_failure_count', 0)
-    monkeypatch.setattr(ms, '_last_save_time', 0.0)
+    monkeypatch.setattr(ms._runtime, 'save_failure_count', 0)
+    monkeypatch.setattr(ms._runtime, 'last_save_time', 0.0)
     monkeypatch.setattr(ms, 'save_bot_state', lambda force=False: None)
     monkeypatch.setattr(ms, 'send_trading_alert_email', lambda **kw: None)
     monkeypatch.setattr(ms, 'log_trade', lambda **kw: None)
@@ -124,8 +124,8 @@ class TestSaveBotState:
 
     def test_save_throttle_skips_recent(self, monkeypatch):
         """Un appel trop récent (< 5s) est ignoré si force=False."""
-        monkeypatch.setattr(ms, '_last_save_time', time.time())
-        monkeypatch.setattr(ms, '_save_failure_count', 0)
+        monkeypatch.setattr(ms._runtime, 'last_save_time', time.time())
+        monkeypatch.setattr(ms._runtime, 'save_failure_count', 0)
         calls = []
         monkeypatch.setattr(ms, 'save_state', lambda s: calls.append(1))
         # Restore real save_bot_state
@@ -135,11 +135,11 @@ class TestSaveBotState:
         # We need the actual implementation — re-import the real function
         # Since the fixture patches save_bot_state, call the real code path directly:
         # Execute the body of the real save_bot_state
-        ms._last_save_time = time.time()
+        ms._runtime.last_save_time = time.time()
         now = time.time()
         # The throttle should skip
         with ms._bot_state_lock:
-            if not False and (now - ms._last_save_time) < ms._SAVE_THROTTLE_SECONDS:
+            if not False and (now - ms._runtime.last_save_time) < ms._SAVE_THROTTLE_SECONDS:
                 skipped = True
             else:
                 skipped = False
@@ -147,60 +147,60 @@ class TestSaveBotState:
 
     def test_save_success_resets_failure_count(self, monkeypatch):
         """Après succès, _save_failure_count revient à 0."""
-        monkeypatch.setattr(ms, '_last_save_time', 0.0)
-        monkeypatch.setattr(ms, '_save_failure_count', 2)
+        monkeypatch.setattr(ms._runtime, 'last_save_time', 0.0)
+        monkeypatch.setattr(ms._runtime, 'save_failure_count', 2)
         monkeypatch.setattr(ms, 'save_state', lambda s: None)
 
         # Execute the real save_bot_state body inline
-        ms._save_failure_count = 2
-        ms._last_save_time = 0.0
+        ms._runtime.save_failure_count = 2
+        ms._runtime.last_save_time = 0.0
         now = time.time()
         with ms._bot_state_lock:
             try:
                 ms.save_state(ms.bot_state)
-                ms._last_save_time = now
-                if ms._save_failure_count > 0:
+                ms._runtime.last_save_time = now
+                if ms._runtime.save_failure_count > 0:
                     pass  # logger.info
-                ms._save_failure_count = 0
+                ms._runtime.save_failure_count = 0
             except Exception:
                 pass
-        assert ms._save_failure_count == 0
+        assert ms._runtime.save_failure_count == 0
 
     def test_save_failure_increments_counter(self, monkeypatch):
         """Échec sauvegarde → compteur incrémenté."""
         monkeypatch.setattr(ms, 'save_state', MagicMock(side_effect=IOError("disk full")))
         monkeypatch.setattr(ms, 'send_trading_alert_email', lambda **kw: None)
 
-        ms._save_failure_count = 0
-        ms._last_save_time = 0.0
+        ms._runtime.save_failure_count = 0
+        ms._runtime.last_save_time = 0.0
         now = time.time()
         with ms._bot_state_lock:
             try:
                 ms.save_state(ms.bot_state)
-                ms._last_save_time = now
-                ms._save_failure_count = 0
+                ms._runtime.last_save_time = now
+                ms._runtime.save_failure_count = 0
             except Exception:
-                ms._save_failure_count += 1
-        assert ms._save_failure_count == 1
+                ms._runtime.save_failure_count += 1
+        assert ms._runtime.save_failure_count == 1
 
     def test_save_max_failures_emergency_halt(self, monkeypatch):
         """Après _MAX_SAVE_FAILURES échecs → emergency_halt activé."""
         monkeypatch.setattr(ms, 'save_state', MagicMock(side_effect=IOError("disk full")))
 
-        ms._save_failure_count = ms._MAX_SAVE_FAILURES - 1
-        ms._last_save_time = 0.0
+        ms._runtime.save_failure_count = ms._MAX_SAVE_FAILURES - 1
+        ms._runtime.last_save_time = 0.0
         with ms._bot_state_lock:
             try:
                 ms.save_state(ms.bot_state)
-                ms._last_save_time = time.time()
-                ms._save_failure_count = 0
+                ms._runtime.last_save_time = time.time()
+                ms._runtime.save_failure_count = 0
             except Exception:
-                ms._save_failure_count += 1
+                ms._runtime.save_failure_count += 1
                 try:
                     ms.send_trading_alert_email(subject="test", body_main="test", client=None)
                 except Exception:
                     pass
-                if ms._save_failure_count >= ms._MAX_SAVE_FAILURES:
+                if ms._runtime.save_failure_count >= ms._MAX_SAVE_FAILURES:
                     ms.bot_state['emergency_halt'] = True
                     ms.bot_state['emergency_halt_reason'] = "test halt"
         assert ms.bot_state.get('emergency_halt') is True
@@ -210,19 +210,19 @@ class TestSaveBotState:
         monkeypatch.setattr(ms, 'save_state', MagicMock(side_effect=IOError("disk full")))
         monkeypatch.setattr(ms, 'send_trading_alert_email',
                             MagicMock(side_effect=Exception("SMTP down")))
-        ms._save_failure_count = 0
-        ms._last_save_time = 0.0
+        ms._runtime.save_failure_count = 0
+        ms._runtime.last_save_time = 0.0
         # Simulate the save flow with email failure
         with ms._bot_state_lock:
             try:
                 ms.save_state(ms.bot_state)
             except Exception:
-                ms._save_failure_count += 1
+                ms._runtime.save_failure_count += 1
                 try:
                     ms.send_trading_alert_email(subject="x", body_main="x", client=None)
                 except Exception:
                     pass  # should be silent
-        assert ms._save_failure_count == 1
+        assert ms._runtime.save_failure_count == 1
 
 
 # ===================================================================
@@ -1099,19 +1099,19 @@ class TestExecuteScheduledTrading:
         monkeypatch.setattr(ms, 'bot_state', {})
 
         # Set last backtest to now (recently run)
-        monkeypatch.setattr(ms, '_last_backtest_time', {'SOLUSDT': time.time()})
+        monkeypatch.setattr(ms._runtime, 'last_backtest_time', {'SOLUSDT': time.time()})
         cfg.backtest_throttle_seconds = 3600.0  # P3-02: via config
 
         exec_calls = []
         monkeypatch.setattr(ms, 'execute_real_trades', lambda *a, **kw: exec_calls.append(1))
-        monkeypatch.setattr(ms, '_live_best_params', {})
+        monkeypatch.setattr(ms._runtime, 'live_best_params', {})
 
         best_params = _make_best_params()
         ms.execute_scheduled_trading('SOLUSDC', '1h', best_params, 'SOLUSDT', 'baseline')
 
         assert len(exec_calls) == 1  # Trading executed
         assert ms.bot_state['SOLUSDT']['last_run_time'] is not None
-        assert ms._live_best_params['SOLUSDT'] == best_params
+        assert ms._runtime.live_best_params['SOLUSDT'] == best_params
 
     def test_backtest_with_oos_valid(self, monkeypatch):
         """Backtest non-throttlé, résultats OOS-valides → params mis à jour."""
@@ -1119,7 +1119,7 @@ class TestExecuteScheduledTrading:
         monkeypatch.setattr(ms, 'config', cfg)
         monkeypatch.setattr(ms, 'console', MagicMock())
         monkeypatch.setattr(ms, 'bot_state', {'SOLUSDT': {'oos_blocked': True}})
-        monkeypatch.setattr(ms, '_last_backtest_time', {})  # never run
+        monkeypatch.setattr(ms._runtime, 'last_backtest_time', {})  # never run
         monkeypatch.setattr(ms, 'timeframes', ['1h'])
 
         results = [{
@@ -1137,7 +1137,7 @@ class TestExecuteScheduledTrading:
 
         exec_calls = []
         monkeypatch.setattr(ms, 'execute_real_trades', lambda *a, **kw: exec_calls.append(1))
-        monkeypatch.setattr(ms, '_live_best_params', {})
+        monkeypatch.setattr(ms._runtime, 'live_best_params', {})
 
         best_params = _make_best_params()
         ms.execute_scheduled_trading('SOLUSDC', '1h', best_params, 'SOLUSDT', 'baseline')
@@ -1153,7 +1153,7 @@ class TestExecuteScheduledTrading:
         monkeypatch.setattr(ms, 'config', cfg)
         monkeypatch.setattr(ms, 'console', MagicMock())
         monkeypatch.setattr(ms, 'bot_state', {})
-        monkeypatch.setattr(ms, '_last_backtest_time', {})  # never run
+        monkeypatch.setattr(ms._runtime, 'last_backtest_time', {})  # never run
         monkeypatch.setattr(ms, 'timeframes', ['1h'])
         monkeypatch.setattr(ms, 'run_all_backtests', lambda *a, **kw: None)
 
@@ -1162,7 +1162,7 @@ class TestExecuteScheduledTrading:
 
         exec_calls = []
         monkeypatch.setattr(ms, 'execute_real_trades', lambda *a, **kw: exec_calls.append(1))
-        monkeypatch.setattr(ms, '_live_best_params', {})
+        monkeypatch.setattr(ms._runtime, 'live_best_params', {})
 
         best_params = _make_best_params()
         ms.execute_scheduled_trading('SOLUSDC', '1h', best_params, 'SOLUSDT', 'baseline')
@@ -1176,14 +1176,14 @@ class TestExecuteScheduledTrading:
         monkeypatch.setattr(ms, 'config', cfg)
         monkeypatch.setattr(ms, 'console', MagicMock())
         monkeypatch.setattr(ms, 'bot_state', {})
-        monkeypatch.setattr(ms, '_last_backtest_time', {})
+        monkeypatch.setattr(ms._runtime, 'last_backtest_time', {})
         monkeypatch.setattr(ms, 'timeframes', ['1h'])
         monkeypatch.setattr(ms, 'run_all_backtests',
                             MagicMock(side_effect=Exception("backtest crash")))
 
         exec_calls = []
         monkeypatch.setattr(ms, 'execute_real_trades', lambda *a, **kw: exec_calls.append(1))
-        monkeypatch.setattr(ms, '_live_best_params', {})
+        monkeypatch.setattr(ms._runtime, 'live_best_params', {})
 
         ms.execute_scheduled_trading('SOLUSDC', '1h', _make_best_params(), 'SOLUSDT', 'baseline')
         assert len(exec_calls) == 1  # trading still runs
@@ -1194,7 +1194,7 @@ class TestExecuteScheduledTrading:
         monkeypatch.setattr(ms, 'config', cfg)
         monkeypatch.setattr(ms, 'console', MagicMock())
         monkeypatch.setattr(ms, 'bot_state', {})
-        monkeypatch.setattr(ms, '_last_backtest_time', {})
+        monkeypatch.setattr(ms._runtime, 'last_backtest_time', {})
         monkeypatch.setattr(ms, 'timeframes', ['1h'])
 
         results = [{
@@ -1211,7 +1211,7 @@ class TestExecuteScheduledTrading:
 
         exec_calls = []
         monkeypatch.setattr(ms, 'execute_real_trades', lambda *a, **kw: exec_calls.append(1))
-        monkeypatch.setattr(ms, '_live_best_params', {})
+        monkeypatch.setattr(ms._runtime, 'live_best_params', {})
 
         ms.execute_scheduled_trading('SOLUSDC', '1h', _make_best_params(), 'SOLUSDT', 'baseline')
 
@@ -1224,10 +1224,10 @@ class TestExecuteScheduledTrading:
         monkeypatch.setattr(ms, 'config', cfg)
         monkeypatch.setattr(ms, 'console', MagicMock())
         monkeypatch.setattr(ms, 'bot_state', {})
-        monkeypatch.setattr(ms, '_last_backtest_time', {'SOLUSDT': time.time()})
+        monkeypatch.setattr(ms._runtime, 'last_backtest_time', {'SOLUSDT': time.time()})
         monkeypatch.setattr(ms, 'execute_real_trades',
                             MagicMock(side_effect=Exception("trade crash")))
-        monkeypatch.setattr(ms, '_live_best_params', {})
+        monkeypatch.setattr(ms._runtime, 'live_best_params', {})
 
         ms.execute_scheduled_trading('SOLUSDC', '1h', _make_best_params(), 'SOLUSDT', 'baseline')
         # Should not crash, state still updated
@@ -1238,7 +1238,7 @@ class TestExecuteScheduledTrading:
         monkeypatch.setattr(ms, 'console', MagicMock())
         monkeypatch.setattr(ms, 'display_execution_header',
                             MagicMock(side_effect=Exception("display crash")))
-        monkeypatch.setattr(ms, '_live_best_params', {})
+        monkeypatch.setattr(ms._runtime, 'live_best_params', {})
 
         ms.execute_scheduled_trading('SOLUSDC', '1h', _make_best_params(), 'SOLUSDT', 'baseline')
         # No crash

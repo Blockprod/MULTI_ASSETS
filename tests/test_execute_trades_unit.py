@@ -119,8 +119,8 @@ def _isolate_module_state(monkeypatch):
     original_bot_state = ms.bot_state.copy()
     original_config = ms.config
     monkeypatch.setattr(ms, 'bot_state', {})
-    monkeypatch.setattr(ms, '_save_failure_count', 0)
-    monkeypatch.setattr(ms, '_last_save_time', 0.0)
+    monkeypatch.setattr(ms._runtime, 'save_failure_count', 0)
+    monkeypatch.setattr(ms._runtime, 'last_save_time', 0.0)
     # Neutraliser les side-effects
     monkeypatch.setattr(ms, 'save_bot_state', lambda force=False: None)
     monkeypatch.setattr(ms, 'send_trading_alert_email', lambda **kw: None)

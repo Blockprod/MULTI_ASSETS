@@ -395,3 +395,55 @@ class TestHeartbeatConstant:
         """Stale threshold should be between 2 and 30 minutes."""
         from watchdog import HEARTBEAT_STALE_SECONDS
         assert 120 <= HEARTBEAT_STALE_SECONDS <= 1800
+
+
+# ─── P1-02: Disk space check ─────────────────────────────────────────────────
+
+class TestDiskSpaceCheck:
+    """Tests pour check_disk_space (P1-02)."""
+
+    @pytest.fixture
+    def watchdog(self, tmp_path):
+        from watchdog import TradingBotWatchdog
+        script = str(tmp_path / "MULTI_SYMBOLS.py")
+        open(script, "w").close()
+        os.makedirs(str(tmp_path / "logs"), exist_ok=True)
+        return TradingBotWatchdog(script_path=script)
+
+    def test_no_alert_when_disk_sufficient(self, watchdog, tmp_path):
+        """No log CRITICAL when ample disk space available."""
+        from unittest.mock import patch
+        import shutil
+        # Fake 10 GB free
+        fake_usage = shutil.disk_usage.__class__  # not needed — just use namedtuple
+        from collections import namedtuple
+        DiskUsage = namedtuple("DiskUsage", ["total", "used", "free"])
+        with patch("watchdog.shutil.disk_usage", return_value=DiskUsage(100e9, 50e9, 10e9)):
+            with patch("watchdog.logger") as mock_logger:
+                watchdog.check_disk_space()
+                mock_logger.critical.assert_not_called()
+
+    def test_alert_when_disk_critical(self, watchdog):
+        """Log CRITICAL + send email when disk < DISK_MIN_FREE_MB."""
+        from unittest.mock import patch
+        from collections import namedtuple
+        DiskUsage = namedtuple("DiskUsage", ["total", "used", "free"])
+        # 100 MB free — well below 500 MB threshold
+        with patch("watchdog.shutil.disk_usage", return_value=DiskUsage(100e9, 99.9e9, 100e6)):
+            with patch("watchdog.logger") as mock_logger:
+                with patch("watchdog._send_email_alert") as mock_email:
+                    watchdog.check_disk_space()
+                    mock_logger.critical.assert_called_once()
+                    mock_email.assert_called_once()
+
+    def test_disk_min_free_constant(self):
+        """DISK_MIN_FREE_MB should be 500."""
+        from watchdog import DISK_MIN_FREE_MB
+        assert DISK_MIN_FREE_MB == 500
+
+    def test_no_crash_on_disk_error(self, watchdog):
+        """check_disk_space does not raise if shutil.disk_usage fails."""
+        from unittest.mock import patch
+        with patch("watchdog.shutil.disk_usage", side_effect=OSError("no such device")):
+            watchdog.check_disk_space()  # should not raise
+

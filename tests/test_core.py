@@ -296,5 +296,36 @@ class TestWatchdogHeartbeat(unittest.TestCase):
         self.assertFalse(self.wd.is_heartbeat_fresh())
 
 
+# ──────────────────────────────────────────────────────────────
+# P0-01 — Config frozen after init
+# ──────────────────────────────────────────────────────────────
+class TestConfigFrozen(unittest.TestCase):
+    """Vérifie que Config est immutable après from_env() (P0-01)."""
+
+    def test_config_frozen_after_init(self):
+        """La config singleton doit lever AttributeError sur toute mutation post-init."""
+        from bot_config import config
+        with self.assertRaises(AttributeError):
+            config.taker_fee = 0.9999
+
+    def test_config_frozen_other_attr(self):
+        """Vérification sur un attribut non-fee."""
+        from bot_config import config
+        with self.assertRaises(AttributeError):
+            config.initial_wallet = 999999.0
+
+    def test_config_new_allows_setattr(self):
+        """Config.__new__() (pattern tests) doit toujours permettre setattr."""
+        from bot_config import Config
+        cfg = Config.__new__(Config)
+        cfg.taker_fee = 0.001  # ne doit pas lever
+        self.assertEqual(cfg.taker_fee, 0.001)
+
+    def test_config_frozen_flag_not_exposed(self):
+        """_frozen doit être True sur le singleton."""
+        from bot_config import config
+        self.assertTrue(getattr(config, '_frozen', False))
+
+
 if __name__ == '__main__':
     unittest.main()

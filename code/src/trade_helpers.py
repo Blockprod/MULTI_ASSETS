@@ -24,6 +24,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import pandas as pd
 
 from bot_config import extract_coin_from_pair, retry_with_backoff
+from constants import (
+    PARTIAL_1_PROFIT_PCT,
+    PARTIAL_2_PROFIT_PCT,
+    PARTIAL_1_QTY_MIN,
+    PARTIAL_1_QTY_MAX,
+    PARTIAL_2_QTY_MIN,
+    PARTIAL_2_QTY_MAX,
+    SNIPER_BAND_PCT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +83,7 @@ def get_sniper_entry_price(
         for _, candle in recent_candles.iterrows():
             candle_price = candle['low']
             price_diff_pct = abs(candle_price - signal_price) / signal_price * 100
-            if price_diff_pct <= 2.0 and candle_price < best_price:
+            if price_diff_pct <= SNIPER_BAND_PCT and candle_price < best_price:
                 best_price = candle_price
 
         if best_price < signal_price:
@@ -278,8 +287,8 @@ def check_partial_exits_from_history(
             logger.debug("[PARTIAL-CHECK] Aucun BUY trouve dans l'historique")
             return False, False
 
-        partial_threshold_1 = entry_price * 1.02  # +2%
-        partial_threshold_2 = entry_price * 1.04  # +4%
+        partial_threshold_1 = entry_price * PARTIAL_1_PROFIT_PCT  # +2%
+        partial_threshold_2 = entry_price * PARTIAL_2_PROFIT_PCT  # +4%
 
         sells_after_buy = []
         for trade in trades:
@@ -305,7 +314,7 @@ def check_partial_exits_from_history(
 
             if (
                 not partial_1_detected
-                and 0.45 <= (sell_qty / last_buy_qty) <= 0.55
+                and PARTIAL_1_QTY_MIN <= (sell_qty / last_buy_qty) <= PARTIAL_1_QTY_MAX
                 and sell_price >= partial_threshold_1
             ):
                 partial_1_detected = True
@@ -315,7 +324,7 @@ def check_partial_exits_from_history(
                 )
             elif (
                 not partial_2_detected
-                and 0.25 <= (sell_qty / last_buy_qty) <= 0.35
+                and PARTIAL_2_QTY_MIN <= (sell_qty / last_buy_qty) <= PARTIAL_2_QTY_MAX
                 and sell_price >= partial_threshold_2
                 and partial_1_detected
             ):

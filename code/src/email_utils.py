@@ -4,9 +4,13 @@ email_utils.py — Utilitaires d'envoi d'emails pour le bot de trading.
 Contient:
 - send_email_alert: envoi SMTP avec retry
 - send_trading_alert_email: wrapper avec ajout du solde SPOT
+- send_email_alert_with_fallback: wrapper avec fallback alerts_unsent.jsonl (P1-05)
 """
+import json
 import logging
+import os
 import smtplib
+import time as _time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -59,3 +63,41 @@ def send_trading_alert_email(
         except Exception as _e:
             logger.warning("[EMAIL] Solde SPOT USDC indisponible: %s", _e)
     return send_email_alert(subject, body)
+
+
+# ── P1-05: Fallback alerts_unsent.jsonl ───────────────────────────────────────
+
+_ALERTS_UNSENT_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '..', 'logs', 'alerts_unsent.jsonl'
+)
+
+
+def _write_alert_unsent_fallback(subject: str, body: str) -> None:
+    """Écrit une alerte non envoyée dans alerts_unsent.jsonl si SMTP est indisponible."""
+    try:
+        os.makedirs(os.path.dirname(_ALERTS_UNSENT_FILE), exist_ok=True)
+        record = {
+            "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+            "subject": subject,
+            "body": body,
+        }
+        with open(_ALERTS_UNSENT_FILE, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(record, ensure_ascii=False) + '\n')
+        logger.warning(
+            "[EMAIL-FALLBACK] Alerte non envoyée écrite dans alerts_unsent.jsonl : %s",
+            subject,
+        )
+    except Exception as e:
+        logger.error("[EMAIL-FALLBACK] Impossible d'écrire dans alerts_unsent.jsonl: %s", e)
+
+
+def send_email_alert_with_fallback(subject: str, body: str) -> bool:
+    """Envoie un email d'alerte. Si SMTP échoue, écrit dans alerts_unsent.jsonl.
+
+    Utiliser quand l'alerte ne doit pas être silencieusement perdue.
+    """
+    try:
+        return send_email_alert(subject, body)
+    except Exception:
+        _write_alert_unsent_fallback(subject, body)
+        return False

@@ -118,6 +118,7 @@ from email_templates import (
 
 # ErrorHandler réel importé depuis error_handler.py (remplace le DummyErrorHandler)
 from error_handler import initialize_error_handler
+from error_handler import AlertThrottle  # P1-05
 
 # Modules dormants activés (Phase 2)
 from trade_journal import log_trade  # noqa: F401 — re-export: tests patchent ms.log_trade
@@ -146,14 +147,22 @@ from backtest_orchestrator import (
     _execute_live_trading_only,
     _backtest_and_display_results,
 )
+from constants import (                        # P1-03
+    SAVE_THROTTLE_SECONDS,
+    MAX_SAVE_FAILURES,
+)
+from cython_integrity import (                 # P1-01
+    verify_cython_integrity as _verify_cython_integrity,
+)
+from metrics import write_metrics as _write_metrics  # P2-04: observabilité métriques
 
 try:
     # Forcer la console Windows en UTF-8 (code page 65001)
     if os.name == "nt":
         os.system("chcp 65001 >NUL")
         locale.setlocale(locale.LC_ALL, '')
-except Exception:
-    pass
+except Exception as _exc:
+    logging.getLogger(__name__).debug("[MULTI_SYMBOLS] initialisation locale/console échouée: %s", _exc)
 
 # Configuration du logging
 _log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'logs', 'trading_bot.log')
@@ -178,6 +187,9 @@ if CYTHON_INDICATORS_AVAILABLE:
     logger.info("[CYTHON] Moteur indicateurs Cython chargé avec succès")
 else:
     logger.warning("[CYTHON] Moteur indicateurs Cython NON disponible — fallback Python actif")
+
+# P1-01: Vérifie l'intégrité SHA256 des .pyd au démarrage
+_verify_cython_integrity(alert_fn=send_email_alert)
 
 # Paramètre pour activer/désactiver les logs détaillés (VERBOSE = False pour plus de rapidité)
 # (VERBOSE_LOGS importé depuis bot_config)
@@ -423,11 +435,39 @@ def init_timestamp_solution() -> bool:
 
 # get_cache_key importé depuis cache_manager.py (Phase 4)
 
-# --- Save throttle: évite les écritures disque excessives (max 1x / 5s) ---
-_last_save_time: float = 0.0
-_SAVE_THROTTLE_SECONDS: float = 5.0
-_save_failure_count: int = 0  # P0-SAVE: compteur d'échecs consécutifs
-_MAX_SAVE_FAILURES: int = 3   # P0-SAVE: seuil pour emergency halt
+# ─── P1-04: Runtime state container ─────────────────────────────────────────
+class _BotRuntime:
+    """Regroupe tous les états runtime mutables du bot (caches, timestamps, throttles, fees).
+
+    Accès via le singleton _runtime — évite les globals dispersés au niveau module.
+    Les constantes de configuration (_SAVE_THROTTLE_SECONDS, _MAX_SAVE_FAILURES) restent
+    à niveau module car elles ne sont jamais mutées.
+    """
+
+    def __init__(self) -> None:
+        # Save throttle state (P0-SAVE)
+        self.last_save_time: float = 0.0
+        self.save_failure_count: int = 0
+        # Backtest scheduling per pair
+        self.last_backtest_time: Dict[str, float] = {}
+        self.live_best_params: Dict[str, Dict[str, Any]] = {}
+        # Alert throttles (1h default, per pair or global)
+        self.oos_alert_throttle = AlertThrottle(cooldown=3600)
+        self.daily_loss_throttle = AlertThrottle(
+            cooldown=getattr(config, 'backtest_throttle_seconds', 3600.0)
+        )
+        self.sl_missing_throttle = AlertThrottle(cooldown=3600)
+        self.drawdown_throttle = AlertThrottle(cooldown=3600)
+        # Live trading fees (init from config, updated once after API fetch — P0-01)
+        self.taker_fee: float = config.taker_fee
+        self.maker_fee: float = config.maker_fee
+
+
+_runtime = _BotRuntime()
+
+# --- Save throttle: constantes (jamais mutées) ---
+_SAVE_THROTTLE_SECONDS: float = SAVE_THROTTLE_SECONDS
+_MAX_SAVE_FAILURES: int = MAX_SAVE_FAILURES
 
 def save_bot_state(force: bool = False) -> None:
     """Sauvegarde l'etat du bot (wrapper vers state_manager).
@@ -437,10 +477,9 @@ def save_bot_state(force: bool = False) -> None:
     Throttled à 1 écriture / 5s sauf si force=True (arrêt, crash).
     Thread-safe via _bot_state_lock (C-01).
     """
-    global _last_save_time, _save_failure_count
     now = time.time()
     with _bot_state_lock:
-        if not force and (now - _last_save_time) < _SAVE_THROTTLE_SECONDS:
+        if not force and (now - _runtime.last_save_time) < _SAVE_THROTTLE_SECONDS:
             return
         try:
             # C-11: rotation automatique .bak avant écriture
@@ -452,18 +491,18 @@ def save_bot_state(force: bool = False) -> None:
                 except Exception as _bak_err:
                     logger.warning("[STATE C-11] Backup .bak impossible: %s", _bak_err)
             save_state(bot_state)
-            _last_save_time = now
-            if _save_failure_count > 0:
-                logger.info("[SAVE P0-SAVE] Sauvegarde réussie après %d échec(s) consécutif(s)", _save_failure_count)
-            _save_failure_count = 0
+            _runtime.last_save_time = now
+            if _runtime.save_failure_count > 0:
+                logger.info("[SAVE P0-SAVE] Sauvegarde réussie après %d échec(s) consécutif(s)", _runtime.save_failure_count)
+            _runtime.save_failure_count = 0
         except Exception as save_err:
-            _save_failure_count += 1
+            _runtime.save_failure_count += 1
             logger.critical(
                 "[SAVE P0-SAVE] ÉCHEC sauvegarde état (%d/%d): %s",
-                _save_failure_count, _MAX_SAVE_FAILURES, save_err,
+                _runtime.save_failure_count, _MAX_SAVE_FAILURES, save_err,
             )
-            # Ne PAS mettre à jour _last_save_time → force le retry au prochain appel
-            if _save_failure_count >= _MAX_SAVE_FAILURES:
+            # Ne PAS mettre à jour _runtime.last_save_time → force le retry au prochain appel
+            if _runtime.save_failure_count >= _MAX_SAVE_FAILURES:
                 try:
                     send_trading_alert_email(
                         subject=f"[CRITIQUE P0-SAVE] {_MAX_SAVE_FAILURES} échecs sauvegarde — EMERGENCY HALT",
@@ -479,9 +518,9 @@ def save_bot_state(force: bool = False) -> None:
             else:
                 logger.warning(
                     "[SAVE P0-SAVE] Échec %d/%d — email différé au %dème échec.",
-                    _save_failure_count, _MAX_SAVE_FAILURES, _MAX_SAVE_FAILURES,
+                    _runtime.save_failure_count, _MAX_SAVE_FAILURES, _MAX_SAVE_FAILURES,
                 )
-            if _save_failure_count >= _MAX_SAVE_FAILURES:
+            if _runtime.save_failure_count >= _MAX_SAVE_FAILURES:
                 set_emergency_halt(
                     bot_state,
                     f"{_MAX_SAVE_FAILURES} échecs consécutifs de sauvegarde à {datetime.now().isoformat()}",
@@ -572,7 +611,6 @@ def _update_daily_pnl(pnl_usdc: float | None) -> None:
 
 def _is_daily_loss_limit_reached() -> bool:
     """Retourne True si la perte journalière dépasse daily_loss_limit_pct × initial_wallet."""
-    global _daily_loss_alert_last_sent
     today = _get_today_iso()
     with _bot_state_lock:
         tracker = bot_state.get('_daily_pnl_tracker', {})
@@ -585,31 +623,22 @@ def _is_daily_loss_limit_reached() -> bool:
             abs(total_pnl), limit_usdc,
             config.daily_loss_limit_pct * 100, config.initial_wallet,
         )
-        # C-08: email d'alerte avec cooldown 1h (backtest_throttle_seconds)
-        _now_dl = time.time()
-        _cooldown_dl = getattr(config, 'backtest_throttle_seconds', 3600.0)
-        with _daily_loss_alert_lock:
-            _last_dl = _daily_loss_alert_last_sent
-        if (_now_dl - _last_dl) >= _cooldown_dl:
-            try:
-                send_trading_alert_email(
-                    subject="[DAILY LOSS LIMIT] Achats bloques — perte journaliere atteinte",
-                    body_main=(
-                        f"La perte journaliere cumulee ({abs(total_pnl):.2f} USDC) a atteint "
-                        f"la limite configuree ({limit_usdc:.2f} USDC = "
-                        f"{config.daily_loss_limit_pct * 100:.1f}% de {config.initial_wallet:.0f} USDC initials).\n\n"
-                        f"Les achats sont bloques jusqu'a 00:00 UTC. Les stops restent actifs."
-                    ),
-                    client=client,
-                )
-                with _daily_loss_alert_lock:
-                    _daily_loss_alert_last_sent = _now_dl
-            except Exception as _dl_err:
-                logger.error("[DAILY-LIMIT C-08] Envoi email impossible: %s", _dl_err)
+        # C-08: email d'alerte avec cooldown throttlé (AlertThrottle P1-05)
+        if _runtime.daily_loss_throttle.check_and_mark():
+            send_trading_alert_email(
+                subject="[DAILY LOSS LIMIT] Achats bloques — perte journaliere atteinte",
+                body_main=(
+                    f"La perte journaliere cumulee ({abs(total_pnl):.2f} USDC) a atteint "
+                    f"la limite configuree ({limit_usdc:.2f} USDC = "
+                    f"{config.daily_loss_limit_pct * 100:.1f}% de {config.initial_wallet:.0f} USDC initials).\n\n"
+                    f"Les achats sont bloques jusqu'a 00:00 UTC. Les stops restent actifs."
+                ),
+                client=client,
+            )
         else:
             logger.debug(
-                "[DAILY-LIMIT C-08] Alerte email throttled (cooldown %.0fs, reste %.0fs)",
-                _cooldown_dl, _cooldown_dl - (_now_dl - _last_dl),
+                "[DAILY-LIMIT C-08] Alerte email throttled (reste %.0fs)",
+                _runtime.daily_loss_throttle.time_remaining(),
             )
         return True
     return False
@@ -678,8 +707,8 @@ def _make_backtest_deps() -> _BacktestDeps:
         backtest_from_dataframe_fn=backtest_from_dataframe,
         select_best_by_calmar_fn=_select_best_by_calmar,
         make_default_pair_state_fn=_make_default_pair_state,
-        last_backtest_time=_last_backtest_time,
-        live_best_params=_live_best_params,
+        last_backtest_time=_runtime.last_backtest_time,
+        live_best_params=_runtime.live_best_params,
         oos_alert_last_sent=_oos_alert_last_sent,
         oos_alert_lock=_oos_alert_lock,
         wf_scenarios=WF_SCENARIOS,
@@ -821,38 +850,19 @@ def check_partial_exits_from_history(real_trading_pair: str, entry_price: float)
 
 # check_if_order_executed imported directly from trade_helpers.py
 
-# Throttle pour ne pas re-lancer les backtests a chaque cycle planifie
-_last_backtest_time: Dict[str, float] = {}
-# P3-02: utilise config.backtest_throttle_seconds (défaut 3600s)
-
-# Cache mutable des params actifs par paire — mis à jour à chaque exécution schedulée.
-# Permet à la lambda de toujours lire les params les plus récents (WF ou IS-Calmar)
-# sans être figée sur le snapshot pris au moment du schedule.every(...).
-_live_best_params: Dict[str, Dict[str, Any]] = {}
+# P1-04: Backward-compat aliases for _BacktestDeps (oos_alert_last_sent/lock).
+# _runtime.live_best_params / _runtime.last_backtest_time hold the actual dicts.
+_oos_alert_last_sent = _runtime.oos_alert_throttle.last_sent   # compat _BacktestDeps
+_oos_alert_lock = _runtime.oos_alert_throttle.lock              # compat _BacktestDeps
 
 
 def _read_live_params(pair: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
-    """Lecture thread-safe de _live_best_params avec fallback."""
+    """Lecture thread-safe de _runtime.live_best_params avec fallback."""
     with _bot_state_lock:
-        return dict(_live_best_params.get(pair, fallback))
+        return dict(_runtime.live_best_params.get(pair, fallback))
 
 
 # ─── P2-05: OOS quality gate centralisée ──────────────────────────────────────
-
-# Cooldown per-pair pour les alertes email OOS (évite le spam toutes les 2 min)
-_oos_alert_last_sent: Dict[str, float] = {}
-_oos_alert_lock = threading.Lock()  # P3-A: protège _oos_alert_last_sent contre les accès concurrents
-
-# C-08: cooldown pour l'alerte email daily loss limit
-_daily_loss_alert_last_sent: float = 0.0
-_daily_loss_alert_lock = threading.Lock()
-
-# EM-P1-04: cooldown pour l'alerte SL manquant (1h par paire)
-_sl_missing_alert_last_sent: Dict[str, float] = {}
-_sl_missing_alert_lock = threading.Lock()
-# EM-P2-05: cooldown pour l'alerte drawdown max (1h par paire)
-_drawdown_alert_last_sent: Dict[str, float] = {}
-_drawdown_alert_lock = threading.Lock()
 
 def apply_oos_quality_gate(
     results: List[Dict[str, Any]],
@@ -885,9 +895,18 @@ def _fetch_balances(real_trading_pair: str) -> Optional[Tuple[Any, str, str, flo
     Returns:
         (account_info, coin_symbol, quote_currency,
          usdc_balance, coin_balance_free, coin_balance_locked, coin_balance)
-        ou None si le coin n'est pas trouvé.
+        ou None si le coin n'est pas trouvé dans le portefeuille.
+
+    Raises:
+        BalanceUnavailableError: si l'API Binance échoue (P0-02).
     """
-    account_info = client.get_account()
+    from exceptions import BalanceUnavailableError  # pylint: disable=import-outside-toplevel
+    try:
+        account_info = client.get_account()
+    except Exception as _api_err:
+        raise BalanceUnavailableError(
+            f"_fetch_balances: client.get_account() a échoué: {_api_err}"
+        ) from _api_err
     coin_symbol, quote_currency = extract_coin_from_pair(real_trading_pair)
 
     _, usdc_balance_free_val, _, _ = _get_coin_balance(account_info, 'USDC')
@@ -1088,13 +1107,7 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
 
     # EM-P1-04: Alerte si position BUY ouverte sans SL confirmé sur l'exchange
     if pair_state.get('last_order_side') == 'BUY' and not pair_state.get('sl_exchange_placed'):
-        _now_sl = time.time()
-        with _sl_missing_alert_lock:
-            _last_sl = _sl_missing_alert_last_sent.get(backtest_pair, 0.0)
-            _do_sl_alert = (_now_sl - _last_sl) >= 3600
-            if _do_sl_alert:
-                _sl_missing_alert_last_sent[backtest_pair] = _now_sl
-        if _do_sl_alert:
+        if _runtime.sl_missing_throttle.check_and_mark(key=backtest_pair):
             logger.critical(
                 "[SL-MANQUANT] %s en position BUY sans sl_exchange_placed=True.",
                 backtest_pair,
@@ -1149,6 +1162,13 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
         # === P3-04: COMPTES & SOLDES (helper) ===
         bal = _fetch_balances(real_trading_pair)
         if bal is None:
+            # P0-02: si position BUY ouverte, coin manquant = anomalie critique
+            if pair_state.get('last_order_side') == 'BUY':
+                logger.critical(
+                    "[P0-02] Coin introuvable dans le portefeuille pour %s "
+                    "alors que position BUY ouverte. Vérifier l'API ou la réconciliation.",
+                    real_trading_pair,
+                )
             return
         (account_info, coin_symbol, quote_currency,
          usdc_balance, coin_balance_free, coin_balance_locked, coin_balance) = bal
@@ -1156,6 +1176,13 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
         # === P3-04: FILTRES PAIRE (helper) ===
         flt = _fetch_symbol_filters(real_trading_pair)
         if flt is None:
+            # P0-02: filtre manquant avec position BUY = stop-loss management compromis
+            if pair_state.get('last_order_side') == 'BUY':
+                logger.critical(
+                    "[P0-02] Filtres Binance introuvables pour %s avec position BUY ouverte "
+                    "— SL management compromis ce cycle.",
+                    real_trading_pair,
+                )
             return
         (min_qty, max_qty, step_size, min_notional,
          min_qty_dec, max_qty_dec, step_size_dec, step_decimals) = flt
@@ -1189,14 +1216,7 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
             _entry_p = float(pair_state['entry_price'])
             _drawdown = (current_price - _entry_p) / _entry_p
             if _drawdown < -config.max_drawdown_pct:
-                _now_dd = time.time()
-                _do_dd_alert = False
-                with _drawdown_alert_lock:
-                    _last_dd = _drawdown_alert_last_sent.get(backtest_pair, 0.0)
-                    if (_now_dd - _last_dd) >= 3600:
-                        _drawdown_alert_last_sent[backtest_pair] = _now_dd
-                        _do_dd_alert = True
-                if _do_dd_alert:
+                if _runtime.drawdown_throttle.check_and_mark(key=backtest_pair):
                     pair_state['drawdown_halted'] = True  # ST-P2-02: persisté dans bot_state
                     save_bot_state()
                     logger.critical(
@@ -1371,11 +1391,14 @@ if __name__ == "__main__":
             logger.error("Impossible de valider la connexion API. Arret du programme.")
             exit(1)
 
-        # Récupération des frais réels depuis l'API Binance (override config defaults)
+        # Récupération des frais réels depuis l'API Binance (P0-01: stockés dans _runtime)
         real_taker, real_maker = get_binance_trading_fees(client)
-        with _bot_state_lock:  # P1-04: protéger la mutation du singleton config
-            config.taker_fee = real_taker
-            config.maker_fee = real_maker
+        _runtime.taker_fee = real_taker
+        _runtime.maker_fee = real_maker
+        logger.info(
+            "[P0-01] Frais live Binance: taker=%.5f maker=%.5f",
+            _runtime.taker_fee, _runtime.maker_fee,
+        )
 
         # Chargement de l'etat du bot
         load_bot_state()
@@ -1434,6 +1457,21 @@ if __name__ == "__main__":
                 logger.warning("[TIMESTAMP P1-08] Resync échouée: %s", _ts_err)
         schedule.every(30).minutes.do(_periodic_timestamp_resync)
         logger.info("[TIMESTAMP P1-08] Resync timestamp planifiée: toutes les 30 min")
+
+        # P2-04: Export métriques toutes les 5 minutes
+        def _periodic_metrics_write() -> None:
+            try:
+                cb = error_handler.circuit_breaker if 'error_handler' in dir() else None
+                _write_metrics(
+                    bot_state=bot_state,
+                    runtime=_runtime,
+                    circuit_breaker=cb,
+                    pairs=list(crypto_pairs),
+                )
+            except Exception as _m_err:
+                logger.debug("[METRICS P2-04] Échec export: %s", _m_err)
+        schedule.every(5).minutes.do(_periodic_metrics_write)
+        logger.info("[METRICS P2-04] Export métriques planifié: toutes les 5 min")
 
         # === NOUVELLE LOGIQUE : backtests optimisés + affichage propre ===
         parser = argparse.ArgumentParser(description='Run backtests and optional sizing mode')
@@ -1546,11 +1584,11 @@ if __name__ == "__main__":
             # quand oos_blocked — geler les anciens params.
             if not _oos_blocked_this_pair:
                 with _bot_state_lock:
-                    _live_best_params[backtest_pair] = dict(best_params)
+                    _runtime.live_best_params[backtest_pair] = dict(best_params)
                 # Marquer le timestamp du backtest initial pour que le 1er horaire ne
                 # relance pas immédiatement un backtest complet.
                 with _bot_state_lock:
-                    _last_backtest_time[backtest_pair] = time.time()
+                    _runtime.last_backtest_time[backtest_pair] = time.time()
             else:
                 logger.warning(
                     "[MAIN-LOOP P1-04] %s: _live_best_params GELÉS — params full-sample non propagés.",
@@ -1590,7 +1628,7 @@ if __name__ == "__main__":
         _voluntary_event    = threading.Event()   # set → CTRL+C → pas d'email
         _shutdown_verified  = threading.Event()   # set → vérification déjà faite
 
-        def _graceful_shutdown(signum: int, frame: Any) -> None:
+        def _graceful_shutdown(signum: int, _frame: Any) -> None:
             import signal as _signal  # pylint: disable=reimported
             if signum == _signal.SIGINT:
                 _voluntary_event.set()

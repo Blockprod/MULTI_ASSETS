@@ -544,3 +544,174 @@ class TestConfigValidation:
         assert 'REAL_KEY' not in repr_str
         assert 'REAL_SECRET' not in repr_str
         assert 'MASKED' in repr_str
+
+
+# ─── P0-02: Élimination des silent failures ──────────────────────────────────
+
+class TestFetchBalancesSilentFailure:
+    """P0-02 — _fetch_balances doit lever BalanceUnavailableError sur échec API.
+
+    Les silent failures sur client.get_account() sont convertis en erreur explicite.
+    """
+
+    def _patch_ms_client(self, monkeypatch, mock_client):
+        """Injecte un mock client dans le module MULTI_SYMBOLS."""
+        if 'MULTI_SYMBOLS' not in sys.modules:
+            pytest.skip('MULTI_SYMBOLS not importable in test env')
+        import MULTI_SYMBOLS as ms
+        monkeypatch.setattr(ms, 'client', mock_client)
+
+    def test_fetch_balances_raises_on_api_failure(self, monkeypatch):
+        """_fetch_balances doit lever BalanceUnavailableError si client.get_account() échoue."""
+        import MULTI_SYMBOLS as ms
+        from exceptions import BalanceUnavailableError
+
+        mock_client = MagicMock()
+        mock_client.get_account.side_effect = Exception('API timeout')
+        monkeypatch.setattr(ms, 'client', mock_client)
+
+        with pytest.raises(BalanceUnavailableError, match='get_account'):
+            ms._fetch_balances('BTCUSDC')
+
+    def test_fetch_balances_raises_preserves_cause(self, monkeypatch):
+        """BalanceUnavailableError doit conserver l'exception originale comme __cause__."""
+        import MULTI_SYMBOLS as ms
+        from exceptions import BalanceUnavailableError
+
+        original = RuntimeError('network error')
+        mock_client = MagicMock()
+        mock_client.get_account.side_effect = original
+        monkeypatch.setattr(ms, 'client', mock_client)
+
+        with pytest.raises(BalanceUnavailableError) as exc_info:
+            ms._fetch_balances('ETHUSDC')
+
+        assert exc_info.value.__cause__ is original
+
+    def test_fetch_balances_returns_none_when_coin_not_found(self, monkeypatch):
+        """_fetch_balances retourne None si le coin n'est pas dans le portefeuille (sans erreur)."""
+        import MULTI_SYMBOLS as ms
+
+        mock_client = MagicMock()
+        # Compte sans le coin BTC
+        mock_client.get_account.return_value = {
+            'balances': [
+                {'asset': 'USDC', 'free': '5000.0', 'locked': '0.0'},
+            ]
+        }
+        monkeypatch.setattr(ms, 'client', mock_client)
+
+        result = ms._fetch_balances('BTCUSDC')
+        assert result is None
+
+
+class TestExecuteTradesCriticalLogs:
+    """P0-02 — _execute_real_trades_inner doit logguer CRITICAL si bal/flt None avec BUY ouvert.
+
+    Stratégie : on remplace ms.config par un MagicMock pour contourner le gel Config,
+    et on injecte le pair_state dans ms.bot_state avant l'appel.
+    """
+
+    _TEST_PAIR = '__P002_TEST__'
+    _TEST_REAL_PAIR = 'BTCUSDC'
+
+    def _setup_bot_state(self, ms, side: str, sl_placed: bool = True) -> None:
+        """Injecte un pair_state minimal dans bot_state pour le test."""
+        with ms._bot_state_lock:
+            ms.bot_state.pop('emergency_halt', None)
+            ms.bot_state[self._TEST_PAIR] = {
+                'last_order_side': side,
+                'entry_price': 50000.0,
+                'sl_exchange_placed': sl_placed,
+                'sl_order_id': 'mock_sl_123' if sl_placed else None,
+                'entry_scenario': None,  # désactive la cohérence F-COH
+            }
+
+    def _teardown_bot_state(self, ms) -> None:
+        with ms._bot_state_lock:
+            ms.bot_state.pop(self._TEST_PAIR, None)
+
+    def _mock_config(self, monkeypatch, ms) -> None:
+        """Remplace ms.config par un MagicMock (évite le gel Config)."""
+        mock_cfg = MagicMock()
+        mock_cfg.max_concurrent_long = 999
+        monkeypatch.setattr(ms, 'config', mock_cfg)
+
+    def _call_inner(self, ms) -> None:
+        """Appelle _execute_real_trades_inner avec la signature correcte."""
+        try:
+            ms._execute_real_trades_inner(
+                real_trading_pair=self._TEST_REAL_PAIR,
+                time_interval='15m',
+                best_params={'scenario': 'StochRSI'},
+                backtest_pair=self._TEST_PAIR,
+                sizing_mode='risk',
+            )
+        except Exception:
+            pass  # les dépendances manquantes peuvent lever — l'important est le log CRITICAL
+
+    def test_critical_log_when_bal_none_and_buy_open(self, monkeypatch, caplog):
+        """CRITICAL loggué si _fetch_balances retourne None et last_order_side == 'BUY'."""
+        import logging
+        import MULTI_SYMBOLS as ms
+
+        self._setup_bot_state(ms, side='BUY')
+        self._mock_config(monkeypatch, ms)
+        monkeypatch.setattr(ms, '_fetch_balances', lambda _pair: None)
+
+        try:
+            with caplog.at_level(logging.CRITICAL, logger='MULTI_SYMBOLS'):
+                self._call_inner(ms)
+        finally:
+            self._teardown_bot_state(ms)
+
+        assert any(
+            'P0-02' in r.message and self._TEST_REAL_PAIR in r.message
+            for r in caplog.records
+            if r.levelno == logging.CRITICAL
+        ), 'CRITICAL log P0-02 non trouvé pour bal=None avec BUY ouvert'
+
+    def test_no_critical_log_when_bal_none_and_no_position(self, monkeypatch, caplog):
+        """Pas de CRITICAL P0-02 si _fetch_balances retourne None et aucune position ouverte."""
+        import logging
+        import MULTI_SYMBOLS as ms
+
+        self._setup_bot_state(ms, side='SELL')
+        self._mock_config(monkeypatch, ms)
+        monkeypatch.setattr(ms, '_fetch_balances', lambda _pair: None)
+
+        try:
+            with caplog.at_level(logging.CRITICAL, logger='MULTI_SYMBOLS'):
+                self._call_inner(ms)
+        finally:
+            self._teardown_bot_state(ms)
+
+        critical_p002 = [
+            r for r in caplog.records
+            if r.levelno == logging.CRITICAL and 'P0-02' in r.message
+        ]
+        assert not critical_p002, 'CRITICAL P0-02 loggué à tort sans position BUY ouverte'
+
+    def test_critical_log_when_flt_none_and_buy_open(self, monkeypatch, caplog):
+        """CRITICAL loggué si _fetch_symbol_filters retourne None et last_order_side == 'BUY'."""
+        import logging
+        import MULTI_SYMBOLS as ms
+
+        self._setup_bot_state(ms, side='BUY')
+        self._mock_config(monkeypatch, ms)
+
+        fake_bal = (MagicMock(), 'BTC', 'USDC', 5000.0, 0.01, 0.0, 0.01)
+        monkeypatch.setattr(ms, '_fetch_balances', lambda _pair: fake_bal)
+        monkeypatch.setattr(ms, '_fetch_symbol_filters', lambda _pair: None)
+
+        try:
+            with caplog.at_level(logging.CRITICAL, logger='MULTI_SYMBOLS'):
+                self._call_inner(ms)
+        finally:
+            self._teardown_bot_state(ms)
+
+        assert any(
+            'P0-02' in r.message and self._TEST_REAL_PAIR in r.message
+            for r in caplog.records
+            if r.levelno == logging.CRITICAL
+        ), 'CRITICAL log P0-02 non trouvé pour flt=None avec BUY ouvert'

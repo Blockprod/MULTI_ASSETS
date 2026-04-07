@@ -270,6 +270,6 @@ def validate_api_connection(
             try:
                 subj, body = alert_template_fn(str(e))
                 send_alert_fn(subject=subj, body_main=body, client=client)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("[timestamp_utils] send_alert a échoué: %s", _exc)
         return False

@@ -55,6 +55,7 @@ def tmp_cache_dir(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cm, 'config', cfg)
     monkeypatch.setattr(cm, '_cache_dir_initialized', False)
+    monkeypatch.setattr(cm, '_effective_cache_dir', '')
     return cache_dir
 
 
@@ -339,8 +340,10 @@ class TestEnsureCacheDir:
     def test_creates_dir(self, tmp_cache_dir, monkeypatch):
         """Crée le répertoire cache si inexistant."""
         new_dir = os.path.join(tmp_cache_dir, 'new_subdir')
+        # P0-01: Config __new__ (non gelé) dans le fixture — mutation autorisée
         cm.config.cache_dir = new_dir
         monkeypatch.setattr(cm, '_cache_dir_initialized', False)
+        monkeypatch.setattr(cm, '_effective_cache_dir', '')
 
         ensure_cache_dir()
         assert os.path.isdir(new_dir)
@@ -353,7 +356,7 @@ class TestEnsureCacheDir:
         assert cm._cache_dir_initialized is True
 
     def test_fallback_temp(self, monkeypatch, tmp_path):
-        """Si la création échoue, bascule sur un tempdir."""
+        """Si la création échoue, bascule sur un tempdir via _effective_cache_dir (P0-01)."""
         invalid_dir = str(tmp_path / 'NUL' / 'impossible')  # pas créable sous Windows
 
         cfg = Config()
@@ -363,6 +366,7 @@ class TestEnsureCacheDir:
 
         monkeypatch.setattr(cm, 'config', cfg)
         monkeypatch.setattr(cm, '_cache_dir_initialized', False)
+        monkeypatch.setattr(cm, '_effective_cache_dir', '')
 
         # Force une erreur dans os.makedirs
         original_makedirs = os.makedirs
@@ -374,4 +378,7 @@ class TestEnsureCacheDir:
 
         ensure_cache_dir()
         assert cm._cache_dir_initialized is True
-        assert cfg.cache_dir != invalid_dir  # basculé sur tempdir
+        # P0-01: le fallback est désormais dans _effective_cache_dir, pas dans cfg
+        assert cm._effective_cache_dir != ''
+        assert cm._effective_cache_dir != invalid_dir  # basculé sur tempdir
+        assert cfg.cache_dir == invalid_dir  # Config non mutée

@@ -148,8 +148,8 @@ class TestP0Save:
     def setup_method(self):
         """Reset failure counters and bot_state before each test."""
         import MULTI_SYMBOLS as MS
-        MS._save_failure_count = 0
-        MS._last_save_time = 0.0
+        MS._runtime.save_failure_count = 0
+        MS._runtime.last_save_time = 0.0
         MS.bot_state.pop('emergency_halt', None)
         MS.bot_state.pop('emergency_halt_reason', None)
 
@@ -163,7 +163,7 @@ class TestP0Save:
 
         MS.save_bot_state(force=True)
 
-        assert MS._save_failure_count == 1
+        assert MS._runtime.save_failure_count == 1
         assert 'emergency_halt' not in MS.bot_state
         assert not mock_email.called, "Alert email should only be sent at the 3rd failure, not before"
 
@@ -176,10 +176,10 @@ class TestP0Save:
         mock_save.side_effect = Exception("disk full")
 
         for i in range(MS._MAX_SAVE_FAILURES):
-            MS._last_save_time = 0.0  # force each call to go through
+            MS._runtime.last_save_time = 0.0  # force each call to go through
             MS.save_bot_state(force=True)
 
-        assert MS._save_failure_count == MS._MAX_SAVE_FAILURES
+        assert MS._runtime.save_failure_count == MS._MAX_SAVE_FAILURES
         assert MS.bot_state.get('emergency_halt') is True
         assert 'emergency_halt_reason' in MS.bot_state
 
@@ -193,13 +193,13 @@ class TestP0Save:
         mock_save.side_effect = [Exception("err1"), Exception("err2"), None]
 
         for _ in range(2):
-            MS._last_save_time = 0.0
+            MS._runtime.last_save_time = 0.0
             MS.save_bot_state(force=True)
-        assert MS._save_failure_count == 2
+        assert MS._runtime.save_failure_count == 2
 
-        MS._last_save_time = 0.0
+        MS._runtime.last_save_time = 0.0
         MS.save_bot_state(force=True)
-        assert MS._save_failure_count == 0
+        assert MS._runtime.save_failure_count == 0
 
     @patch("MULTI_SYMBOLS.send_trading_alert_email")
     @patch("MULTI_SYMBOLS.save_state")
@@ -207,7 +207,7 @@ class TestP0Save:
         """Non-forced save within throttle window is skipped."""
         import MULTI_SYMBOLS as MS
 
-        MS._last_save_time = time.time()  # just saved
+        MS._runtime.last_save_time = time.time()  # just saved
         MS.save_bot_state(force=False)
         mock_save.assert_not_called()
 
@@ -217,7 +217,7 @@ class TestP0Save:
         """force=True bypasses the throttle."""
         import MULTI_SYMBOLS as MS
 
-        MS._last_save_time = time.time()  # just saved
+        MS._runtime.last_save_time = time.time()  # just saved
         MS.save_bot_state(force=True)
         mock_save.assert_called_once()
 
@@ -468,13 +468,11 @@ class TestP0SaveStateManager:
     def test_save_state_raises_on_permission_error(self, tmp_path, monkeypatch):
         """save_state should raise StateError when write fails."""
         import state_manager
-        import bot_config
         from exceptions import StateError
 
-        # Sync state_manager config with bot_config (importlib.reload in previous test may disconnect them)
-        monkeypatch.setattr(state_manager, 'config', bot_config.config)
-        monkeypatch.setattr(bot_config.config, 'states_dir', str(tmp_path))
-        monkeypatch.setattr(bot_config.config, 'state_file', 'test_bot_state.json')
+        # Use state_manager's override variables (avoids mutating frozen Config P0-01)
+        monkeypatch.setattr(state_manager, '_effective_states_dir', str(tmp_path))
+        monkeypatch.setattr(state_manager, '_effective_state_file', 'test_bot_state.json')
 
         # First save should succeed
         state_manager.save_state({"test": True})

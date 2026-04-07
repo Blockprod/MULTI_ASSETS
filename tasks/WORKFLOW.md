@@ -3,7 +3,7 @@ type: guide
 projet: MULTI_ASSETS
 exchange: Binance Spot (USDC)
 stack: Python 3.11.9 · PM2 · Windows
-derniere_revision: 2026-03-20
+derniere_revision: 2026-04-06
 ---
 
 # WORKFLOW — Audit → Plan → Corrections
@@ -351,6 +351,102 @@ Démarre l'exécution du plan d'action disponible.
 
 ---
 
+## `FIX ERRORS`
+
+> Correction itérative des erreurs statiques · ruff · pyright · ARG · interdictions · 0 régression
+> Pipeline séquentiel **P1 → P2 → P3 → P4 → P5** — ne jamais sauter une phase.
+
+| Phase | Prompt | Mode | Produit |
+|:---:|---|:---:|---|
+| **P1** | `P1- SCAN_prompt_multi_assets.md` | Agent | `fix_results/SCAN_result.md` |
+| **P2** | `P2- PLAN_prompt_multi_assets.md` | Agent | `fix_results/PLAN_result.md` |
+| **P3** | `P3- FIX_core_prompt_multi_assets.md` | Agent | corrections appliquées · `fix_results/BATCH_result.md` |
+| **P4** | `P4- VERIFY_prompt_multi_assets.md` | Agent | `fix_results/VERIFY_result.md` |
+| **P5** | `P5- FINAL QA_prompt_multi_assets.md` | Agent | `fix_results/FINAL_QA_result.md` |
+
+> Tous les fichiers produits sont dans `tasks/audits/fix_errors/fix_results/`.
+
+---
+
+## `P1 · SCAN (FIX ERRORS)`
+
+> Scanner tout le projet sans modifier — ruff · pyright · ARG · grep interdictions · classification par type d'erreur
+
+**Produit** : `tasks/audits/fix_errors/fix_results/SCAN_result.md`
+
+**P1 — Scan**
+```
+#file:tasks/audits/fix_errors/P1- SCAN_prompt_multi_assets.md
+Lance ce scan sur le workspace.
+```
+
+---
+
+## `P2 · PLAN (FIX ERRORS)`
+
+> Créer un plan de correction optimal groupé par batch · priorité critique → important → info
+
+**Produit** : `tasks/audits/fix_errors/fix_results/PLAN_result.md`
+
+**P2 — Plan**
+```
+#file:tasks/audits/fix_errors/P2- PLAN_prompt_multi_assets.md
+Génère le plan de correction depuis SCAN_result.md.
+```
+
+> ⚠️ Prérequis : `SCAN_result.md` produit par P1.
+
+---
+
+## `P3 · FIX CORE (FIX ERRORS)`
+
+> Corriger un batch du plan · patterns MULTI_ASSETS stricts · max 3 itérations/fichier · vérification syntaxique par fichier puis par batch
+
+**Produit** : corrections appliquées · `tasks/audits/fix_errors/fix_results/BATCH_result.md`
+
+**P3 — Correction (indiquer le numéro de batch)**
+```
+#file:tasks/audits/fix_errors/P3- FIX_core_prompt_multi_assets.md
+Corrige le batch 1 depuis PLAN_result.md.
+```
+
+> ⚠️ Relancer P3 pour chaque batch jusqu'à `remaining_errors: 0`.
+> P3 peut être relancé plusieurs fois — P4 et P5 seulement une fois tous les batches terminés.
+
+---
+
+## `P4 · VERIFY (FIX ERRORS)`
+
+> Validation indépendante complète · ruff · ARG · pyright `code/src/` · pytest ≥ 739 · config · HMAC · interdictions
+
+**Produit** : `tasks/audits/fix_errors/fix_results/VERIFY_result.md`
+
+**P4 — Vérification**
+```
+#file:tasks/audits/fix_errors/P4- VERIFY_prompt_multi_assets.md
+Lance la vérification complète.
+```
+
+> ⚠️ Si VERDICT = FAIL → relancer P3 sur les batches concernés avant P5.
+
+---
+
+## `P5 · FINAL QA (FIX ERRORS)`
+
+> Checklist release 10 points · DeprecationWarning · Cython import · smoke pipeline · interdictions grep · PM2 · sécurité secrets
+
+**Produit** : `tasks/audits/fix_errors/fix_results/FINAL_QA_result.md`
+
+**P5 — QA finale**
+```
+#file:tasks/audits/fix_errors/P5- FINAL QA_prompt_multi_assets.md
+Lance la QA finale.
+```
+
+> ⚠️ Prérequis : `VERIFY_result.md` avec VERDICT GLOBAL = PASS.
+
+---
+
 ## MISE À JOUR DES LEÇONS
 
 Après chaque correction appliquée (via `execute_corrections_prompt.md`) ou toute correction manuelle :
@@ -417,7 +513,14 @@ tasks/
 │   ├── audit_email_alerts.md
 │   ├── audit_IA_ML_multi_assets.md
 │   ├── audit_cython_multi_assets.md
-│   └── audit_ai_driven.md
+│   ├── audit_ai_driven.md
+│   └── fix_errors/                   ← cycle correction P1→P5
+│       ├── P1- SCAN_prompt_multi_assets.md
+│       ├── P2- PLAN_prompt_multi_assets.md
+│       ├── P3- FIX_core_prompt_multi_assets.md
+│       ├── P4- VERIFY_prompt_multi_assets.md
+│       ├── P5- FINAL QA_prompt_multi_assets.md
+│       └── fix_results/              ← sorties générées
 │
 └── plans/                            ← plans d'action générés
     ├── PLAN_ACTION_AUDIT_TECHNIQUE_MULTI_ASSETS_[DATE].md

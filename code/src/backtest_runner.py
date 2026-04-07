@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import random
 import sys
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -45,6 +46,54 @@ from exceptions import SizingError                     # P0-05
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+# --- P2-02: Stochastic Slippage Model ----------------------------------------
+
+class BasicSlippageModel:
+    """Modèle de slippage stochastique pour la validation OOS (P2-02).
+
+    Ajoute un surcoût aléatoire de 1-3 bps + un impact volume sur chaque
+    transaction.  N'est activé qu'en mode OOS (pas en grid search pour ne
+    pas ralentir l'optimisation).
+
+    Parameters
+    ----------
+    min_bps : float
+        Spread minimum en points de base (défaut 1 bps = 0.0001).
+    max_bps : float
+        Spread maximum en points de base (défaut 3 bps = 0.0003).
+    volume_impact_factor : float
+        Amplificateur d'impact volume : impact += factor × (1 - vol_rank)
+        où vol_rank ∈ [0,1] (0 = faible volume, 1 = fort volume).
+        Défaut : 0.0002 (2 bps max supplémentaires pour très faible volume).
+    seed : int, optional
+        Graine pour la reproductibilité des tests.
+    """
+
+    def __init__(
+        self,
+        min_bps: float = 0.0001,
+        max_bps: float = 0.0003,
+        volume_impact_factor: float = 0.0002,
+        seed: Optional[int] = None,
+    ) -> None:
+        self.min_bps = min_bps
+        self.max_bps = max_bps
+        self.volume_impact_factor = volume_impact_factor
+        self._rng = random.Random(seed)
+
+    def buy_factor(self, volume_rank: float = 0.5) -> float:
+        """Retourne le facteur multiplicateur pour un achat (> 1.0)."""
+        spread = self._rng.uniform(self.min_bps, self.max_bps)
+        vol_impact = self.volume_impact_factor * max(0.0, 1.0 - volume_rank)
+        return 1.0 + spread + vol_impact
+
+    def sell_factor(self, volume_rank: float = 0.5) -> float:
+        """Retourne le facteur multiplicateur pour une vente (< 1.0)."""
+        spread = self._rng.uniform(self.min_bps, self.max_bps)
+        vol_impact = self.volume_impact_factor * max(0.0, 1.0 - volume_rank)
+        return 1.0 - spread - vol_impact
 
 
 # --- A-2: Multi-Timeframe Helper ---------------------------------------------
@@ -116,6 +165,7 @@ def backtest_from_dataframe(
     trix_signal: Optional[int] = None,
     sizing_mode: str = 'risk',  # P1-07
     partial_enabled: bool = True,  # P2-01: toggle simulation des partiels
+    slippage_model: Optional[BasicSlippageModel] = None,  # P2-02: slippage stochastique OOS
     periods_per_year: int = 8766,
     **_kwargs: Any,
 ) -> Dict[str, Any]:
@@ -353,8 +403,8 @@ def backtest_from_dataframe(
                         _cython_result['max_drawdown'] = max(
                             _cython_result['max_drawdown'], _metrics_dd_cy
                         )
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("[backtest_runner] compute_risk_metrics Cython a échoué: %s", _exc)
                 return _cython_result
             except Exception as e:
                 logger.warning(
@@ -417,6 +467,13 @@ def backtest_from_dataframe(
                 _mtf_bullish_py = _compute_mtf_bullish(df_work, _mtf_fast_py, _mtf_slow_py)
             except Exception:
                 _use_mtf_py = False
+
+        # P2-02: Précomputer le rang de volume (percentile roulant 50 bars) pour
+        # le modèle de slippage stochastique OOS.  0=faible volume, 1=fort volume.
+        _vol_rank_arr: Optional[np.ndarray] = None
+        if slippage_model is not None and 'volume' in df_work.columns:
+            _vol_series = df_work['volume'].rolling(50, min_periods=1).rank(pct=True)
+            _vol_rank_arr = _vol_series.to_numpy(dtype=np.float64)
 
         # --- Python backtest loop ---
         usd = config.initial_wallet
@@ -564,6 +621,10 @@ def backtest_from_dataframe(
                     else:
                         exit_base_price = row_close
                     optimized_exit_price = exit_base_price * (1 - config.slippage_sell)
+                    # P2-02: appliquer le slippage stochastique OOS si activé
+                    if slippage_model is not None:
+                        _vr = float(_vol_rank_arr[i]) if _vol_rank_arr is not None else 0.5
+                        optimized_exit_price = optimized_exit_price * slippage_model.sell_factor(_vr)
                     gross_proceeds = coin * optimized_exit_price
                     fee = gross_proceeds * config.backtest_taker_fee
                     usd = usd + (gross_proceeds - fee)
@@ -655,6 +716,10 @@ def backtest_from_dataframe(
                 else:
                     base_price = row_close
                 optimized_price = base_price * (1 + config.slippage_buy)
+                # P2-02: appliquer le slippage stochastique OOS si activé
+                if slippage_model is not None:
+                    _vr = float(_vol_rank_arr[i]) if _vol_rank_arr is not None else 0.5
+                    optimized_price = optimized_price * slippage_model.buy_factor(_vr)
 
                 if sizing_mode == 'baseline':
                     gross_coin = (

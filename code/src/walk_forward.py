@@ -17,8 +17,12 @@ References
 
 import numpy as np
 import pandas as pd
-from typing import List, Dict, Tuple, Optional, Any, Callable
+from typing import List, Dict, Tuple, Optional, Any, Callable, TYPE_CHECKING
+if TYPE_CHECKING:
+    import optuna
 import logging
+
+from backtest_runner import BasicSlippageModel  # P2-02: slippage stochastique OOS
 
 logger = logging.getLogger("walk_forward")
 
@@ -514,6 +518,9 @@ def run_walk_forward_validation(
         oos_win_rates: List[float] = []
         fold_details: List[Dict[str, Any]] = []
 
+        # P2-02: modèle de slippage stochastique activé uniquement en OOS
+        _oos_slippage = BasicSlippageModel()
+
         for fold_idx, (train_df, test_df) in enumerate(folds):
             # ---- In-Sample (train) ----
             is_result = backtest_fn(
@@ -535,6 +542,7 @@ def run_walk_forward_validation(
                 trix_signal=s_params.get('trix_signal'),
                 sizing_mode=sizing_mode,
                 periods_per_year=ppy,
+                slippage_model=_oos_slippage,  # P2-02: slippage stochastique OOS uniquement
             )
 
             oos_s = oos_result.get('sharpe_ratio', 0.0)
@@ -714,7 +722,7 @@ def run_walk_forward_optuna(
     except Exception:
         _oos_decay_min = OOS_DECAY_MIN
 
-    def _objective(trial: 'optuna.Trial') -> float:  # type: ignore[name-defined]
+    def _objective(trial: 'optuna.Trial') -> float:
         tf = trial.suggest_categorical('tf', list(folds_by_tf.keys()))
         ema1 = trial.suggest_int('ema1', 5, 50)
         ema2 = trial.suggest_int('ema2', ema1 + 5, 120)

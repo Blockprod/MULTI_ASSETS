@@ -20,15 +20,51 @@ import threading
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
+_CURRENT_JOURNAL = "trade_journal.jsonl"  # active file — renamed at month boundary
+
 logger = logging.getLogger("trade_journal")
 
 _journal_lock = threading.Lock()
 
 
 def _get_journal_path(logs_dir: str) -> str:
-    """Return the path to the trade journal file."""
+    """Return the path to the active trade journal file."""
     os.makedirs(logs_dir, exist_ok=True)
-    return os.path.join(logs_dir, "trade_journal.jsonl")
+    return os.path.join(logs_dir, _CURRENT_JOURNAL)
+
+
+def _maybe_rotate_journal(logs_dir: str) -> None:
+    """Rename trade_journal.jsonl to journal_YYYY-MM.jsonl if a new month has started.
+
+    Detection: reads the first record's timestamp from the current file.
+    If that month differs from today's month, the file is archived.
+    Safe to call on every write — O(1) when no rotation needed.
+    """
+    current_file = os.path.join(logs_dir, _CURRENT_JOURNAL)
+    if not os.path.exists(current_file):
+        return
+    try:
+        with open(current_file, "r", encoding="utf-8") as f:
+            first_line = f.readline().strip()
+        if not first_line:
+            return  # Empty file, nothing to rotate
+        first_record = json.loads(first_line)
+        ts_str = first_record.get("ts", "")
+        if not ts_str:
+            return
+        ts = datetime.fromisoformat(ts_str)
+        file_month = (ts.year, ts.month)
+        now = datetime.now(timezone.utc)
+        current_month = (now.year, now.month)
+        if file_month != current_month:
+            archive_name = f"journal_{ts.year:04d}-{ts.month:02d}.jsonl"
+            archive_path = os.path.join(logs_dir, archive_name)
+            os.rename(current_file, archive_path)
+            logger.info(
+                "[JOURNAL] Rotation mensuelle: trade_journal.jsonl -> %s", archive_name
+            )
+    except Exception as e:
+        logger.warning("[JOURNAL] Rotation mensuelle échouée (non-bloquant): %s", e)
 
 
 def log_trade(
@@ -79,9 +115,10 @@ def log_trade(
         record.update(extra)
 
     try:
-        path = _get_journal_path(logs_dir)
-        line = json.dumps(record, default=str) + "\n"
         with _journal_lock:
+            _maybe_rotate_journal(logs_dir)
+            path = _get_journal_path(logs_dir)
+            line = json.dumps(record, default=str) + "\n"
             with open(path, "a", encoding="utf-8") as f:
                 f.write(line)
         return True

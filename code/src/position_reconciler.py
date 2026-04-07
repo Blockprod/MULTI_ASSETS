@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from bot_config import config, extract_coin_from_pair
 from email_templates import sell_executed_email
-from exchange_client import _get_coin_balance
+from exchange_client import _get_coin_balance, ExchangePort
 from trade_journal import log_trade
 from state_manager import update_pair_state
 
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class _ReconcileDeps:
     """Injecte les dépendances runtime de l'orchestrateur (évite les imports circulaires)."""
-    client: Any
+    client: ExchangePort
     bot_state: Dict[str, Any]
     bot_state_lock: Any              # _bot_state_lock (RLock)
     save_fn: Callable                # save_bot_state
@@ -96,8 +96,8 @@ def _check_pair_vs_exchange(
             _not_f = next((f for f in _sym_info_r['filters'] if f['filterType'] == 'NOTIONAL'), None)
             if _not_f:
                 _min_notional_reconcile = float(_not_f.get('minNotional', 5.0))
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("[position_reconciler] récupération sym_info échouée: %s", _exc)
 
     # Position réelle : doit avoir assez de coins ET une valeur au-dessus de MIN_NOTIONAL
     _balance_value_usdc = coin_balance * current_price if current_price > 0 else 0.0

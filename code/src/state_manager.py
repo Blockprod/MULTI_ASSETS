@@ -32,6 +32,23 @@ if not _secret_key_env:
     )
 _HMAC_KEY = _secret_key_env.encode('utf-8')
 
+# P0-01: répertoire et fichier d'état effectifs — config.states_dir/state_file par défaut,
+# surchargés uniquement en tests (monkeypatch). Évite toute mutation du singleton Config.
+_effective_states_dir: str = ""
+_effective_state_file: str = ""
+
+
+def _get_state_path() -> str:
+    """Retourne le chemin complet du fichier d'état (effectif ou config par défaut)."""
+    states_dir = _effective_states_dir if _effective_states_dir else config.states_dir
+    state_file = _effective_state_file if _effective_state_file else config.state_file
+    return os.path.join(states_dir, state_file)
+
+
+def _get_states_dir() -> str:
+    """Retourne le répertoire d'état effectif."""
+    return _effective_states_dir if _effective_states_dir else config.states_dir
+
 
 def _compute_hmac(data: bytes) -> bytes:
     """Calcule un HMAC-SHA256 des données."""
@@ -129,8 +146,8 @@ def save_state(bot_state: Dict):
         StateError: si la sauvegarde échoue (disque, permissions, sérialisation).
     """
     try:
-        os.makedirs(config.states_dir, exist_ok=True)
-        state_path = os.path.join(config.states_dir, config.state_file)
+        os.makedirs(_get_states_dir(), exist_ok=True)
+        state_path = _get_state_path()
         state_bytes = json.dumps(bot_state, cls=_StateEncoder,
                                  ensure_ascii=False, indent=2).encode('utf-8')
         old_hash = None
@@ -161,8 +178,8 @@ def save_state(bot_state: Dict):
                 if os.path.exists(tmp_path):
                     try:
                         os.remove(tmp_path)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("[state_manager] Impossible de supprimer le fichier tmp: %s", _exc)
                 raise
             logger.debug("État du bot sauvegardé (JSON, modifié)")
         else:
@@ -188,7 +205,7 @@ def load_state() -> Dict:
         Dictionnaire d'état chargé, ou {} si aucun fichier.
     """
     try:
-        state_path = os.path.join(config.states_dir, config.state_file)
+        state_path = _get_state_path()
         if not os.path.exists(state_path):
             return {}
 

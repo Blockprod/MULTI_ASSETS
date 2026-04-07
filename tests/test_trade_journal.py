@@ -220,3 +220,75 @@ class TestP210TradeJournal:
         assert summary["total_trades"] == 2
         assert summary["total_sells"] == 0
         assert summary["win_rate"] == 0.0
+
+
+# ─── P1-02: Monthly rotation ──────────────────────────────────────────────────
+
+class TestMonthlyRotation:
+    """Tests pour la rotation mensuelle du journal (P1-02)."""
+
+    def test_no_rotation_same_month(self, temp_logs_dir):
+        """Pas de rotation si le fichier est du mois courant."""
+        from trade_journal import _maybe_rotate_journal, _CURRENT_JOURNAL
+        # Write a record with current month timestamp
+        log_trade(logs_dir=temp_logs_dir, pair="BTCUSDC", side="buy", quantity=1, price=100)
+        journal_path = os.path.join(temp_logs_dir, _CURRENT_JOURNAL)
+        assert os.path.exists(journal_path)
+
+        _maybe_rotate_journal(temp_logs_dir)
+
+        # Still exists under original name after no-rotation
+        assert os.path.exists(journal_path)
+
+    def test_rotation_on_month_change(self, temp_logs_dir):
+        """Le fichier est renommé journal_YYYY-MM.jsonl si le mois a changé."""
+        from trade_journal import _maybe_rotate_journal, _CURRENT_JOURNAL
+        # Create a journal with a record timestamped to a past month
+        journal_path = os.path.join(temp_logs_dir, _CURRENT_JOURNAL)
+        old_record = {"ts": "2025-01-15T10:00:00+00:00", "pair": "BTCUSDC"}
+        with open(journal_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(old_record) + "\n")
+
+        _maybe_rotate_journal(temp_logs_dir)
+
+        # Original file should be gone
+        assert not os.path.exists(journal_path)
+        # Archive file should exist
+        archive = os.path.join(temp_logs_dir, "journal_2025-01.jsonl")
+        assert os.path.exists(archive)
+
+    def test_new_trade_after_rotation_creates_new_file(self, temp_logs_dir):
+        """Après rotation, le prochain log_trade crée un nouveau trade_journal.jsonl."""
+        from trade_journal import _CURRENT_JOURNAL
+        # Seed with a past-month record
+        journal_path = os.path.join(temp_logs_dir, _CURRENT_JOURNAL)
+        old_record = {"ts": "2024-06-01T00:00:00+00:00", "pair": "ETHUSDC"}
+        with open(journal_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(old_record) + "\n")
+
+        # New write should trigger rotation then create fresh file
+        log_trade(logs_dir=temp_logs_dir, pair="BTCUSDC", side="buy", quantity=0.5, price=50000)
+
+        # New journal file exists
+        assert os.path.exists(journal_path)
+        # Archive exists
+        archive = os.path.join(temp_logs_dir, "journal_2024-06.jsonl")
+        assert os.path.exists(archive)
+        # New journal only has the new record
+        with open(journal_path, "r") as f:
+            lines = [ln.strip() for ln in f.readlines() if ln.strip()]
+        assert len(lines) == 1
+        assert json.loads(lines[0])["pair"] == "BTCUSDC"
+
+    def test_rotation_on_empty_file_no_crash(self, temp_logs_dir):
+        """_maybe_rotate_journal ne plante pas sur un fichier vide."""
+        from trade_journal import _maybe_rotate_journal, _CURRENT_JOURNAL
+        journal_path = os.path.join(temp_logs_dir, _CURRENT_JOURNAL)
+        open(journal_path, "w").close()  # empty file
+        _maybe_rotate_journal(temp_logs_dir)  # should not raise
+
+    def test_rotation_on_missing_file_no_crash(self, temp_logs_dir):
+        """_maybe_rotate_journal ne plante pas si le fichier n'existe pas."""
+        from trade_journal import _maybe_rotate_journal
+        _maybe_rotate_journal(temp_logs_dir)  # should not raise
+

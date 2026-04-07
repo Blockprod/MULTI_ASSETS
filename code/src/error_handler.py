@@ -28,6 +28,42 @@ _last_alert_email_time: float = 0.0
 _email_throttle_lock = threading.Lock()  # P1-02: protège _last_alert_email_time
 
 
+class AlertThrottle:
+    """P1-05: Throttle thread-safe pour les alertes email, par clé.
+
+    Remplace les 4 paires (dict/float + Lock) dans MULTI_SYMBOLS.py.
+    Expose .last_sent et .lock pour compatibilité avec _BacktestDeps.
+
+    Exemple :
+        throttle = AlertThrottle(cooldown=3600)
+        if throttle.check_and_mark(key=pair):
+            send_alert_email(...)
+    """
+
+    def __init__(self, cooldown: float) -> None:
+        self.cooldown = cooldown
+        self.last_sent: Dict[str, float] = {}  # keyed by pair name ou '_global'
+        self.lock = threading.Lock()
+
+    def check_and_mark(self, key: str = '_global') -> bool:
+        """Vérifie si l'alerte peut être envoyée (pas throttlée).
+
+        Atomique : si la cooldown est écoulée, marque l'envoi et retourne True.
+        Sinon retourne False.
+        """
+        now = _time.time()
+        with self.lock:
+            if now - self.last_sent.get(key, 0.0) >= self.cooldown:
+                self.last_sent[key] = now
+                return True
+            return False
+
+    def time_remaining(self, key: str = '_global') -> float:
+        """Secondes restantes avant que la prochaine alerte soit autorisée (0 si disponible)."""
+        with self.lock:
+            return max(0.0, self.cooldown - (_time.time() - self.last_sent.get(key, 0.0)))
+
+
 def _get_email_cooldown():
     """P2-07: Charge le cooldown depuis la config si disponible."""
     try:

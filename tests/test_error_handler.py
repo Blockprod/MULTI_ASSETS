@@ -275,3 +275,67 @@ class TestP210Coverage:
         )
         assert success is True
         assert handler.circuit_breaker.failure_count == 1
+
+
+# ─── P1-05: AlertThrottle ────────────────────────────────────────────────────
+
+class TestAlertThrottle:
+    """Tests pour AlertThrottle (P1-05)."""
+
+    def test_first_call_returns_true(self):
+        """Premier appel check_and_mark → True (en-dessous du cooldown)."""
+        from error_handler import AlertThrottle
+        t = AlertThrottle(cooldown=60)
+        assert t.check_and_mark() is True
+
+    def test_dedup_second_call_throttled(self):
+        """Deuxième appel immédiat → False (throttle actif)."""
+        from error_handler import AlertThrottle
+        t = AlertThrottle(cooldown=3600)
+        t.check_and_mark()
+        assert t.check_and_mark() is False
+
+    def test_different_keys_independent(self):
+        """Deux clés différentes sont throttlées indépendamment."""
+        from error_handler import AlertThrottle
+        t = AlertThrottle(cooldown=3600)
+        assert t.check_and_mark(key='BTCUSDC') is True
+        assert t.check_and_mark(key='ETHUSDC') is True  # different key → not throttled
+        assert t.check_and_mark(key='BTCUSDC') is False  # same key → throttled
+
+    def test_time_remaining_after_mark(self):
+        """time_remaining retourne > 0 immédiatement après check_and_mark."""
+        from error_handler import AlertThrottle
+        t = AlertThrottle(cooldown=60)
+        t.check_and_mark()
+        assert t.time_remaining() > 0
+
+    def test_last_sent_and_lock_exposed(self):
+        """last_sent dict et lock sont accessibles (compat _BacktestDeps)."""
+        from error_handler import AlertThrottle
+        import threading
+        t = AlertThrottle(cooldown=3600)
+        assert isinstance(t.last_sent, dict)
+        assert isinstance(t.lock, type(threading.Lock()))
+
+    def test_thread_safety_concurrent_calls(self):
+        """Appels concurrents : exactement 1 seul thread reçoit True."""
+        from error_handler import AlertThrottle
+        import threading
+        t = AlertThrottle(cooldown=3600)
+        results: list[bool] = []
+        lock = threading.Lock()
+
+        def call():
+            result = t.check_and_mark()
+            with lock:
+                results.append(result)
+
+        threads = [threading.Thread(target=call) for _ in range(20)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join()
+
+        assert results.count(True) == 1
+        assert results.count(False) == 19

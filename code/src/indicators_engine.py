@@ -274,8 +274,8 @@ def calculate_indicators(
                             indicators_cache.move_to_end(cache_key)
                             while len(indicators_cache) > _INDICATORS_CACHE_MAX:
                                 indicators_cache.popitem(last=False)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("[indicators_engine] mise à jour cache Cython échouée: %s", _exc)
                     logger.debug("Indicateurs calcules via Cython (C-14)")
                     return df_cython
             except Exception as _cython_ind_err:
@@ -372,8 +372,8 @@ def calculate_indicators(
         if on_error:
             try:
                 on_error(str(e))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("[indicators_engine] on_error callback a échoué: %s", _exc)
         return pd.DataFrame()
 
 

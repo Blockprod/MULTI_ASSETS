@@ -23,12 +23,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
 @pytest.fixture()
 def tmp_state_dir(tmp_path, monkeypatch):
     """Rédirige states_dir et state_file vers un répertoire temporaire."""
-    import bot_config
     import state_manager as _sm
-    # Sync state_manager config with bot_config (importlib.reload in other tests may disconnect them)
-    monkeypatch.setattr(_sm, 'config', bot_config.config)
-    monkeypatch.setattr(bot_config.config, 'states_dir', str(tmp_path))
-    monkeypatch.setattr(bot_config.config, 'state_file', 'bot_state.json')
+    # P0-01: Config est gelé après init — on surcharge les vars runtime du module
+    monkeypatch.setattr(_sm, '_effective_states_dir', str(tmp_path))
+    monkeypatch.setattr(_sm, '_effective_state_file', 'bot_state.json')
     return tmp_path
 
 
@@ -422,8 +420,7 @@ class TestPlainJSONFallback:
     def test_load_plain_json_without_header(self, tmp_state_dir, caplog):
         """Un fichier .json écrit manuellement (sans header) est lu en fallback."""
         import state_manager
-        from bot_config import config
-        state_path = os.path.join(config.states_dir, config.state_file)
+        state_path = state_manager._get_state_path()
         plain = {"SOLUSDT": {"entry_price": 100.0}, "_state_version": 2}
         with open(state_path, 'w', encoding='utf-8') as f:
             json.dump(plain, f)
@@ -435,8 +432,7 @@ class TestPlainJSONFallback:
     def test_plain_json_is_resigned_on_save(self, tmp_state_dir):
         """Après load d'un plain JSON, save_state écrit un fichier signé JSON_V1."""
         import state_manager
-        from bot_config import config
-        state_path = os.path.join(config.states_dir, config.state_file)
+        state_path = state_manager._get_state_path()
         plain = {"SOLUSDT": {"entry_price": 50.0}}
         with open(state_path, 'w', encoding='utf-8') as f:
             json.dump(plain, f)

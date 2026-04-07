@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 
 import json
 import time
+import shutil
 import subprocess
 import logging
 from logging.handlers import RotatingFileHandler
@@ -45,7 +46,7 @@ def _close_logger_handlers():
 atexit.register(_close_logger_handlers)
 
 # Tentative d'import email (optionnel — watchdog reste fonctionnel sans)
-def _send_email_alert(subject: str, body: str) -> bool:  # default no-op if import fails
+def _send_email_alert(_subject: str, _body: str) -> bool:  # default no-op if import fails
     return False
 
 _EMAIL_AVAILABLE = False
@@ -98,6 +99,9 @@ def _notify_bot_restarted(restart_count: int, reason: str) -> None:
 # Heartbeat staleness threshold (seconds). If heartbeat.json is older than
 # this, the bot is considered hung even if the process is still running.
 HEARTBEAT_STALE_SECONDS = 600  # 10 minutes (main loop sleeps 120s)
+
+# Disk space monitoring
+DISK_MIN_FREE_MB = 500  # Alert when < 500 MB free on logs partition
 
 
 class TradingBotWatchdog:
@@ -208,6 +212,31 @@ class TradingBotWatchdog:
             return True
         return False
 
+    def check_disk_space(self) -> None:
+        """Check free disk space on the logs partition. Log CRITICAL + email if below threshold."""
+        logs_dir = os.path.join(
+            os.path.dirname(os.path.abspath(self.script_path)), '..', 'logs'
+        )
+        try:
+            usage = shutil.disk_usage(logs_dir)
+            free_mb = usage.free / (1024 * 1024)
+            if free_mb < DISK_MIN_FREE_MB:
+                msg = (
+                    f"Espace disque critique: {free_mb:.0f} MB libres "
+                    f"(seuil: {DISK_MIN_FREE_MB} MB)"
+                )
+                logger.critical("[WATCHDOG] %s", msg)
+                _send_email_alert(
+                    subject=f"[CRITIQUE] Espace disque insuffisant \u2014 {free_mb:.0f} MB libres",
+                    body=(
+                        f"{msg}\n\n"
+                        f"R\u00e9pertoire logs: {logs_dir}\n"
+                        f"Action requise: lib\u00e9rer de l'espace disque."
+                    ),
+                )
+        except Exception as e:
+            logger.error("[WATCHDOG] Impossible de v\u00e9rifier l'espace disque: %s", e)
+
     def run(self):
         """Boucle principale du watchdog."""
         logger.info("Watchdog démarré")
@@ -219,6 +248,8 @@ class TradingBotWatchdog:
         try:
             while True:
                 time.sleep(self.check_interval)
+
+                self.check_disk_space()
 
                 if not self.is_process_running():
                     logger.warning("Bot arrêté détecté (process dead)")

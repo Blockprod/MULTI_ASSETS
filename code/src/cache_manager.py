@@ -26,6 +26,15 @@ logger = logging.getLogger('trading_bot')
 # Flag pour initialisation unique du répertoire cache
 _cache_dir_initialized = False  # pylint: disable=invalid-name
 
+# P0-01: répertoire cache effectif — config.cache_dir par défaut, tempdir si fallback
+# Jamais écrit directement dans Config (singleton gelé).
+_effective_cache_dir: str = ""
+
+
+def _get_cache_dir() -> str:
+    """Retourne le répertoire cache effectif (config ou fallback tempdir)."""
+    return _effective_cache_dir if _effective_cache_dir else config.cache_dir
+
 
 def get_cache_key(pair: str, interval: str, params: Dict[str, Any]) -> str:
     """Génère une clé de cache unique pour les indicateurs."""
@@ -38,7 +47,7 @@ def get_cache_path(pair_symbol: str, time_interval: str, start_date: str) -> Tup
     normalized_date = start_date.replace(" ", "_").replace(":", "-").replace(",", "")
     safe_name = f"{pair_symbol}_{time_interval}_{normalized_date}"
 
-    cache_dir = config.cache_dir
+    cache_dir = _get_cache_dir()
     if os.path.exists(cache_dir):
         for existing_file in os.listdir(cache_dir):
             if (
@@ -77,16 +86,16 @@ def safe_cache_read(cache_file: str) -> Optional[pd.DataFrame]:
             logger.info(f"Cache expiré (>30 jours): {os.path.basename(cache_file)}")
             try:
                 os.remove(cache_file)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("[cache_manager] suppression cache expiré impossible: %s", _exc)
             return None
 
         file_size = os.path.getsize(cache_file)
         if file_size == 0 or file_size > 100 * 1024 * 1024:
             try:
                 os.remove(cache_file)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("[cache_manager] suppression cache invalide (taille) impossible: %s", _exc)
             return None
 
         with open(cache_file, 'rb') as f:
@@ -95,8 +104,8 @@ def safe_cache_read(cache_file: str) -> Optional[pd.DataFrame]:
         if df.empty or len(df) < 10:
             try:
                 os.remove(cache_file)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("[cache_manager] suppression cache vide impossible: %s", _exc)
             return None
 
         logger.debug(f"Cache lu avec succès: {os.path.basename(cache_file)}")
@@ -133,11 +142,11 @@ def safe_cache_write(cache_file: str, lock_file: str, df: pd.DataFrame) -> bool:
                 if _dead:
                     try:
                         os.remove(lock_file)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("[cache_manager] suppression lock périmé impossible: %s", _exc)
                     break
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("[cache_manager] lecture fichier lock échouée: %s", _exc)
             if (time.time() - lock_start) > lock_timeout:
                 logger.debug(f"Timeout verrou cache, abandon: {lock_file}")
                 return False
@@ -169,14 +178,14 @@ def safe_cache_write(cache_file: str, lock_file: str, df: pd.DataFrame) -> bool:
             try:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("[cache_manager] suppression temp_file impossible: %s", _exc)
             return False
         finally:
             try:
                 os.remove(lock_file)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("[cache_manager] suppression lock_file (finally) impossible: %s", _exc)
     except Exception:
         return False
 
@@ -241,7 +250,7 @@ def update_cache_with_recent_data(
 def cleanup_expired_cache() -> None:
     """Nettoie les fichiers de cache expirés (>30 jours)."""
     try:
-        cache_dir = config.cache_dir
+        cache_dir = _get_cache_dir()
         if not os.path.exists(cache_dir):
             return
 
@@ -254,8 +263,8 @@ def cleanup_expired_cache() -> None:
                 try:
                     os.remove(fpath)
                     cleaned += 1
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("[cache_manager] suppression cache expiré (cleanup) impossible: %s", _exc)
 
         if cleaned > 0:
             logger.info(f"[CACHE] {cleaned} fichiers de cache expirés supprimés")
@@ -264,23 +273,25 @@ def cleanup_expired_cache() -> None:
                     "[BOT CRYPTO] Cache nettoyé",
                     f"{cleaned} fichiers de cache expirés ont été supprimés.",
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("[cache_manager] send_email_alert nettoyage impossible: %s", _exc)
     except Exception as e:
         logger.error(f"Erreur nettoyage cache: {e}")
 
 
 def ensure_cache_dir() -> None:
     """S'assure que le répertoire cache existe. Appeler une fois au démarrage."""
-    global _cache_dir_initialized
+    global _cache_dir_initialized, _effective_cache_dir
     if _cache_dir_initialized:
         return
     try:
-        os.makedirs(config.cache_dir, exist_ok=True)
+        target_dir = config.cache_dir
+        os.makedirs(target_dir, exist_ok=True)
+        _effective_cache_dir = target_dir
         _cache_dir_initialized = True
-        logger.debug(f"Répertoire cache initialisé: {config.cache_dir}")
+        logger.debug(f"Répertoire cache initialisé: {_effective_cache_dir}")
     except Exception:
         import tempfile  # pylint: disable=import-outside-toplevel
-        config.cache_dir = tempfile.mkdtemp(prefix="crypto_cache_")
+        _effective_cache_dir = tempfile.mkdtemp(prefix="crypto_cache_")  # P0-01
         _cache_dir_initialized = True
-        logger.debug(f"Cache temporaire créé: {config.cache_dir}")
+        logger.debug(f"Cache temporaire créé: {_effective_cache_dir}")
