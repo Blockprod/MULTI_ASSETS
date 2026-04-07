@@ -118,6 +118,8 @@ class BinanceFinalClient(Client):
         self._max_errors = 5
         kwargs['requests_params'] = {'timeout': 45}
         super().__init__(api_key, api_secret, **kwargs)
+        # Override recvWindow: BaseClient defaults to 10000ms, config requires 60000ms
+        self.REQUEST_RECVWINDOW = getattr(_config, 'recv_window', 60000)
         logger.info("Client Binance ULTRA ROBUSTE initialisé")
         self._perform_ultra_robust_sync()
 
@@ -161,13 +163,15 @@ class BinanceFinalClient(Client):
             local_after = int(time.time() * 1000)
             latency = (local_after - local_before) // 2
             real_offset = server_time - (local_before + latency)
-            # Marge de sécurité conservatrice : -500 ms (ni trop négatif, ni positif)
-            # Évite l'ancien forcing à -5000 ms qui envoyait
-            # des timestamps trop anciens.
-            SAFETY_MARGIN_MS = -500  # pylint: disable=invalid-name
+            # Marge de sécurité conservatrice : -1000 ms.
+            # Absorbe ~1000ms de dérive horloge Windows sans jamais envoyer un
+            # timestamp trop ancien (recvWindow=60000ms couvre largement le reste).
+            SAFETY_MARGIN_MS = -1000  # pylint: disable=invalid-name
             adjusted_offset = real_offset + SAFETY_MARGIN_MS
             # Clamp : jamais plus de -10 s ni plus de +1 s
             self._server_time_offset = max(-10000, min(1000, adjusted_offset))
+            # CRITICAL: BaseClient uses self.timestamp_offset, NOT self._server_time_offset
+            self.timestamp_offset = self._server_time_offset
             self._last_sync = time.time()
             self._error_count = 0
             logger.info(
@@ -207,7 +211,10 @@ class BinanceFinalClient(Client):
             try:
                 # C-05: Rate limiting — acquérir un token avant tout appel réseau
                 _api_rate_limiter.acquire(timeout=30.0)
-                # Sanitize recvWindow to avoid duplicate-parameter errors
+                # Sanitize recvWindow, timestamp, signature to avoid duplicate-parameter
+                # errors and signature poisoning on retries (the parent _get_request_kwargs
+                # mutates kwargs['data'] in-place, so old timestamp+signature must be
+                # removed before each attempt to ensure a clean re-signing).
                 try:
                     if 'recvWindow' in kwargs:
                         kwargs.pop('recvWindow', None)
@@ -216,9 +223,9 @@ class BinanceFinalClient(Client):
                             and 'recvWindow' in kwargs['params']):
                         kwargs['params'].pop('recvWindow', None)
                     if ('data' in kwargs
-                            and isinstance(kwargs['data'], dict)
-                            and 'recvWindow' in kwargs['data']):
-                        kwargs['data'].pop('recvWindow', None)
+                            and isinstance(kwargs['data'], dict)):
+                        for _stale_key in ('recvWindow', 'timestamp', 'signature'):
+                            kwargs['data'].pop(_stale_key, None)
                 except Exception as _sanitize_ex:
                     logger.debug(
                         f"_request: recvWindow sanitation failed: {_sanitize_ex}"
