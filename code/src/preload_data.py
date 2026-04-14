@@ -5,14 +5,44 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'bin')))
 
 import pandas as pd
-import ta
-from ta.momentum import RSIIndicator as _RSIIndicator
 from binance.client import Client
 import joblib
 from datetime import datetime, timedelta
 
 # === CONFIGURATION ===
 from dotenv import load_dotenv
+
+
+def _rsi(close: pd.Series, window: int = 14) -> pd.Series:
+    """Wilder-smoothed RSI (même formule que indicators_engine.py)."""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, float('nan'))
+    return 100 - (100 / (1 + rs))
+
+
+def _adx(high: pd.Series, low: pd.Series, close: pd.Series, window: int = 14) -> pd.Series:
+    """ADX via True Range + directional movement (pandas pur)."""
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    atr_s = tr.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+    up_move = high - high.shift(1)
+    down_move = low.shift(1) - low
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+    plus_di = 100 * plus_dm.ewm(alpha=1 / window, min_periods=window, adjust=False).mean() / atr_s
+    minus_di = 100 * minus_dm.ewm(alpha=1 / window, min_periods=window, adjust=False).mean() / atr_s
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, float('nan'))
+    return dx.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+
+
 load_dotenv()
 API_KEY = os.getenv("BINANCE_API_KEY", "")
 SECRET_KEY = os.getenv("BINANCE_SECRET_KEY", "")
@@ -43,7 +73,7 @@ def calculate_all_indicators(df):
     df_work['ema2'] = df_work['close'].ewm(span=26, adjust=False).mean()
 
     # RSI
-    df_work['rsi'] = _RSIIndicator(df_work['close'], window=14).rsi()
+    df_work['rsi'] = _rsi(df_work['close'], window=14)
 
     # Stochastic RSI
     rsi_roll = df_work['rsi'].rolling(window=14)
@@ -60,9 +90,7 @@ def calculate_all_indicators(df):
     high_close = abs(df_work['high'] - df_work['close'].shift(1))
     low_close = abs(df_work['low'] - df_work['close'].shift(1))
     df_work['tr'] = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    df_work['adx'] = ta.trend.ADXIndicator(
-        df_work['high'], df_work['low'], df_work['close'], window=14
-    ).adx()
+    df_work['adx'] = _adx(df_work['high'], df_work['low'], df_work['close'], window=14)
 
     # TRIX
     ema1 = df_work['close'].ewm(span=7, adjust=False).mean()

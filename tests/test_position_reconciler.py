@@ -15,6 +15,8 @@ Scénarios couverts :
 import os
 import sys
 import threading
+from typing import cast
+from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
 
@@ -170,7 +172,7 @@ class TestCheckPairVsExchange:
     def test_api_failure_returns_none(self):
         """Échec get_account → _check retourne None (pas d'exception propagée)."""
         deps = _make_deps()
-        deps.client.get_account.side_effect = Exception("API timeout — expected in test")
+        cast(MagicMock, deps.client).get_account.side_effect = Exception("API timeout — expected in test")
 
         status = _check_pair_vs_exchange(_make_pair_info(), deps)
 

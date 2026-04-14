@@ -29,6 +29,7 @@ from position_sizing import (
     compute_position_size_volatility_parity,
 )
 from trade_journal import log_trade
+from wal_logger import wal_write, OP_BUY_INTENT, OP_BUY_CONFIRMED, OP_SL_PLACED
 from constants import (
     QTY_OVERSHOOT_TOLERANCE as _QTY_OVERSHOOT_TOLERANCE,
     SL_MAX_RETRIES,
@@ -1412,6 +1413,11 @@ def _place_buy_and_verify(
     logger.info("[BUY] Sizing mode: %s", ctx.sizing_mode)
     logger.info("[BUY] Quantité calculée: %s %s (~%.2f USDC)", qty_str, ctx.coin_symbol, quote_amount)
 
+    # WAL B-05: enregistrer l'intent avant l'appel Binance
+    wal_write(OP_BUY_INTENT, ctx.real_trading_pair,
+              qty_str=qty_str, entry_price=entry_price, atr_value=atr_value,
+              sl_price=entry_price - (deps.config.atr_stop_multiplier * atr_value) if atr_value else None)
+
     buy_order = deps.market_buy_fn(symbol=ctx.real_trading_pair, quoteOrderQty=quote_amount)
 
     if not buy_order or buy_order.get('status') != 'FILLED':
@@ -1457,6 +1463,9 @@ def _place_buy_and_verify(
 
     logger.info("[BUY] Achat exécuté et confirmé : %s %s", actual_qty_str, ctx.coin_symbol)
     logger.info("[BUY] Capital utilisé : %.2f USDC (provenant des ventes)", usdc_for_buy)
+    # WAL B-05: confirmer le fill
+    wal_write(OP_BUY_CONFIRMED, ctx.real_trading_pair,
+              order_id=buy_order.get('orderId'), actual_qty_str=actual_qty_str)
     logger.info("[BUY] Quantité réellement exécutée : %s %s", buy_order.get('executedQty', 'N/A'), ctx.coin_symbol)
 
     # === EMAIL ACHAT RÉUSSI ===
@@ -1608,6 +1617,9 @@ def _place_sl_after_buy(
                 ps['sl_order_id'] = _sl_result.get('orderId')
                 ps['sl_exchange_placed'] = True
                 deps.save_fn()
+                # WAL B-05: confirmer le placement SL
+                wal_write(OP_SL_PLACED, ctx.real_trading_pair,
+                          sl_order_id=ps['sl_order_id'], stop_price=float(_sl_price))
                 logger.info(
                     "[SL-ORDER P0-01] Stop-loss exchange placé (tentative %d): orderId=%s stop=%.8f",
                     _sl_attempt + 1, ps['sl_order_id'], _sl_price,

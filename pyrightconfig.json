@@ -20,7 +20,7 @@
     "**/.*"
   ],
   "stubPath": "code/bin",
-  "typeCheckingMode": "off",
+  "typeCheckingMode": "basic",
   "reportMissingImports": "error",
   "reportUndefinedVariable": "error",
   "reportMissingModuleSource": "warning"

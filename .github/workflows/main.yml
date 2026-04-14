@@ -43,5 +43,5 @@ jobs:
           RECEIVER_EMAIL: ci@example.com
           GOOGLE_MAIL_PASSWORD: ci_dummy_pwd
         run: |
-          python -m pytest tests/ -v --tb=short
+          python -m pytest tests/ -v --tb=short --cov=code/src --cov-report=term
 

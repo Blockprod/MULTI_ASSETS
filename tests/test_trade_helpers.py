@@ -11,6 +11,7 @@ Toutes les dépendances réseau et I/O sont mockées.
 import os
 import sys
 from decimal import Decimal
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
@@ -54,7 +55,7 @@ def _make_config(**overrides):
 
 def _make_deps(**overrides) -> _TradingDeps:
     """_TradingDeps minimal avec tous les callables mockés."""
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         client=MagicMock(),
         bot_state={},
         bot_state_lock=MagicMock(),
@@ -81,7 +82,7 @@ def _make_deps(**overrides) -> _TradingDeps:
 
 def _make_ctx(**overrides) -> _TradeCtx:
     """_TradeCtx minimal pour la suite de tests."""
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         real_trading_pair='TRXUSDC',
         backtest_pair='TRXUSDC',
         time_interval='1h',
@@ -165,6 +166,24 @@ class TestSyncEntryState:
         _sync_entry_state(ctx, 'BUY', deps)
         assert ps['entry_price'] == 9.0  # inchangé
 
+    def test_adaptive_atr_multiplier_applied(self):
+        """ML-03: atr_median_30d présent dans row → multiplicateur ATR adaptatif appliqué."""
+        ps = {}
+        orders = [{'status': 'FILLED', 'side': 'BUY', 'price': '100.0',
+                   'executedQty': '10.0', 'cummulativeQuoteQty': '1000.0'}]
+        row = MagicMock()
+        # atr=2.0, atr_median_30d=1.0 → vol_ratio=2, scale=sqrt(2)≈1.414
+        # atr_stop_multiplier = 3.0 * 1.414 = 4.24, clampé dans [1.5, 5.0]
+        row.get = lambda k, d=None: {'atr': 2.0, 'atr_median_30d': 1.0}.get(k, d)
+        ctx = _make_ctx(pair_state=ps, orders=orders, row=row, current_price=100.0)
+        deps = _make_deps()
+        _sync_entry_state(ctx, 'BUY', deps)
+        # Avec adaptive: stop = 100 - 4.24*2 ≈ 91.5  (< stop classique 94.0)
+        std_stop = 100.0 - 3.0 * 2.0  # 94.0 sans adaptatif
+        sl_val = ps.get('stop_loss_at_entry')
+        assert sl_val is not None
+        assert sl_val < std_stop  # adaptatif donne un stop plus large
+
 
 # ---------------------------------------------------------------------------
 # Tests _update_trailing_stop
@@ -247,6 +266,78 @@ class TestUpdateTrailingStop:
         new_trailing = ps.get('trailing_stop', 0)
         assert new_trailing > initial_trailing, f"trailing_stop {new_trailing} devrait être > {initial_trailing}"
 
+    def test_recalcs_missing_trailing_activation_price(self):
+        """trailing_activation_price_at_entry=None + entry+atr définis → recalculé."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'atr_at_entry': 2.0,
+            'trailing_activation_price_at_entry': None,  # manquant
+            'trailing_stop_activated': False,
+            'max_price': 100.0,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance=10.0, current_price=99.0)
+        deps = _make_deps()
+        _update_trailing_stop(ctx, deps)
+        # Doit être recalculé : 100 + 5.5*2 = 111
+        assert ps['trailing_activation_price_at_entry'] == pytest.approx(111.0)
+        deps.save_fn.assert_called()
+
+    def test_trailing_activation_email_failure_silent(self):
+        """Email d'activation trailing échoue silencieusement (chemin except)."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'atr_at_entry': 2.0,
+            'trailing_activation_price_at_entry': 108.0,
+            'trailing_stop_activated': False,
+            'max_price': 112.0,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance=10.0, current_price=112.0)
+        deps = _make_deps()
+        deps.send_alert_fn.side_effect = Exception("SMTP fail")
+        _update_trailing_stop(ctx, deps)  # ne doit pas crasher
+        assert ps.get('trailing_stop_activated') is True
+
+    def test_breakeven_stop_triggered(self):
+        """Profit >= breakeven_trigger_pct → stop_loss_at_entry remonté, breakeven_triggered=True."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'atr_at_entry': 2.0,
+            'trailing_activation_price_at_entry': 111.0,
+            'trailing_stop_activated': False,
+            'max_price': 103.0,
+            'stop_loss_at_entry': 94.0,
+            'breakeven_triggered': False,
+        }
+        # current_price=103 : profit 3% >= trigger 2%
+        ctx = _make_ctx(pair_state=ps, coin_balance=10.0, current_price=103.0)
+        deps = _make_deps()
+        _update_trailing_stop(ctx, deps)
+        assert ps.get('breakeven_triggered') is True
+        sl_val = ps.get('stop_loss_at_entry')
+        assert sl_val is not None
+        assert sl_val > 94.0  # remonté au prix d'entrée
+
+    def test_breakeven_email_failure_silent(self):
+        """Email d'activation breakeven échoue silencieusement."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'atr_at_entry': 2.0,
+            'trailing_activation_price_at_entry': 111.0,
+            'trailing_stop_activated': False,
+            'max_price': 103.0,
+            'stop_loss_at_entry': 94.0,
+            'breakeven_triggered': False,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance=10.0, current_price=103.0)
+        deps = _make_deps()
+        deps.send_alert_fn.side_effect = Exception("SMTP fail")
+        _update_trailing_stop(ctx, deps)  # ne doit pas crasher
+        assert ps.get('breakeven_triggered') is True
+
 
 # ---------------------------------------------------------------------------
 # Tests _execute_partial_sells
@@ -322,6 +413,163 @@ class TestExecutePartialSells:
         deps.market_sell_fn.assert_not_called()
         # Flag mis à True pour éviter retry infini
         assert ps.get('partial_taken_1') is True
+
+    def test_cancel_exchange_sl_called_on_partial(self):
+        """sl_order_id présent → _cancel_exchange_sl appelé (succès), sl_order_id remis à None."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'partial_taken_1': False,
+            'partial_taken_2': False,
+            'partial_enabled': True,
+            'sl_order_id': 'SL_ABC',
+            'sl_exchange_placed': True,
+            'stop_loss_at_entry': 94.0,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance_free=10.0, coin_balance=10.0,
+                        current_price=106.0)  # +6% >= partial_threshold_1(5%)
+        deps = _make_deps()
+        mock_client = cast(MagicMock, deps.client)
+        mock_client.cancel_order.return_value = {'orderId': 'SL_ABC', 'status': 'CANCELED'}
+        mock_client.get_account.return_value = {
+            'balances': [{'asset': 'TRX', 'free': '10.0', 'locked': '0'}]
+        }
+        deps.market_sell_fn.return_value = {'status': 'FILLED', 'executedQty': '5.0'}
+        deps.place_sl_fn.return_value = {'orderId': 'SL_NEW'}
+        _execute_partial_sells(ctx, deps)
+        mock_client.cancel_order.assert_called_once_with(symbol='TRXUSDC', orderId='SL_ABC')
+        # Après la vente partielle, un nouveau SL est replacé → sl_order_id = 'SL_NEW'
+        assert ps.get('sl_order_id') == 'SL_NEW'
+        assert ps.get('sl_exchange_placed') is True
+
+    def test_cancel_exchange_sl_exception_sends_alert(self):
+        """cancel_order lève une exception → email d'alerte envoyé, sl_order_id conservé."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'partial_taken_1': False,
+            'partial_enabled': True,
+            'sl_order_id': 'SL_FAIL',
+            'sl_exchange_placed': True,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance_free=10.0, coin_balance=10.0,
+                        current_price=106.0)
+        deps = _make_deps()
+        cast(MagicMock, deps.client).cancel_order.side_effect = Exception("API timeout")
+        deps.market_sell_fn.return_value = {'status': 'FILLED', 'executedQty': '5.0'}
+        deps.place_sl_fn.return_value = {'orderId': 'SL_NEW2'}
+        _execute_partial_sells(ctx, deps)
+        deps.send_alert_fn.assert_called()  # email d'alerte sur l'échec d'annulation
+        assert ps.get('sl_order_id') == 'SL_FAIL'  # conservé (cancel a échoué)
+
+    def test_api_desync_corrects_partial_flags(self):
+        """check_partial_exits_fn diffère de l'état local → flags resynchronisés."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'partial_taken_1': False,  # local : non pris
+            'partial_taken_2': False,
+            'partial_enabled': True,
+        }
+        # profit < threshold_1 pour ne pas trigger de vente
+        ctx = _make_ctx(pair_state=ps, coin_balance_free=10.0, coin_balance=10.0,
+                        current_price=99.0)
+        deps = _make_deps()
+        # API dit que partial_1 a déjà été pris (désynchronisation)
+        deps.check_partial_exits_fn.return_value = (True, False)
+        _execute_partial_sells(ctx, deps)
+        assert ps.get('partial_taken_1') is True  # corrigé vers source de vérité API
+        deps.save_fn.assert_called()
+
+    def test_partial_2_triggered_with_sl_cancel(self):
+        """profit >= partial_threshold_2 (10%) + partial_taken_1=True → PARTIAL-2 déclenché."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'partial_taken_1': True,  # déjà pris
+            'partial_taken_2': False,
+            'partial_enabled': True,
+            'sl_order_id': 'SL_P2',
+            'sl_exchange_placed': True,
+            'stop_loss_at_entry': 94.0,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance_free=5.0, coin_balance=5.0,
+                        current_price=111.0)  # +11% >= partial_threshold_2(10%)
+        deps = _make_deps()
+        # API confirme que partial_1 est bien pris (pas de désync)
+        deps.check_partial_exits_fn.return_value = (True, False)
+        mock_client2 = cast(MagicMock, deps.client)
+        mock_client2.cancel_order.return_value = {'orderId': 'SL_P2', 'status': 'CANCELED'}
+        mock_client2.get_account.return_value = {
+            'balances': [{'asset': 'TRX', 'free': '3.5', 'locked': '0'}]
+        }
+        deps.market_sell_fn.return_value = {'status': 'FILLED', 'executedQty': '1.5'}
+        deps.place_sl_fn.return_value = {'orderId': 'SL_P2_NEW'}
+        _execute_partial_sells(ctx, deps)
+        deps.market_sell_fn.assert_called_once()
+        assert ps.get('partial_taken_2') is True
+
+    def test_blocked_sell_email_exception(self):
+        """Email alerte vente bloquée (notional trop faible) lève → except catchée (L402-403)."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'partial_taken_1': False,
+            'partial_enabled': True,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance_free=0.001, coin_balance=0.001,
+                        current_price=106.0, min_notional=5.0)
+        deps = _make_deps()
+        deps.check_partial_exits_fn.return_value = (False, False)
+        deps.send_alert_fn.side_effect = Exception("SMTP blocked")
+        _execute_partial_sells(ctx, deps)  # ne doit pas crasher
+        assert ps.get('partial_taken_1') is True  # flag mis à True malgré l'échec email
+
+    def test_partial_sell_email_throws(self):
+        """Email post-vente-partielle lève → except catchée silencieusement (L444-445)."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'partial_taken_1': False,
+            'partial_taken_2': False,
+            'partial_enabled': True,
+            'stop_loss_at_entry': 94.0,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance_free=10.0, coin_balance=10.0,
+                        current_price=106.0)
+        deps = _make_deps()
+        deps.check_partial_exits_fn.return_value = (False, False)
+        cast(MagicMock, deps.client).get_account.return_value = {
+            'balances': [{'asset': 'TRX', 'free': '5.0', 'locked': '0'}]
+        }
+        deps.market_sell_fn.return_value = {'status': 'FILLED', 'executedQty': '5.0'}
+        deps.place_sl_fn.return_value = {'orderId': 'SL_EMAIL_THROW'}
+        deps.send_alert_fn.side_effect = Exception("SMTP fail")
+        _execute_partial_sells(ctx, deps)  # ne doit pas crasher
+        assert ps.get('partial_taken_1') is True
+
+    def test_partial_sell_invalid_stop_loss_skips_email(self):
+        """is_valid_stop_loss_fn=False → email non envoyé, warning loggé (L446-447)."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'partial_taken_1': False,
+            'partial_taken_2': False,
+            'partial_enabled': True,
+            'stop_loss_at_entry': 94.0,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance_free=10.0, coin_balance=10.0,
+                        current_price=106.0)
+        deps = _make_deps(is_valid_stop_loss_fn=MagicMock(return_value=False))
+        deps.check_partial_exits_fn.return_value = (False, False)
+        cast(MagicMock, deps.client).get_account.return_value = {
+            'balances': [{'asset': 'TRX', 'free': '5.0', 'locked': '0'}]
+        }
+        deps.market_sell_fn.return_value = {'status': 'FILLED', 'executedQty': '5.0'}
+        deps.place_sl_fn.return_value = {'orderId': 'SL_VALID_SKIP'}
+        _execute_partial_sells(ctx, deps)
+        assert ps.get('partial_taken_1') is True
+        deps.send_alert_fn.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

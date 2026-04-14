@@ -14,9 +14,6 @@ joblib==1.5.3
 # === EXCHANGE CLIENT ===
 python-binance==1.0.35
 
-# === TECHNICAL ANALYSIS ===
-ta==0.11.0
-
 # === CONFIGURATION ===
 python-dotenv==1.2.1
 
@@ -34,6 +31,8 @@ optuna==4.3.0
 # === TESTING ===
 pytest==8.3.5
 pytest-mock==3.14.0
+pytest-cov==6.1.0
+pandas-stubs==3.0.0.260204
 
 # === NETWORKING ===
 requests==2.32.5

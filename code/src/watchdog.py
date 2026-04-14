@@ -46,7 +46,7 @@ def _close_logger_handlers():
 atexit.register(_close_logger_handlers)
 
 # Tentative d'import email (optionnel — watchdog reste fonctionnel sans)
-def _send_email_alert(_subject: str, _body: str) -> bool:  # default no-op if import fails
+def _send_email_alert(subject: str, body: str) -> bool:  # noqa: ARG001 — intentional no-op stub
     return False
 
 _EMAIL_AVAILABLE = False

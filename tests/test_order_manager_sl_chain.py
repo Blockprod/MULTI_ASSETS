@@ -11,6 +11,7 @@ import os
 import sys
 import threading
 from decimal import Decimal
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
@@ -110,7 +111,7 @@ def _make_deps(bot_state: dict | None = None, **overrides) -> _TradingDeps:
     """Deps minimalistes : tous les guards passent, market_buy réussit, SL configurable."""
     if bot_state is None:
         bot_state = {}
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         client=MagicMock(),
         bot_state=bot_state,
         bot_state_lock=threading.RLock(),

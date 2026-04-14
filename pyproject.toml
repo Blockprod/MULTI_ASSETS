@@ -29,3 +29,18 @@ markers = [
     "testnet: marqueur pour les tests E2E sur Binance Testnet (skip par défaut)",
 ]
 
+[tool.coverage.run]
+source = ["code/src"]
+omit = [
+    "code/src/benchmark.py",
+    "code/src/preload_data.py",
+    "code/src/display_ui.py",
+    "code/src/market_analysis.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 1
+fail_under = 69
+

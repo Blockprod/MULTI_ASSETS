@@ -9,7 +9,17 @@ import sys
 from binance.client import Client
 import pandas as pd
 import numpy as np
-import ta  # pylint: disable=import-error
+
+
+def _rsi_ta(close: pd.Series, window: int = 14) -> pd.Series:
+    """RSI Wilder-smoothé — équivalent direct de ta.momentum.RSIIndicator."""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, float('nan'))
+    return 100 - (100 / (1 + rs))
 
 PAIR = os.getenv('TEST_PAIR', 'BTCUSDC')
 INTERVAL = Client.KLINE_INTERVAL_1HOUR
@@ -89,7 +99,7 @@ if __name__ == '__main__':
     df = fetch_klines(PAIR, INTERVAL, LIMIT)
     print(f'Retrieved {len(df)} candles from {df.index[0]} to {df.index[-1]}')
 
-    df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()  # pylint: disable=no-member
+    df['rsi'] = _rsi_ta(df['close'], window=14)  # equiv ta.momentum.RSIIndicator
     # Also compute Wilder RSI for comparison
     try:
         rsi_wilder = compute_rsi_wilder_series(df['close'], period=14)
@@ -160,14 +170,14 @@ if __name__ == '__main__':
     print('min:', rsi_window.min(), 'max:', rsi_window.max(),
           'denom:', rsi_window.max() - rsi_window.min())
 
-    # Also print last few rows (ta.RSI and Wilder RSI sets)
+    # Also print last few rows (RSI and Wilder RSI sets)
     print('\nLast 6 rows (close, rsi, stoch_rsi_raw, stoch_k, stoch_d):')
     print(df[['close', 'rsi', 'stoch_rsi_raw', 'stoch_k', 'stoch_d']].tail(6).to_string())
     print('\nLast 6 rows (close, rsi_wilder, stoch_raw_wilder, stoch_k_wilder, stoch_d_wilder):')
     print(
         df[['close', 'rsi_wilder', 'stoch_raw_wilder',
             'stoch_k_wilder', 'stoch_d_wilder']].tail(6).to_string())
-    print('\nEMA-smoothed %K/%D (ta.RSI):')
+    print('\nEMA-smoothed %K/%D (RSI Wilder):')
     print(df[['stoch_k_ema','stoch_d_ema']].tail(6).to_string())
     print('\nEMA-smoothed %K/%D (Wilder RSI):')
     print(df[['stoch_k_wilder_ema','stoch_d_wilder_ema']].tail(6).to_string())

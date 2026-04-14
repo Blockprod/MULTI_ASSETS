@@ -3,7 +3,44 @@ from binance.client import Client
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
-import ta
+
+
+def _rsi(close: pd.Series, window: int = 14) -> pd.Series:
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, float('nan'))
+    return 100 - (100 / (1 + rs))
+
+
+def _atr(high: pd.Series, low: pd.Series, close: pd.Series, window: int = 14) -> pd.Series:
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return tr.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+
+
+def _adx(high: pd.Series, low: pd.Series, close: pd.Series, window: int = 14) -> pd.Series:
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    atr_s = tr.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+    up_move = high - high.shift(1)
+    down_move = low.shift(1) - low
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+    plus_di = 100 * plus_dm.ewm(alpha=1 / window, min_periods=window, adjust=False).mean() / atr_s
+    minus_di = 100 * minus_dm.ewm(alpha=1 / window, min_periods=window, adjust=False).mean() / atr_s
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, float('nan'))
+    return dx.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
 
 # Charger le fichier .env (s'il existe dans le répertoire de travail)
 load_dotenv()
@@ -47,10 +84,10 @@ def calc_indicators_standard(df):
     low = df['low']
 
     # RSI 14
-    out['rsi_14'] = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
+    out['rsi_14'] = _rsi(close, window=14).iloc[-1]
 
-    # StochRSI 14 (using RSI series)
-    rsi = ta.momentum.RSIIndicator(close, window=14).rsi()
+    # StochRSI 14
+    rsi = _rsi(close, window=14)
     stoch_period = 14
     if len(rsi) >= stoch_period:
         lowest = rsi.rolling(window=stoch_period).min()
@@ -61,11 +98,11 @@ def calc_indicators_standard(df):
         out['stochrsi_14'] = np.nan
 
     # ATR 14
-    out['atr_14'] = ta.volatility.AverageTrueRange(high=high, low=low, close=close, window=14).average_true_range().iloc[-1]
+    out['atr_14'] = _atr(high=high, low=low, close=close, window=14).iloc[-1]
 
     # ADX 14
     try:
-        out['adx_14'] = ta.trend.ADXIndicator(high=high, low=low, close=close, window=14).adx().iloc[-1]
+        out['adx_14'] = _adx(high=high, low=low, close=close, window=14).iloc[-1]
     except Exception:
         out['adx_14'] = np.nan
 

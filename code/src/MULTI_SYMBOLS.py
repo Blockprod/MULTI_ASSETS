@@ -96,7 +96,7 @@ from display_ui import (
 )
 from cache_manager import cleanup_expired_cache
 from exchange_client import (
-    BinanceFinalClient, is_valid_stop_loss_order,
+    BinanceFinalClient, ExchangePort, is_valid_stop_loss_order,
     can_execute_partial_safely,  # noqa: F401 — re-export: tests patchent ms.can_execute_partial_safely
     place_stop_loss_order as _place_stop_loss_order,
     place_exchange_stop_loss as _place_exchange_stop_loss,  # P0-01
@@ -122,6 +122,7 @@ from error_handler import AlertThrottle  # P1-05
 
 # Modules dormants activés (Phase 2)
 from trade_journal import log_trade  # noqa: F401 — re-export: tests patchent ms.log_trade
+from wal_logger import wal_replay, wal_clear
 from position_reconciler import (
     _ReconcileDeps,
     _PairStatus,
@@ -189,7 +190,7 @@ else:
     logger.warning("[CYTHON] Moteur indicateurs Cython NON disponible — fallback Python actif")
 
 # P1-01: Vérifie l'intégrité SHA256 des .pyd au démarrage
-_verify_cython_integrity(alert_fn=send_email_alert)
+_verify_cython_integrity(alert_fn=cast(Callable[[str, str], None], send_email_alert))
 
 # Paramètre pour activer/désactiver les logs détaillés (VERBOSE = False pour plus de rapidité)
 # (VERBOSE_LOGS importé depuis bot_config)
@@ -650,7 +651,7 @@ def _is_daily_loss_limit_reached() -> bool:
 def _make_reconcile_deps() -> _ReconcileDeps:
     """C-03: Injecte les globaux du module dans les fonctions de position_reconciler."""
     return _ReconcileDeps(
-        client=client,
+        client=cast(ExchangePort, client),
         bot_state=bot_state,
         bot_state_lock=_bot_state_lock,
         save_fn=save_bot_state,
@@ -663,7 +664,7 @@ def _make_reconcile_deps() -> _ReconcileDeps:
 def _make_trading_deps() -> _TradingDeps:
     """C-03: Injecte les globaux du module dans les fonctions de order_manager."""
     return _TradingDeps(
-        client=client,
+        client=cast(ExchangePort, client),
         bot_state=bot_state,
         bot_state_lock=_bot_state_lock,
         save_fn=save_bot_state,
@@ -691,7 +692,7 @@ def _make_backtest_deps() -> _BacktestDeps:
         bot_state=bot_state,
         bot_state_lock=_bot_state_lock,
         config=config,
-        client=client,
+        client=cast(ExchangePort, client),
         console=console,
         timeframes=timeframes,
         schedule=schedule,
@@ -1218,7 +1219,7 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
             and pair_state.get('entry_price')
             and config.max_drawdown_pct > 0
         ):
-            _entry_p = float(pair_state['entry_price'])
+            _entry_p = float(pair_state.get('entry_price') or 0.0)
             _drawdown = (current_price - _entry_p) / _entry_p
             if _drawdown < -config.max_drawdown_pct:
                 if _runtime.drawdown_throttle.check_and_mark(key=backtest_pair):
@@ -1253,7 +1254,7 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
         ctx = _TradeCtx(
             real_trading_pair=real_trading_pair, backtest_pair=backtest_pair,
             time_interval=time_interval, sizing_mode=sizing_mode,
-            pair_state=pair_state, best_params=best_params,
+            pair_state=cast(Dict[str, Any], pair_state), best_params=best_params,
             ema1_period=ema1_period, ema2_period=ema2_period, scenario=scenario,
             coin_symbol=coin_symbol, quote_currency=quote_currency,
             usdc_balance=usdc_balance, coin_balance_free=coin_balance_free,
@@ -1408,6 +1409,17 @@ if __name__ == "__main__":
         # Chargement de l'etat du bot
         load_bot_state()
 
+        # B-05: WAL replay — détecter les intents BUY sans confirmation avant réconciliation
+        try:
+            _wal_unconfirmed = wal_replay()
+            if _wal_unconfirmed:
+                logger.warning(
+                    "[WAL] %d paire(s) avec intent non confirme — reconciliation prioritaire: %s",
+                    len(_wal_unconfirmed), _wal_unconfirmed,
+                )
+        except Exception as _wal_err:
+            logger.warning("[WAL] Erreur replay WAL au demarrage: %s", _wal_err)
+
         # C-03: Réconciliation positions au démarrage — détecte les positions orphelines
         # (achat exécuté avant un crash, état non sauvegardé)
         try:
@@ -1415,6 +1427,11 @@ if __name__ == "__main__":
             with _bot_state_lock:
                 bot_state['reconcile_failed'] = False
             save_bot_state(force=True)
+            # B-05: nettoyer le WAL après réconciliation réussie
+            try:
+                wal_clear()
+            except Exception as _wal_clear_err:
+                logger.warning("[WAL] Erreur nettoyage WAL post-reconciliation: %s", _wal_clear_err)
         except Exception as reconcile_err:
             logger.error(
                 "[RECONCILE TS-P2-02] Erreur lors de la réconciliation: %s",
@@ -1564,7 +1581,9 @@ if __name__ == "__main__":
 
             # Initialiser l'état du bot pour cette paire
             if backtest_pair not in bot_state:
-                bot_state[backtest_pair] = _make_default_pair_state()
+                with _bot_state_lock:
+                    if backtest_pair not in bot_state:
+                        bot_state[backtest_pair] = _make_default_pair_state()
 
             pair_state: PairState = cast('PairState', bot_state[backtest_pair])
 
@@ -1745,6 +1764,7 @@ if __name__ == "__main__":
                         with open(tmp_path, "w", encoding="utf-8") as f:
                             json.dump(heartbeat, f)
                         os.replace(tmp_path, hb_path)
+
                     except Exception as hb_err:
                         logger.error(f"[HEARTBEAT] Erreur écriture: {hb_err}")
 

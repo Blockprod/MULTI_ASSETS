@@ -488,7 +488,9 @@ def _backtest_and_display_results(
     logger.info("Debut des backtests...")
 
     if backtest_pair not in deps.bot_state:
-        deps.bot_state[backtest_pair] = deps.make_default_pair_state_fn()
+        with deps.bot_state_lock:
+            if backtest_pair not in deps.bot_state:
+                deps.bot_state[backtest_pair] = deps.make_default_pair_state_fn()
 
     pair_state = cast(Dict[str, Any], deps.bot_state[backtest_pair])
 

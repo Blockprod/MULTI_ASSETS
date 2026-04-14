@@ -1,15 +1,13 @@
 # VERIFY_result — MULTI_ASSETS
 
-**Date** : 2026-04-06 22:30  
-**Phase** : P4 · Vérification post-correction  
-**Corrections P3 appliquées** (9 batches · 35 fixes · 17 fichiers) :
+**Date** : 2026-04-14 23:05
+**Phase** : P4 · Vérification post-correction
+**Corrections P3 appliquées** (2 batches · 5 fixes · 3 fichiers) :
 
 ```
-code/src/state_manager.py · metrics.py · exchange_client.py · timestamp_utils.py
-code/src/order_manager.py · position_reconciler.py · backtest_orchestrator.py
-code/src/data_fetcher.py · indicators_engine.py · backtest_runner.py · walk_forward.py
-code/src/cache_manager.py · MULTI_SYMBOLS.py · watchdog.py
-tests/test_watchdog.py · tests/test_p0_fixes.py · tests/test_phase1_fixes.py
+code/src/watchdog.py               — 2 fixes ARG001 (noqa)
+tests/test_e2e_testnet.py          — 2 fixes type_ignore (Any annotation)
+tests/test_indicators_consistency.py — 1 fix type_ignore (importlib)
 ```
 
 ---
@@ -18,45 +16,40 @@ tests/test_watchdog.py · tests/test_p0_fixes.py · tests/test_phase1_fixes.py
 
 | Étape | Verdict | Notes |
 |-------|---------|-------|
-| 1. Syntaxe | ✅ PASS | 31 fichiers OK — 0 SyntaxError |
-| 2. Ruff | ✅ PASS | 0 violation (E/W/F/B/ARG/I) — `All checks passed!` |
+| 1. Syntaxe | ✅ PASS | 3 fichiers modifiés OK — 0 SyntaxError |
+| 2. Ruff lint | ✅ PASS | 0 violation E/W/F/B/ARG — `All checks passed!` |
+| 2b. Ruff format | ⚠️ INFO | 32 fichiers reformatables — pré-existant, hors scope P3 |
 | 3. Pyright | ✅ PASS | `0 errors, 0 warnings, 0 informations` |
-| 4. Tests | ✅ PASS | 739 passed, 7 skipped, 0 failed — 39.76s |
-| 5. Config | ✅ PASS | `Config OK` · `BOT_MODE: NON DEFINI` (non requis en test) |
-| 5c. Risk params | ⚠️ INFO | `risk_per_trade=0.055` dépasse 0.05 — préexistant, non introduit par P3 |
-| 6. HMAC | ✅ PASS | `_compute_hmac` SHA-256 32 bytes · HMAC hexdigest 64 chars — OK |
+| 4. Tests | ✅ PASS | 768 passed, 6 skipped, 0 failed — ~46s |
+| 5. Config | ✅ PASS | `Config OK` · `daily_loss_limit_pct=0.05` · `taker_fee=0.0007` · `maker_fee=0.0002` |
+| 6. HMAC | ✅ PASS | `_compute_hmac` SHA-256 · hexdigest 64 chars — OK |
 | 7. Imports | ✅ PASS | 20 modules critiques importés sans erreur |
 | 8. Cython | ✅ PASS | `backtest_from_dataframe_fast` + `calculate_indicators` — OK |
 | 9. Interdictions | ✅ PASS | 0 `type:ignore` · 0 `utcnow` · 0 `except:pass` muet · 0 `start_date` figée |
-| 9b. TRAILING_STOP_MARKET | ✅ PASS | 5 hits — tous dans gardes `NotImplementedError` (conformes) |
-| 10. Thread safety | ✅ PASS | 17 acquisitions `_bot_state_lock` — cohérent avec architecture multi-paires |
+| 9b. TRAILING_STOP_MARKET | ✅ PASS | Hits uniquement dans gardes `NotImplementedError` (conformes) |
+| 10. Thread safety | ✅ PASS | 18 acquisitions `_bot_state_lock` · 5 write sites `bot_state[` — cohérent |
 
 ---
 
 ## Notes détaillées
 
-### Étape 5c — risk_per_trade préexistant
-```
-risk_per_trade = 0.055 (5.5%)
-```
-- Valeur définie dans la config du projet **avant** le cycle P1→P3
-- Non modifiée par P3 (aucun batch ne touchait bot_config.py)
-- Non bloquante pour P5 — à surveiller en production
+### Étape 2b — Ruff format (non bloquant)
+32 fichiers de `code/src/` seraient reformatés par `ruff format`. Cette condition
+est **pré-existante** (antérieure au cycle P1→P3 courant) et hors scope des corrections.
+Le critère de passage P4 exige `0 erreur ruff E/W/F/B/ARG` — satisfait.
 
 ### Étape 9 — TRAILING_STOP_MARKET (conforme)
-Les 5 occurrences sont :
-- `exchange_client.py:554` — docstring de la fonction garde
-- `exchange_client.py:556` — commentaire ATTENTION
-- `exchange_client.py:563` — string dans `raise NotImplementedError`
-- `exchange_client.py:388` — commentaire AVERTISSEMENT
-- `exchange_client.py:392` — `raise NotImplementedError("TRAILING_STOP_MARKET n'est pas disponible...")`
+Occurrences dans :
+- `exchange_client.py` : docstring + commentaire ATTENTION + `'TRAILING_STOP_MARKET'` dans dict
+  de la fonction garde (ne doit pas être appelée sur Spot)
+- `MULTI_SYMBOLS.py` : `raise NotImplementedError("TRAILING_STOP_MARKET n'est pas disponible...")`
 
-Toutes conformes aux règles du projet.
+Toutes conformes — pas d'appel effectif sur Spot.
 
 ### Étape 8 — Cython API (noms réels)
 - `backtest_engine_standard` exporte `backtest_from_dataframe_fast` (non `run_backtest`)
 - `indicators` exporte `calculate_indicators` (non `compute_indicators`)
-- Les deux modules chargent correctement — stubs `.pyi` à jour
+- Les deux modules chargent correctement — OK
 
 ---
 
@@ -69,9 +62,7 @@ Toutes conformes aux règles du projet.
 **Résumé** :
 - 0 erreur ruff E/W/F/B/ARG
 - 0 erreur pyright
-- 739 passed, 0 failed
+- 768 passed, 0 failed
 - 0 interdiction violée
-- Config + HMAC + tous imports OK
-- Thread safety cohérent
-
-**Note** : `risk_per_trade=0.055` est un WARNING INFO préexistant — non bloquant.
+- Config (tous risk params) + HMAC + tous imports OK
+- Thread safety cohérent (18 locks / 5 write sites)

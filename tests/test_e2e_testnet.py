@@ -40,6 +40,7 @@ import os
 import sys
 import time
 import logging
+from typing import Any
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
@@ -82,7 +83,7 @@ def testnet_client():
 
     client = BinanceFinalClient(api_key=api_key, api_secret=secret_key)
     # Rediriger vers le testnet spot
-    client.API_URL = _TESTNET_BASE_URL
+    setattr(client, 'API_URL', _TESTNET_BASE_URL)
     return client
 
 
@@ -90,7 +91,7 @@ def testnet_client():
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _get_btc_balance(client) -> float:  # type: ignore[no-untyped-def]
+def _get_btc_balance(client: Any) -> float:
     """Retourne la balance BTC disponible sur le testnet."""
     account = client.get_account(recvWindow=60000)
     for bal in account.get("balances", []):
@@ -99,7 +100,7 @@ def _get_btc_balance(client) -> float:  # type: ignore[no-untyped-def]
     return 0.0
 
 
-def _get_current_price(client) -> float:  # type: ignore[no-untyped-def]
+def _get_current_price(client: Any) -> float:
     """Retourne le prix courant BTC/USDT sur le testnet."""
     ticker = client.get_symbol_ticker(symbol=_TEST_SYMBOL)
     return float(ticker["price"])

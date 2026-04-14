@@ -14,7 +14,7 @@ import sys
 import time
 import pytest
 from decimal import Decimal
-from typing import cast
+from typing import Any, cast
 from unittest.mock import MagicMock
 import numpy as np
 import pandas as pd
@@ -1840,7 +1840,7 @@ class TestPairStateTypedDict:
             backtest_pair='SOLUSDT',
             time_interval='1h',
             sizing_mode='baseline',
-            pair_state=ps,
+            pair_state=cast(dict[str, Any], ps),
             best_params={'ema1_period': 26, 'ema2_period': 50, 'scenario': 'StochRSI'},
             ema1_period=26,
             ema2_period=50,
