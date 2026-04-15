@@ -61,3 +61,6 @@ reports/
 code/src/states/
 code/src/logs/
 code/src/cache/
+
+# Fichiers temporaires outils (pyright, etc.)
+*.tmp
