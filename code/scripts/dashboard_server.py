@@ -33,8 +33,8 @@ from typing import Any
 
 BASE_DIR     = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SRC_DIR      = os.path.join(BASE_DIR, "code", "src")
-HEARTBEAT    = os.path.join(BASE_DIR, "states", "heartbeat.json")
-BOT_STATE    = os.path.join(BASE_DIR, "states", "bot_state.json")
+HEARTBEAT    = os.path.join(SRC_DIR, "states", "heartbeat.json")
+BOT_STATE    = os.path.join(SRC_DIR, "states", "bot_state.json")
 LOGS_DIR     = os.path.join(SRC_DIR, "logs")
 METRICS_FILE = os.path.join(BASE_DIR, "metrics", "metrics.json")
 MULTI_SRC    = os.path.join(SRC_DIR, "MULTI_SYMBOLS.py")
