@@ -64,3 +64,6 @@ code/src/cache/
 
 # Fichiers temporaires outils (pyright, etc.)
 *.tmp
+
+# Fichiers de verrou runtime
+*.lock
