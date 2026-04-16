@@ -193,6 +193,23 @@ Si aucun résultat → archiver dans `code/legacy/` et retirer de `config/setup.
 
 ---
 
+## Git & Hygiène repo
+
+### L-16 · Fichiers runtime non ignorés par git
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-04-16
+
+**Contexte** : Des fichiers générés au runtime (`.running.lock`, `*.tmp`, `*.lock`) apparaissent dans `git status` comme modifiés ou non-suivis.  
+**Erreur** : Ces fichiers ne doivent jamais être commités — ils polluent l'historique git et sont spécifiques à la machine.  
+**Règle** : **RÈGLE ABSOLUE** — Après toute modification impliquant un fichier runtime (lock, tmp, pid, artefact outil), vérifier `git status` et ajouter immédiatement la règle dans `.gitignore` **sans attendre que l'utilisateur le demande**. Commiter `.gitignore` dans la même session.  
+**Patterns à ignorer systématiquement** :
+- `*.lock` — fichiers de verrou runtime (PID bot)
+- `*.tmp` — artefacts outils (pyright, etc.)
+- `*.pid` — fichiers de processus
+- Tout fichier dont le contenu est un PID ou un timestamp machine  
+**Ref** : commit `5165abc` · commit `27ca8d0`
+
+---
+
 ## Référence — Patterns P0 appliqués (historique)
 
 > Ces patterns sont actifs dans le code. Mettre à jour si une correction change le comportement.
