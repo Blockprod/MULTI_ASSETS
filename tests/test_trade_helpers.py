@@ -649,3 +649,107 @@ class TestHandleDustCleanup:
         assert result is False
         deps.market_sell_fn.assert_not_called()
         deps.save_fn.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests check_partial_exits_from_history (trade_helpers.py)
+# ---------------------------------------------------------------------------
+
+from trade_helpers import check_partial_exits_from_history
+
+
+def _make_trade(*, is_buyer: bool, qty: float, price: float, time: int,
+                order_id: int = 1) -> dict:
+    """Helper to build a fake Binance trade dict."""
+    return {
+        'isBuyer': is_buyer,
+        'qty': str(qty),
+        'price': str(price),
+        'time': time,
+        'orderId': order_id,
+    }
+
+
+class TestCheckPartialExitsFromHistory:
+    """Tests for check_partial_exits_from_history — fills grouping & detection."""
+
+    def test_no_trades_returns_false_false(self):
+        client = MagicMock()
+        client.get_my_trades.return_value = []
+        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 1.00, client)
+        assert (p1, p2) == (False, False)
+
+    def test_no_sells_after_buy(self):
+        client = MagicMock()
+        client.get_my_trades.return_value = [
+            _make_trade(is_buyer=True, qty=100.0, price=1.00, time=1000, order_id=1),
+        ]
+        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 1.00, client)
+        assert (p1, p2) == (False, False)
+
+    def test_single_fill_partial_1_detected(self):
+        """One sell fill = 50% of buy qty at +3% → PARTIAL-1 detected."""
+        client = MagicMock()
+        client.get_my_trades.return_value = [
+            _make_trade(is_buyer=True, qty=100.0, price=1.00, time=1000, order_id=1),
+            _make_trade(is_buyer=False, qty=50.0, price=1.03, time=2000, order_id=2),
+        ]
+        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 1.00, client)
+        assert p1 is True
+        assert p2 is False
+
+    def test_multi_fill_grouped_by_order_id(self):
+        """A single market sell split into 3 fills → grouped into one order,
+        total qty = 50% → PARTIAL-1 detected (P5-DASH-4 regression test)."""
+        client = MagicMock()
+        client.get_my_trades.return_value = [
+            _make_trade(is_buyer=True, qty=800.0, price=0.265, time=1000, order_id=10),
+            # 3 fills of the same sell order (orderId=20)
+            _make_trade(is_buyer=False, qty=150.0, price=0.275, time=2000, order_id=20),
+            _make_trade(is_buyer=False, qty=130.0, price=0.274, time=2001, order_id=20),
+            _make_trade(is_buyer=False, qty=124.6, price=0.276, time=2002, order_id=20),
+        ]
+        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 0.265, client)
+        # total sell = 404.6 / 800 = 0.50575 → in [0.45, 0.55]
+        # avg price ~0.275 >= 0.265 * 1.02 * 0.99 (tolerant threshold)
+        assert p1 is True
+        assert p2 is False
+
+    def test_both_partials_detected(self):
+        """Two separate sell orders: P1 (~50%) then P2 (~30%)."""
+        client = MagicMock()
+        client.get_my_trades.return_value = [
+            _make_trade(is_buyer=True, qty=1000.0, price=1.00, time=1000, order_id=1),
+            _make_trade(is_buyer=False, qty=500.0, price=1.03, time=2000, order_id=2),
+            _make_trade(is_buyer=False, qty=300.0, price=1.05, time=3000, order_id=3),
+        ]
+        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 1.00, client)
+        assert p1 is True
+        assert p2 is True
+
+    def test_invalid_entry_price_returns_false(self):
+        client = MagicMock()
+        client.get_my_trades.return_value = [
+            _make_trade(is_buyer=True, qty=100.0, price=1.00, time=1000),
+        ]
+        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 0.0, client)
+        assert (p1, p2) == (False, False)
+
+    def test_exception_returns_false_false(self):
+        client = MagicMock()
+        client.get_my_trades.side_effect = Exception("API error")
+        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 1.00, client)
+        assert (p1, p2) == (False, False)
+
+    def test_multi_fill_buy_accumulated(self):
+        """Buy order split into 2 fills → qty accumulated correctly."""
+        client = MagicMock()
+        client.get_my_trades.return_value = [
+            _make_trade(is_buyer=True, qty=400.0, price=1.00, time=1000, order_id=1),
+            _make_trade(is_buyer=True, qty=400.0, price=1.00, time=1001, order_id=1),
+            _make_trade(is_buyer=False, qty=400.0, price=1.03, time=2000, order_id=2),
+        ]
+        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 1.00, client)
+        # sell 400 / buy 800 = 0.50 → P1 detected
+        assert p1 is True
+        assert p2 is False
