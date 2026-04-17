@@ -1409,6 +1409,12 @@ if __name__ == "__main__":
         # Chargement de l'etat du bot
         load_bot_state()
 
+        # D-06: persister starting_equity pour le dashboard (daily loss limit)
+        with _bot_state_lock:
+            _tracker = bot_state.setdefault('_daily_pnl_tracker', {})
+            if 'starting_equity' not in _tracker:
+                _tracker['starting_equity'] = config.initial_wallet
+
         # B-05: WAL replay — détecter les intents BUY sans confirmation avant réconciliation
         try:
             _wal_unconfirmed = wal_replay()
@@ -1598,6 +1604,7 @@ if __name__ == "__main__":
             current_run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             pair_state['last_run_time'] = current_run_time
+            pair_state['last_execution'] = current_run_time  # D-10: dashboard Last Cycle
             pair_state['last_best_params'] = best_params
             pair_state['execution_count'] = pair_state.get('execution_count', 0) + 1
 

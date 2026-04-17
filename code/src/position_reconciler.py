@@ -185,6 +185,11 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
         _sl_fill_price = _current_price  # fallback
         _sl_exec_qty = 0.0
         _sl_was_filled = False
+        # D-03: filtrer les IDs non-numériques (résidu DRY-RUN mode DEMO)
+        if _sl_oid and not str(_sl_oid).isdigit():
+            logger.warning("[RECONCILE] SL ID non-numérique ignoré (DRY-RUN résidu): %s", _sl_oid)
+            _sl_oid = None
+            pair_state['sl_order_id'] = None
         if _sl_oid:
             try:
                 _sl_info = deps.client.get_order(symbol=real_pair, orderId=_sl_oid)

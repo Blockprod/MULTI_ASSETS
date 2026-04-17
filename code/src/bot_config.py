@@ -70,7 +70,7 @@ class Config:
     atr_stop_multiplier: float = 3.0
     recv_window: int = 60000  # P1-11: centralisé, utilisé par exchange_client
     risk_per_trade: float = 0.055  # B-2: optimisé 5%→5.5% (Calmar max 2.004)
-    sizing_mode: str = 'risk'  # P1-07: default 'risk' au lieu de 'baseline'
+    sizing_mode: str = 'risk'  # B-2: risk-based sizing (5.5% risk per trade)
     partial_threshold_1: float = 0.02
     partial_threshold_2: float = 0.04
     partial_pct_1: float = 0.50
@@ -198,7 +198,7 @@ class Config:
         config_data['risk_per_trade'] = float(os.getenv('RISK_PER_TRADE', '0.055'))  # B-2
         config_data['smtp_server'] = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
         config_data['smtp_port'] = int(os.getenv('SMTP_PORT', '587'))
-        config_data['sizing_mode'] = os.getenv('SIZING_MODE', 'risk')  # P1-07
+        config_data['sizing_mode'] = os.getenv('SIZING_MODE', 'risk')  # B-2
         config_data['recv_window'] = int(os.getenv('RECV_WINDOW', '60000'))  # P1-11
         config_data['partial_threshold_1'] = float(os.getenv('PARTIAL_THRESHOLD_1', '0.02'))
         config_data['partial_threshold_2'] = float(os.getenv('PARTIAL_THRESHOLD_2', '0.04'))
@@ -289,7 +289,7 @@ class Config:
         if not 0.001 <= self.risk_per_trade <= 0.50:
             errors.append(f"risk_per_trade={self.risk_per_trade} hors limites [0.001, 0.50]")
         # Sizing mode valide
-        valid_modes = {'baseline', 'risk', 'fixed_notional', 'volatility_parity'}
+        valid_modes = {'baseline', 'risk'}
         if self.sizing_mode not in valid_modes:
             errors.append(
                 f"sizing_mode='{self.sizing_mode}' invalide. Valides: {valid_modes}")

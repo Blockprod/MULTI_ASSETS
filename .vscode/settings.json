@@ -20,9 +20,5 @@
   "python.analysis.diagnosticMode": "workspace",
 
   // ── Éditeur ─────────────────────────────────────────────────────────────
-  "editor.rulers": [100],
-  "files.associations": {
-    "*.pyx": "python",
-    "*.pxd": "python"
-  }
+  "editor.rulers": [100]
 }

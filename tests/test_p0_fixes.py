@@ -537,7 +537,7 @@ class TestConfigValidation:
         cfg.secret_key = 'REAL_SECRET_456'
         cfg.sender_email = 'test@test.com'
         cfg.taker_fee = 0.0007
-        cfg.sizing_mode = 'baseline'
+        cfg.sizing_mode = 'risk'
         cfg.initial_wallet = 10000.0
 
         repr_str = repr(cfg)

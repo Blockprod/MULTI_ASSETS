@@ -24,9 +24,7 @@ from email_templates import buy_executed_email, sell_executed_email
 from exchange_client import _get_coin_balance, can_execute_partial_safely, ExchangePort
 from state_manager import set_emergency_halt
 from position_sizing import (
-    compute_position_size_by_risk,
-    compute_position_size_fixed_notional,
-    compute_position_size_volatility_parity,
+    compute_position_size_by_risk,  # kept for potential future use
 )
 from trade_journal import log_trade
 from wal_logger import wal_write, OP_BUY_INTENT, OP_BUY_CONFIRMED, OP_SL_PLACED
@@ -1209,62 +1207,33 @@ def _compute_buy_quantity(
     risk_per_trade: float = 0.01,
     atr_stop_multiplier: float = 1.5,
 ) -> Optional[Tuple[Decimal, str, float]]:
-    """C-02: Calcule la quantité d'achat selon le sizing_mode.
+    """C-02: Calcule la quantité d'achat — modes baseline et risk.
 
-    Fonction pure — aucun side-effect (lit config, appelle helpers de sizing).
+    Fonction pure — aucun side-effect.
     Retourne (quantity_rounded, qty_str, quote_amount) ou None si quantité < min_qty.
+
+    Modes:
+    - baseline: qty = min(usdc_for_buy, usdc_balance) * 0.98 / entry_price
+    - risk: qty = min(risk_qty, affordable_qty) où risk_qty = (capital * risk_per_trade) / (atr_stop_multiplier * ATR)
     """
-    if sizing_mode == 'baseline':
-        effective_capital = min(usdc_for_buy, usdc_balance) * config.position_size_cushion
-        gross_coin = effective_capital / entry_price
-    elif sizing_mode == 'risk':
-        # RISK-BASED: % risk avec ATR stop-loss
-        if atr_value and atr_value > 0:
-            qty_by_risk = compute_position_size_by_risk(
-                equity=usdc_for_buy,
-                atr_value=atr_value,
-                entry_price=entry_price,
-                risk_pct=risk_per_trade,
-                stop_atr_multiplier=atr_stop_multiplier,
-            )
-            effective_capital = min(usdc_for_buy, usdc_balance) * config.position_size_cushion
-            max_affordable = effective_capital / entry_price
-            gross_coin = min(max_affordable, qty_by_risk)
-        else:
-            logger.warning("[BUY] ATR invalide, fallback baseline")
-            effective_capital = min(usdc_for_buy, usdc_balance) * config.position_size_cushion
-            gross_coin = effective_capital / entry_price
-    elif sizing_mode == 'fixed_notional':
-        # Fixed notional: montant USD fixe par trade
-        notional_per_trade = usdc_for_buy * 0.1  # 10% du capital pour ce trade
-        qty_fixed = compute_position_size_fixed_notional(
-            equity=usdc_for_buy,
-            notional_per_trade_usd=notional_per_trade,
+    effective_capital = min(usdc_for_buy, usdc_balance)
+
+    if sizing_mode == 'risk' and atr_value and atr_value > 0 and entry_price > 0:
+        qty_by_risk = compute_position_size_by_risk(
+            equity=effective_capital,
+            atr_value=atr_value,
             entry_price=entry_price,
+            risk_pct=risk_per_trade,
+            stop_atr_multiplier=atr_stop_multiplier,
         )
-        effective_capital = min(usdc_for_buy, usdc_balance) * config.position_size_cushion
-        max_affordable = effective_capital / entry_price
-        gross_coin = min(max_affordable, qty_fixed)
-    elif sizing_mode == 'volatility_parity':
-        # Volatility parity: volatilité fixe du P&L
-        if atr_value and atr_value > 0:
-            qty_vol = compute_position_size_volatility_parity(
-                equity=usdc_for_buy,
-                atr_value=atr_value,
-                entry_price=entry_price,
-                target_volatility_pct=0.02,
-            )
-            effective_capital = min(usdc_for_buy, usdc_balance) * config.position_size_cushion
-            max_affordable = effective_capital / entry_price
-            gross_coin = min(max_affordable, qty_vol)
-        else:
-            logger.warning("[BUY] ATR invalide, fallback baseline")
-            effective_capital = min(usdc_for_buy, usdc_balance) * config.position_size_cushion
-            gross_coin = effective_capital / entry_price
+        max_affordable = (effective_capital * config.position_size_cushion) / entry_price
+        gross_coin = min(max_affordable, qty_by_risk)
+    elif sizing_mode not in ('baseline', 'risk'):
+        logger.warning("[BUY] sizing_mode='%s' inconnu — fallback baseline", sizing_mode)
+        gross_coin = (effective_capital * config.position_size_cushion) / entry_price if entry_price > 0 else 0.0
     else:
-        logger.warning(f"[BUY] sizing_mode inconnu '{sizing_mode}', fallback baseline")
-        effective_capital = min(usdc_for_buy, usdc_balance) * config.position_size_cushion
-        gross_coin = effective_capital / entry_price
+        # baseline (or risk with invalid ATR → fallback)
+        gross_coin = (effective_capital * config.position_size_cushion) / entry_price if entry_price > 0 else 0.0
 
     # Arrondir selon les règles d'échange
     quantity_decimal = Decimal(str(gross_coin))
@@ -1462,7 +1431,8 @@ def _place_buy_and_verify(
         actual_qty_str = qty_str
 
     logger.info("[BUY] Achat exécuté et confirmé : %s %s", actual_qty_str, ctx.coin_symbol)
-    logger.info("[BUY] Capital utilisé : %.2f USDC (provenant des ventes)", usdc_for_buy)
+    _actual_spent = float(buy_order.get('cummulativeQuoteQty', usdc_for_buy))
+    logger.info("[BUY] Capital réellement dépensé : %.2f USDC (disponible: %.2f)", _actual_spent, usdc_for_buy)
     # WAL B-05: confirmer le fill
     wal_write(OP_BUY_CONFIRMED, ctx.real_trading_pair,
               order_id=buy_order.get('orderId'), actual_qty_str=actual_qty_str)
@@ -1514,7 +1484,7 @@ def _place_buy_and_verify(
         ),
         'max_price': entry_price,
         'trailing_stop_activated': False,
-        'initial_position_size': float(quantity_rounded),
+        'initial_position_size': float(actual_qty_str),
         'last_order_side': 'BUY',
         'partial_enabled': can_partial,
         'partial_taken_1': False,

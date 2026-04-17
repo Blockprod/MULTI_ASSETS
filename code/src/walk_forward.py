@@ -871,7 +871,7 @@ def run_walk_forward_optuna(
     logger.info(
         "[ML-07] Optuna OOS audit: %s %s EMA(%d,%d) | OOS Sharpe=%.3f WR=%.1f%% decay=%.2f | %s",
         best_scenario, best_tf, best_ema1, best_ema2,
-        avg_oos_sharpe, avg_oos_win_rate * 100.0, decay,
+        avg_oos_sharpe, avg_oos_win_rate, decay,
         "PASSED" if passed else "FAILED",
     )
 

@@ -68,8 +68,8 @@ def backtest_from_dataframe_fast(
     double stoch_threshold_buy=0.8,
     double stoch_threshold_sell=0.2,
     double adx_threshold=25.0,
-    str sizing_mode='baseline',
-    double risk_per_trade=0.05,
+    str sizing_mode='risk',  # B-2: risk-based sizing
+    double risk_per_trade=0.055,  # B-2: optimisé 5%→5.5% (Calmar max 2.004)
     bint partial_enabled=False,
     double partial_threshold_1=0.02,
     double partial_threshold_2=0.04,

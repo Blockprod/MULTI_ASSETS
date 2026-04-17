@@ -222,3 +222,51 @@ Si aucun résultat → archiver dans `code/legacy/` et retirer de `config/setup.
 | P0-04 (HMAC hardcodé) | Clé HMAC figée dans le code source | Clé HMAC = `BINANCE_SECRET_KEY`, `EnvironmentError` si absente |
 | P0-05 (SizingError silencieuse) | Erreur de sizing ignorée → ordre mal dimensionné | `SizingError` levée proprement, catchée dans `_execute_buy()` |
 | P0-SAVE (save silencieux) | Échecs `save_bot_state()` non détectés | 3 failures consécutives → `emergency_halt = True` + alerte CRITICAL email |
+
+---
+
+## Transition DEMO → LIVE
+
+### L-17 · DRY-RUN residue dans `pair_state` après passage LIVE
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-04-17
+
+**Contexte** : Passage de BOT_MODE=DEMO à BOT_MODE=LIVE sans purge de l'état.
+**Erreur** : `sl_order_id = "DRYRUN-SL-0"` (ID non-numérique) persiste dans `pair_state`. Le `position_reconciler` le passe à `client.get_order()` → `BinanceAPIException` (illegal characters).
+**Règle** : Avant tout appel API avec un `sl_order_id`, vérifier `str(sl_order_id).isdigit()`. Les IDs DRY-RUN (`DRYRUN-*`) ne sont pas des IDs Binance valides.
+**Pattern correct** :
+```python
+if _sl_oid and not str(_sl_oid).isdigit():
+    logger.warning("[RECONCILE] SL ID non-numérique ignoré: %s", _sl_oid)
+    _sl_oid = None
+```
+**Ref** : D-03 — `position_reconciler.py` L184-190
+
+---
+
+### L-18 · Valeur déjà en pourcentage multipliée à nouveau par 100
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-04-17
+
+**Contexte** : Log Optuna OOS affichait `WR=6666.7%` au lieu de `66.67%`.
+**Erreur** : `avg_oos_win_rate` retourné par le backtest engine est déjà en `%` (ex: 66.67). Le code log faisait `avg_oos_win_rate * 100.0` → 6666.7%.
+**Règle** : Toujours vérifier l'unité d'une métrique avant de la formater. Le backtest engine retourne `win_rate` en pourcentage (0–100), pas en fraction (0–1).
+**Ref** : D-02 — `walk_forward.py` L872
+
+---
+
+### L-19 · `initial_position_size` = quantité pré-exécution au lieu de nette
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-04-17
+
+**Contexte** : Dashboard affichait QTY=814.4 au lieu de 809.2 (nette après commission).
+**Erreur** : `pair_state['initial_position_size']` était set à `quantity_rounded` (quantité calculée avant exécution) au lieu de `actual_qty_str` (quantité nette après commission Binance).
+**Règle** : Pour toute quantité persistée dans `pair_state`, utiliser la quantité POST-exécution (`executedQty - commission`), jamais la quantité calculée pré-order.
+**Ref** : D-05 — `order_manager.py` L1524
+
+---
+
+### L-20 · `starting_equity` absent du tracker → dashboard fallback incorrect
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-04-17
+
+**Contexte** : Dashboard affichait Daily Loss Limit = 1.86 USDC (5% × 37.13 USDC libre) au lieu de 500 USDC (5% × 10000).
+**Erreur** : `_daily_pnl_tracker` ne contenait pas `starting_equity`. Le JS dashboard fallait sur `d.usdc_balance` (solde libre, pas l'equity totale).
+**Règle** : Toute donnée affichée par le dashboard doit être explicitement persistée dans `bot_state`. Ne pas compter sur des fallbacks JS côté client.
+**Ref** : D-06 — `MULTI_SYMBOLS.py` après L1411

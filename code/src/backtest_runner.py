@@ -38,9 +38,7 @@ from tqdm import tqdm
 from bot_config import config
 from indicators_engine import get_optimal_ema_periods
 from position_sizing import (
-    compute_position_size_by_risk,
-    compute_position_size_fixed_notional,
-    compute_position_size_volatility_parity,
+    compute_position_size_by_risk,  # kept for potential future use
 )
 from exceptions import SizingError                     # P0-05
 
@@ -163,7 +161,7 @@ def backtest_from_dataframe(
     adx_period: Optional[int] = None,
     trix_length: Optional[int] = None,
     trix_signal: Optional[int] = None,
-    sizing_mode: str = 'risk',  # P1-07
+    sizing_mode: str = 'risk',  # B-2: risk-based sizing
     partial_enabled: bool = True,  # P2-01: toggle simulation des partiels
     slippage_model: Optional[BasicSlippageModel] = None,  # P2-02: slippage stochastique OOS
     periods_per_year: int = 8766,
@@ -172,7 +170,7 @@ def backtest_from_dataframe(
     """Exécute un backtest à partir d'un DataFrame préparé.
 
     Utilise le moteur Cython accéléré (30–50×) quand disponible et que
-    ``sizing_mode == 'baseline'``.  Pour les modes avancés (``'risk'``,
+    ``sizing_mode in ('baseline', 'risk')``.  Pour les modes avancés (``'risk'``,
     ``'fixed_notional'``, ``'volatility_parity'``), utilise la boucle
     Python qui gère explicitement le position sizing.
 
@@ -721,72 +719,19 @@ def backtest_from_dataframe(
                     _vr = float(_vol_rank_arr[i]) if _vol_rank_arr is not None else 0.5
                     optimized_price = optimized_price * slippage_model.buy_factor(_vr)
 
-                if sizing_mode == 'baseline':
-                    gross_coin = (
-                        (usd * 0.98) / optimized_price
-                        if optimized_price > 0
-                        else 0.0
-                    )
-                elif sizing_mode == 'risk':
-                    if row_atr and row_atr > 0 and optimized_price > 0:
-                        try:
-                            qty_by_risk = compute_position_size_by_risk(
-                                equity=usd,
-                                atr_value=row_atr,
-                                entry_price=optimized_price,
-                                risk_pct=config.risk_per_trade,
-                                stop_atr_multiplier=config.atr_stop_multiplier,
-                            )
-                        except SizingError:
-                            qty_by_risk = 0.0
+                if sizing_mode == 'risk' and row_atr > 0 and optimized_price > 0:
+                    stop_distance = config.atr_stop_multiplier * row_atr
+                    if stop_distance > 0:
+                        risk_amount = usd * config.risk_per_trade
+                        qty_by_risk = risk_amount / stop_distance
                         max_affordable = (usd * 0.98) / optimized_price
                         gross_coin = min(max_affordable, qty_by_risk)
                     else:
-                        gross_coin = (
-                            (usd * 0.98) / optimized_price
-                            if optimized_price > 0
-                            else 0.0
-                        )
-                elif sizing_mode == 'fixed_notional':
-                    if optimized_price > 0:
-                        notional_per_trade = usd * 0.1
-                        try:
-                            qty_fixed = compute_position_size_fixed_notional(
-                                equity=usd,
-                                notional_per_trade_usd=notional_per_trade,
-                                entry_price=optimized_price,
-                            )
-                        except SizingError:
-                            qty_fixed = 0.0
-                        max_affordable = (usd * 0.98) / optimized_price
-                        gross_coin = min(max_affordable, qty_fixed)
-                    else:
-                        gross_coin = 0.0
-                elif sizing_mode == 'volatility_parity':
-                    if row_atr and row_atr > 0 and optimized_price > 0:
-                        try:
-                            qty_vol = compute_position_size_volatility_parity(
-                                equity=usd,
-                                atr_value=row_atr,
-                                entry_price=optimized_price,
-                                target_volatility_pct=config.target_volatility_pct,
-                            )
-                        except SizingError:
-                            qty_vol = 0.0
-                        max_affordable = (usd * 0.98) / optimized_price
-                        gross_coin = min(max_affordable, qty_vol)
-                    else:
-                        gross_coin = (
-                            (usd * 0.98) / optimized_price
-                            if optimized_price > 0
-                            else 0.0
-                        )
+                        gross_coin = (usd * 0.98) / optimized_price if optimized_price > 0 else 0.0
+                elif optimized_price > 0:
+                    gross_coin = (usd * 0.98) / optimized_price
                 else:
-                    gross_coin = (
-                        (usd * 0.98) / optimized_price
-                        if optimized_price > 0
-                        else 0.0
-                    )
+                    gross_coin = 0.0
 
                 if gross_coin and gross_coin > 0:
                     fee_in_coin = gross_coin * config.backtest_taker_fee
@@ -925,7 +870,7 @@ def run_single_backtest_optimized(args: Tuple[Any, ...]) -> Dict[str, Any]:
     """
     if len(args) == 6:
         (timeframe, ema1, ema2, scenario, base_df, _pair_symbol) = args
-        sizing_mode = 'risk'  # P1-07: default risk au lieu de baseline
+        sizing_mode = 'risk'  # B-2: risk-based sizing
     else:
         _args7 = cast(
             'Tuple[Any, Any, Any, Any, Any, Any, Any]', args
@@ -964,7 +909,7 @@ def run_all_backtests(
     backtest_pair: str,
     start_date: str,
     timeframes: List[str],
-    sizing_mode: str = 'risk',  # P1-07
+    sizing_mode: str = 'risk',  # B-2: risk-based sizing
     *,
     prepare_base_dataframe_fn: Optional[Callable[..., Optional[pd.DataFrame]]] = None,
 ) -> List[Dict[str, Any]]:
@@ -1117,7 +1062,7 @@ def run_parallel_backtests(
     crypto_pairs: List[Dict[str, str]],
     start_date: str,
     timeframes: List[str],
-    sizing_mode: str = 'risk',  # P1-07
+    sizing_mode: str = 'risk',  # B-2: risk-based sizing
     *,
     prepare_base_dataframe_fn: Optional[Callable[..., Optional[pd.DataFrame]]] = None,
 ) -> Dict[str, Any]:

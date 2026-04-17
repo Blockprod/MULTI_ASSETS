@@ -114,10 +114,10 @@ class TestBacktestFromDataframe:
         assert result['final_wallet'] >= 0
 
     def test_different_sizing_modes_return_results(self):
-        """Each sizing mode should return a valid result dict."""
+        """Baseline and risk sizing modes should return valid result dicts."""
         fn = _import_backtest()
         df = _make_ohlcv(n=300, start_price=100, trend='up')
-        for mode in ('baseline', 'risk', 'fixed_notional', 'volatility_parity'):
+        for mode in ('baseline', 'risk'):
             result = fn(df, ema1_period=12, ema2_period=22, sizing_mode=mode)
             assert 'final_wallet' in result, f"Mode {mode} missing final_wallet"
             assert 'win_rate' in result, f"Mode {mode} missing win_rate"

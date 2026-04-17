@@ -43,7 +43,7 @@ def _make_config(**overrides):
         slippage_buy=0.0001, slippage_sell=0.0001,
         initial_wallet=10000.0, atr_period=14,
         atr_multiplier=5.5, atr_stop_multiplier=3.0,
-        risk_per_trade=0.05, sizing_mode='baseline',
+        risk_per_trade=0.05, sizing_mode='risk',
         partial_threshold_1=0.02, partial_threshold_2=0.04,
         partial_pct_1=0.50, partial_pct_2=0.30,
         trailing_activation_pct=0.03, target_volatility_pct=0.02,
@@ -269,33 +269,34 @@ class TestBuyFlow:
         assert abs(buy_calls[0]['quoteOrderQty'] - 980.0) < 1.0
 
     def test_buy_risk_sizing(self, monkeypatch):
-        """Sizing risk: utilise compute_position_size_by_risk."""
+        """Sizing risk: qty = min(risk_qty, affordable_qty) avec risk_per_trade=5%."""
         buy_calls, _, _ = self._setup_buy_env(monkeypatch, sizing_mode='risk',
                                                usdc=10000.0, price=100.0, atr=2.0)
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC', 'risk')
         assert len(buy_calls) == 1
-        # risk_per_trade=5%, atr_stop_multiplier=3.0, atr=2.0
-        # qty_risk = (10000 * 0.05) / (3.0 * 2.0) = 83.33 coins
-        # quote = 83.33 * 100 = 8333 < 9500 (95% cap)
-        assert buy_calls[0]['quoteOrderQty'] < 9500.0
+        # risk_amount = 10000 * 0.05 = 500, stop_dist = 3.0 * 2.0 = 6.0
+        # qty_risk = 500 / 6.0 = 83.33 coins, notional = 83.33 * 100 = 8333 USDC
+        # max_affordable = 10000 * 0.98 / 100 = 98 coins → min(98, 83.33) = 83.33
+        # quoteOrderQty = 83.33 * 100 ≈ 8333
+        assert buy_calls[0]['quoteOrderQty'] < 9800.0, "Risk mode should size below baseline"
 
     def test_buy_fixed_notional_sizing(self, monkeypatch):
-        """Sizing fixed_notional: 10% du capital."""
+        """Mode fixed_notional inconnu → fallback baseline (98% du capital)."""
         buy_calls, _, _ = self._setup_buy_env(monkeypatch, sizing_mode='fixed_notional',
                                                usdc=10000.0, price=100.0)
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC', 'fixed_notional')
         assert len(buy_calls) == 1
-        # 10% de 10000 = 1000 USDC max
-        assert buy_calls[0]['quoteOrderQty'] <= 1000.1
+        # Fallback baseline: min(10000, 10000) * 0.98 = 9800 USDC
+        assert abs(buy_calls[0]['quoteOrderQty'] - 9800.0) < 1.0
 
     def test_buy_volatility_parity_sizing(self, monkeypatch):
-        """Sizing volatility_parity: ATR-based."""
+        """Mode volatility_parity inconnu → fallback baseline (98% du capital)."""
         buy_calls, _, _ = self._setup_buy_env(monkeypatch, sizing_mode='volatility_parity',
                                                usdc=10000.0, price=100.0, atr=2.0)
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC', 'volatility_parity')
         assert len(buy_calls) == 1
-        # qty_vol = (10000 * 0.02) / (2.0 * 100) = 1.0 coins → 100 USDC
-        assert buy_calls[0]['quoteOrderQty'] <= 200.0
+        # Fallback baseline: min(10000, 10000) * 0.98 = 9800 USDC
+        assert abs(buy_calls[0]['quoteOrderQty'] - 9800.0) < 1.0
 
     def test_buy_unknown_sizing_fallback(self, monkeypatch):
         """Sizing inconnu → fallback baseline (98% du capital)."""
