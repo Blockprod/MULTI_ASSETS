@@ -37,10 +37,6 @@ from tqdm import tqdm
 
 from bot_config import config
 from indicators_engine import get_optimal_ema_periods
-from position_sizing import (
-    compute_position_size_by_risk,  # kept for potential future use
-)
-from exceptions import SizingError                     # P0-05
 
 logger = logging.getLogger(__name__)
 console = Console()
