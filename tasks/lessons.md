@@ -210,6 +210,29 @@ Si aucun résultat → archiver dans `code/legacy/` et retirer de `config/setup.
 
 ---
 
+### L-17 · Sync API écrase les flags partiels locaux True→False → boucle infinie de ventes
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-04-17
+
+**Contexte** : `check_partial_exits_from_history` vérifie les ventes partielles via `get_my_trades`. La sync dans `_execute_partial_sells` traitait l'API comme "source de vérité" et écrasait les flags locaux.  
+**Erreur** : Binance découpe les market orders en multiples fills (order book). La détection comptait chaque fill individuellement (ratio ~25% au lieu de ~50%) → retournait False. La sync écrasait `partial_taken_1=True` (correct) → `False` (incorrect) → le bot ré-exécutait PARTIAL-1 toutes les 2 minutes, vendant la moitié de la position restante à chaque cycle. **Perte de capital réelle.**  
+**Règles** :
+1. **JAMAIS** downgrader un flag partial de True→False via une heuristique API. Les flags locaux posés par `_execute_one_partial` sont la source de vérité.
+2. Grouper les fills par `orderId` avant de calculer le ratio quantité/prix pour la détection de partiels.
+3. Tester les fonctions de détection avec des données réelles multi-fill, pas seulement des ordres mono-fill.  
+**Ref** : commits `a52d8e5` + `067d996` · `order_manager.py` sync logic · `trade_helpers.py` fills grouping
+
+---
+
+### L-18 · Reconciler réinitialise inconditionnellement les flags de position
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-04-17
+
+**Contexte** : `_handle_pair_discrepancy` dans `position_reconciler.py` restaure une position orpheline.  
+**Erreur** : Le code faisait `partial_taken_1=False, partial_taken_2=False` inconditionnellement, même si le state contenait les bonnes valeurs. Combiné avec L-17 (détection API défaillante), les flags étaient perdus à chaque redémarrage.  
+**Règle** : Lors de la restauration d'un état, **toujours préserver les flags existants** plutôt que les réinitialiser. Pattern : `_p1 = existing.get('partial_taken_1', False)` avant l'update.  
+**Ref** : commit `a52d8e5` · `position_reconciler.py`
+
+---
+
 ## Référence — Patterns P0 appliqués (historique)
 
 > Ces patterns sont actifs dans le code. Mettre à jour si une correction change le comportement.

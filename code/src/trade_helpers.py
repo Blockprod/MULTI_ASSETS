@@ -307,6 +307,7 @@ def check_partial_exits_from_history(
                     'qty': float(trade.get('qty', 0)),
                     'price': float(trade.get('price', 0)),
                     'time': trade['time'],
+                    'orderId': trade.get('orderId'),
                 })
 
         if not sells_after_buy:
@@ -315,10 +316,26 @@ def check_partial_exits_from_history(
 
         sells_after_buy.sort(key=lambda x: x['time'])
 
+        # P5-DASH-4: Group fills by orderId — a single market sell may produce
+        # multiple fills on the order book. We need the TOTAL qty per order,
+        # not individual fill qty, to compute the ratio vs last_buy_qty.
+        from collections import OrderedDict as _OD
+        _orders: dict = _OD()  # orderId -> {total_qty, avg_price, time}
+        for sell in sells_after_buy:
+            oid = sell['orderId']
+            if oid not in _orders:
+                _orders[oid] = {'total_qty': 0.0, 'weighted_price': 0.0, 'time': sell['time']}
+            _orders[oid]['total_qty'] += sell['qty']
+            _orders[oid]['weighted_price'] += sell['qty'] * sell['price']
+        _grouped_sells = []
+        for oid, data in _orders.items():
+            avg_price = data['weighted_price'] / data['total_qty'] if data['total_qty'] > 0 else 0
+            _grouped_sells.append({'qty': data['total_qty'], 'price': avg_price, 'time': data['time']})
+
         partial_1_detected = False
         partial_2_detected = False
 
-        for sell in sells_after_buy:
+        for sell in _grouped_sells:
             sell_qty = sell['qty']
             sell_price = sell['price']
 

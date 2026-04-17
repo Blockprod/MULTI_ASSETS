@@ -317,20 +317,31 @@ def _execute_partial_sells(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
     if not entry_price or entry_price <= 0 or ctx.current_price is None:
         return
 
-    # === SYNCHRONISATION AVEC L'HISTORIQUE API (SOURCE DE VÉRITÉ) ===
+    # === SYNCHRONISATION AVEC L'HISTORIQUE API ===
+    # P5-DASH-4: NEVER downgrade True→False. API detection is a heuristic
+    # that can miss sells (fills split across order book). Local flags set
+    # by _execute_one_partial are ground truth. Only upgrade False→True.
     try:
         api_partial_1, api_partial_2 = deps.check_partial_exits_fn(ctx.real_trading_pair, entry_price)
         state_partial_1 = ps.get('partial_taken_1', False)
         state_partial_2 = ps.get('partial_taken_2', False)
-        if api_partial_1 != state_partial_1 or api_partial_2 != state_partial_2:
-            logger.warning(f"[SYNC] Désynchronisation détectée ! Local: P1={state_partial_1}, P2={state_partial_2}")
-            logger.warning(f"[SYNC] API (source de vérité): P1={api_partial_1}, P2={api_partial_2}")
-            ps['partial_taken_1'] = api_partial_1
-            ps['partial_taken_2'] = api_partial_2
+        # Upgrade only: API detected a partial that local state missed
+        _changed = False
+        if api_partial_1 and not state_partial_1:
+            ps['partial_taken_1'] = True
+            _changed = True
+            logger.info("[SYNC] API détecte PARTIAL-1 manquant localement → corrigé")
+        if api_partial_2 and not state_partial_2:
+            ps['partial_taken_2'] = True
+            _changed = True
+            logger.info("[SYNC] API détecte PARTIAL-2 manquant localement → corrigé")
+        if _changed:
             deps.save_fn()
-            logger.info(f"[SYNC] Flags synchronisés : PARTIAL-1={api_partial_1}, PARTIAL-2={api_partial_2}")
-        else:
-            logger.debug(f"[SYNC] État cohérent : PARTIAL-1={state_partial_1}, PARTIAL-2={state_partial_2}")
+        logger.debug(
+            "[SYNC] État final : PARTIAL-1=%s, PARTIAL-2=%s (API: P1=%s, P2=%s)",
+            ps.get('partial_taken_1'), ps.get('partial_taken_2'),
+            api_partial_1, api_partial_2,
+        )
     except Exception as e:
         logger.error(f"[SYNC] Erreur synchronisation API : {e}")
 
