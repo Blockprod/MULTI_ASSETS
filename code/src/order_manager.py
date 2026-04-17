@@ -1493,6 +1493,7 @@ def _place_buy_and_verify(
         'entry_price': entry_price,
         'atr_at_entry': atr_value,
         'stop_loss_at_entry': entry_price - (deps.config.atr_stop_multiplier * atr_value) if atr_value else None,
+        'stop_loss': entry_price - (deps.config.atr_stop_multiplier * atr_value) if atr_value else None,  # P1-SL: initialiser stop_loss dès l'entrée
         'trailing_activation_price_at_entry': (
             entry_price + (deps.config.atr_multiplier * atr_value)
             if atr_value
