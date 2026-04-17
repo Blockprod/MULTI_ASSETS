@@ -277,11 +277,17 @@ def check_partial_exits_from_history(
 
         last_buy_time = None
         last_buy_qty = 0.0
+        # Accumulate all fills of the last buy order (may be split across multiple trades)
+        _last_buy_order_id: object = None
         for trade in reversed(trades):
             if trade.get('isBuyer', False):
-                last_buy_time = trade['time']
-                last_buy_qty += float(trade.get('qty', 0))
-                break
+                if _last_buy_order_id is None:
+                    _last_buy_order_id = trade.get('orderId')
+                    last_buy_time = trade['time']
+                if trade.get('orderId') == _last_buy_order_id:
+                    last_buy_qty += float(trade.get('qty', 0))
+                else:
+                    break  # different order — stop accumulating
 
         if last_buy_time is None:
             logger.debug("[PARTIAL-CHECK] Aucun BUY trouve dans l'historique")
@@ -289,6 +295,10 @@ def check_partial_exits_from_history(
 
         partial_threshold_1 = entry_price * PARTIAL_1_PROFIT_PCT  # +2%
         partial_threshold_2 = entry_price * PARTIAL_2_PROFIT_PCT  # +4%
+        # P5-DASH-3: tolerance 1% on price to handle entry_price restoration drift
+        _price_tolerance = entry_price * 0.01
+        partial_threshold_1_tolerant = partial_threshold_1 - _price_tolerance
+        partial_threshold_2_tolerant = partial_threshold_2 - _price_tolerance
 
         sells_after_buy = []
         for trade in trades:
@@ -315,7 +325,7 @@ def check_partial_exits_from_history(
             if (
                 not partial_1_detected
                 and PARTIAL_1_QTY_MIN <= (sell_qty / last_buy_qty) <= PARTIAL_1_QTY_MAX
-                and sell_price >= partial_threshold_1
+                and sell_price >= partial_threshold_1_tolerant
             ):
                 partial_1_detected = True
                 logger.info(
@@ -325,7 +335,7 @@ def check_partial_exits_from_history(
             elif (
                 not partial_2_detected
                 and PARTIAL_2_QTY_MIN <= (sell_qty / last_buy_qty) <= PARTIAL_2_QTY_MAX
-                and sell_price >= partial_threshold_2
+                and sell_price >= partial_threshold_2_tolerant
                 and partial_1_detected
             ):
                 partial_2_detected = True

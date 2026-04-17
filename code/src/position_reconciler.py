@@ -151,10 +151,13 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
                 logger.info(f"[RECONCILE] entry_price restauré: {entry_price_restored}")
         except Exception as e:
             logger.error(f"[RECONCILE] Impossible de récupérer l'historique d'ordres: {e}")
-        # Restaurer l'état minimal
+        # Restaurer l'état minimal — préserver les flags partiels existants (P5-DASH-3)
         with deps.bot_state_lock:
+            _existing = deps.bot_state.get(backtest_pair, {})
+            _p1 = _existing.get('partial_taken_1', False)
+            _p2 = _existing.get('partial_taken_2', False)
             update_pair_state(deps.bot_state, backtest_pair,
-                              last_order_side='BUY', partial_taken_1=False, partial_taken_2=False)
+                              last_order_side='BUY', partial_taken_1=_p1, partial_taken_2=_p2)
             if entry_price_restored:
                 update_pair_state(deps.bot_state, backtest_pair, entry_price=entry_price_restored)
         deps.save_fn(force=True)
