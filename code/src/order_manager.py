@@ -67,6 +67,7 @@ class _TradingDeps:
     console: Any                           # Rich console
     config: Any                            # Config singleton (injectable for tests)
     is_valid_stop_loss_fn: Callable        # is_valid_stop_loss_order
+    buy_allocation_lock: Any = None        # _usdc_allocation_lock (Lock) — sérialise les achats multi-paires
 
 
 def _cancel_exchange_sl(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
@@ -1704,7 +1705,27 @@ def _execute_buy(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
         )
         return
 
+    # MULTI-PAIR: sérialiser l'allocation USDC pour éviter que deux paires
+    # n'achètent en même temps avec le même solde USDC.
+    _alloc_lock = deps.buy_allocation_lock
+    if _alloc_lock is not None:
+        _alloc_lock.acquire()
     try:
+        # Re-fetch le capital réel sous le lock (un autre thread a pu acheter entre-temps)
+        usdc_for_buy = deps.get_usdc_sells_fn(ctx.real_trading_pair)
+        if usdc_for_buy <= 0:
+            logger.warning("[BUY] Capital épuisé après acquisition du lock — achat annulé")
+            return
+
+        # Refresh USDC balance sous le lock (garde l'ancienne si le fetch échoue ou retourne 0)
+        try:
+            _fresh_acc = deps.client.get_account()
+            _, _fresh_usdc, _, _ = _get_coin_balance(_fresh_acc, 'USDC')
+            if _fresh_usdc > 0:
+                ctx.usdc_balance = _fresh_usdc
+        except Exception as _refresh_err:
+            logger.warning("[BUY] Refresh balance échoué sous lock: %s", _refresh_err)
+
         # === SIZING ===
         qty_data = _compute_and_validate_quantity(ctx, deps, usdc_for_buy)
         if qty_data is not None:
@@ -1746,6 +1767,9 @@ def _execute_buy(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
 
     except Exception as e:
         logger.error("[ACHAT] Erreur lors de l'exécution : %s", e)
+    finally:
+        if _alloc_lock is not None:
+            _alloc_lock.release()
 
     # Afficher panel ACHAT (avec le solde AVANT achat si achat exécuté)
     display_buy_signal_panel(

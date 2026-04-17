@@ -1,5 +1,6 @@
 # ─── Standard-library & third-party imports ─────────────────────────────────
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import locale
 import logging
@@ -353,6 +354,9 @@ _bot_state_lock = threading.RLock()
 # Locks par paire : empêchent deux exécutions simultanées sur la même paire
 _pair_execution_locks: Dict[str, threading.Lock] = {}
 _pair_locks_mutex = threading.Lock()
+# Lock global d'allocation USDC : sérialise fetch-balance → compute-qty → place-order
+# pour empêcher deux paires d'acheter avec le même USDC en parallèle.
+_usdc_allocation_lock = threading.Lock()
 
 # Cache pour les indicateurs calculés (lecture/écriture multi-thread protégée)
 _indicators_cache_lock = threading.Lock()
@@ -735,6 +739,7 @@ def _make_trading_deps() -> _TradingDeps:
         console=console,
         config=config,
         is_valid_stop_loss_fn=is_valid_stop_loss_order,
+        buy_allocation_lock=_usdc_allocation_lock,
     )
 
 
@@ -1667,9 +1672,6 @@ if __name__ == "__main__":
             pair_state['last_best_params'] = best_params
             pair_state['execution_count'] = pair_state.get('execution_count', 0) + 1
 
-            # CORRECTION: Nettoyer les planifications existantes pour éviter les doublons
-            schedule.clear()
-
             # P1-04: NE PAS mettre à jour _live_best_params avec des params full-sample
             # quand oos_blocked — geler les anciens params.
             if not _oos_blocked_this_pair:
@@ -1685,30 +1687,83 @@ if __name__ == "__main__":
                     backtest_pair,
                 )
 
-            # ── Tâche 1 : backtest + WF + trading → toutes les heures ──────────
-            schedule.every(60).minutes.do(
-                lambda bp=backtest_pair, rp=data['real_pair'], p0=dict(best_params), sm=args.sizing_mode:
-                    execute_scheduled_trading(
-                        rp,
-                        _read_live_params(bp, p0).get('timeframe', p0.get('timeframe', '4h')),
-                        _read_live_params(bp, p0),
-                        bp,
-                        sm,
-                    )
-            )
-
-            # ── Tâche 2 : live trading uniquement → toutes les 2 minutes ────────
-            schedule.every(2).minutes.do(
-                lambda bp=backtest_pair, rp=data['real_pair'], sm=args.sizing_mode:
-                    execute_live_trading_only(rp, bp, sm)
-            )
-
             # Afficher le panel de suivi
             console.print(build_tracking_panel(pair_state, current_run_time))
             console.print("\n")
 
             save_bot_state(force=True)
 
+        # ── MULTI-PAIR: construction de la liste des paires pour le dispatch parallèle ──
+        _pair_configs: List[Dict[str, str]] = []
+        for _bp_key, _bp_data in all_results.items():
+            _pair_configs.append({
+                'backtest_pair': _bp_key,
+                'real_pair': _bp_data['real_pair'],
+            })
+        _sizing_mode = args.sizing_mode
+
+        def _dispatch_live_parallel() -> None:
+            """Dispatch le live trading de toutes les paires en parallèle (toutes les 2 min)."""
+            n_pairs = len(_pair_configs)
+            if n_pairs == 0:
+                return
+            if n_pairs == 1:
+                # Une seule paire → pas besoin de threads
+                pc = _pair_configs[0]
+                execute_live_trading_only(pc['real_pair'], pc['backtest_pair'], _sizing_mode)
+                return
+            with ThreadPoolExecutor(max_workers=n_pairs, thread_name_prefix='live') as pool:
+                futures = {}
+                for pc in _pair_configs:
+                    f = pool.submit(
+                        execute_live_trading_only,
+                        pc['real_pair'], pc['backtest_pair'], _sizing_mode,
+                    )
+                    futures[f] = pc['backtest_pair']
+                for f in as_completed(futures):
+                    try:
+                        f.result()
+                    except Exception as _e:
+                        logger.error("[PARALLEL] %s live error: %s", futures[f], _e)
+
+        def _dispatch_scheduled_parallel() -> None:
+            """Dispatch le backtest + WF + trading de toutes les paires en parallèle (toutes les 60 min)."""
+            n_pairs = len(_pair_configs)
+            if n_pairs == 0:
+                return
+            if n_pairs == 1:
+                pc = _pair_configs[0]
+                bp = pc['backtest_pair']
+                p0 = _read_live_params(bp, {})
+                tf = p0.get('timeframe', '4h')
+                execute_scheduled_trading(pc['real_pair'], tf, p0, bp, _sizing_mode)
+                return
+            with ThreadPoolExecutor(max_workers=n_pairs, thread_name_prefix='sched') as pool:
+                futures = {}
+                for pc in _pair_configs:
+                    bp = pc['backtest_pair']
+                    p0 = _read_live_params(bp, {})
+                    tf = p0.get('timeframe', '4h')
+                    f = pool.submit(
+                        execute_scheduled_trading,
+                        pc['real_pair'], tf, p0, bp, _sizing_mode,
+                    )
+                    futures[f] = bp
+                for f in as_completed(futures):
+                    try:
+                        f.result()
+                    except Exception as _e:
+                        logger.error("[PARALLEL] %s scheduled error: %s", futures[f], _e)
+
+        # ── Tâche groupée 1 : backtest + WF + trading → toutes les heures ──
+        schedule.every(60).minutes.do(_dispatch_scheduled_parallel)
+        # ── Tâche groupée 2 : live trading → toutes les 2 minutes ──
+        schedule.every(2).minutes.do(_dispatch_live_parallel)
+
+        logger.info(
+            "[PARALLEL] %d paire(s) configurée(s) — exécution parallèle activée",
+            len(_pair_configs),
+        )
         logger.info(f"Tâches planifiées actives: {len(schedule.jobs)}")
 
         # === BOUCLE PRINCIPALE ===
