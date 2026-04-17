@@ -6,10 +6,6 @@ import numpy as np
 import pandas as pd
 from unittest.mock import MagicMock
 
-# E2E testnet tests require real credentials — excluded from default collection.
-# Run manually: pytest tests/test_e2e_testnet.py -m testnet -v
-collect_ignore = ["test_e2e_testnet.py"]
-
 # C-01: forcer BOT_MODE=LIVE pour les tests (avant tout import de bot_config)
 # Sans cela, le défaut DEMO bloquerait safe_market_buy/sell dans les tests d'ordre.
 os.environ.setdefault('BOT_MODE', 'LIVE')
@@ -102,7 +98,7 @@ def sample_config():
         atr_stop_multiplier = 3.0
         recv_window = 60000
         risk_per_trade = 0.05
-        sizing_mode = "baseline"
+        sizing_mode = "risk"
         partial_threshold_1 = 0.02
         partial_threshold_2 = 0.04
         partial_pct_1 = 0.50
