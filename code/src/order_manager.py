@@ -268,6 +268,7 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                 _current_sl = ps.get('stop_loss_at_entry') or 0
                 if _be_new_stop > _current_sl:
                     ps['stop_loss_at_entry'] = _be_new_stop
+                    ps['stop_loss'] = _be_new_stop
                     logger.info(
                         "[B-3 BREAKEVEN] Stop remonté au prix d'entrée + slippage : %.4f "
                         "(profit %.2f%% >= seuil %.1f%%)",
@@ -423,6 +424,7 @@ def _execute_one_partial(ctx: '_TradeCtx', deps: '_TradingDeps', *, partial_numb
                 ps['partial_taken_1'] = True
             else:
                 ps['partial_taken_2'] = True
+            ps['last_execution'] = datetime.now(timezone.utc).isoformat()
             deps.save_fn()
             logger.info(f"[{label}] Flag mis à jour : {flag_key} = True")
 

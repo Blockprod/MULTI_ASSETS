@@ -427,6 +427,7 @@ def _execute_live_trading_only(
         pair_state = cast(Dict[str, Any], deps.bot_state.setdefault(backtest_pair, {}))
         current_run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         pair_state['last_run_time'] = current_run_time
+        pair_state['last_execution'] = current_run_time
         deps.save_fn()
 
         try:

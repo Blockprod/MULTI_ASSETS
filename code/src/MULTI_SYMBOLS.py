@@ -660,7 +660,7 @@ def _refresh_starting_equity_if_new_day() -> None:
             today, _total, _usdc,
         )
     except Exception as _err:
-        logger.warning("[P2-EQUITY] Refresh equity échoué: %s — conserve l'ancien", _err)
+        logger.warning("[P2-EQUITY] Refresh equity échoué: %s — conserve l'ancien", _err, exc_info=True)
 
 
 def _is_daily_loss_limit_reached() -> bool:
@@ -1571,7 +1571,7 @@ if __name__ == "__main__":
                     bot_state=bot_state,
                     runtime=_runtime,
                     circuit_breaker=cb,
-                    pairs=list(crypto_pairs),
+                    pairs=[p['backtest_pair'] for p in crypto_pairs],
                 )
             except Exception as _m_err:
                 logger.debug("[METRICS P2-04] Échec export: %s", _m_err)
