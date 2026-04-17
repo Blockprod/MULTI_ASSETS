@@ -1578,6 +1578,9 @@ if __name__ == "__main__":
         schedule.every(5).minutes.do(_periodic_metrics_write)
         logger.info("[METRICS P2-04] Export métriques planifié: toutes les 5 min")
 
+        # D-10: écriture initiale immédiate pour que le dashboard ait les fees dès le démarrage
+        _periodic_metrics_write()
+
         # === NOUVELLE LOGIQUE : backtests optimisés + affichage propre ===
         parser = argparse.ArgumentParser(description='Run backtests and optional sizing mode')
         parser.add_argument('--sizing-mode', choices=['baseline', 'risk', 'fixed_notional', 'volatility_parity'], default=config.sizing_mode, help='Position sizing mode to use for backtests')

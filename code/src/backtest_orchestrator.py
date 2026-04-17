@@ -358,6 +358,7 @@ def _execute_scheduled_trading(
 
         # Mettre à jour l'état
         pair_state['last_run_time'] = current_run_time
+        pair_state['last_execution'] = current_run_time
         deps.save_fn()
 
         # Persister les params actifs pour que la lambda les lise au prochain cycle.
@@ -422,8 +423,27 @@ def _execute_live_trading_only(
             tf,
         )
 
-        deps.execute_trades_fn(real_trading_pair, tf, current_params, backtest_pair, sizing_mode=sizing_mode)
+        try:
+            deps.execute_trades_fn(real_trading_pair, tf, current_params, backtest_pair, sizing_mode=sizing_mode)
+        except Exception as trade_err:
+            logger.error(f"[LIVE-ONLY] Erreur trading {backtest_pair}: {trade_err}")
+            logger.error(f"[LIVE-ONLY] Traceback: {traceback.format_exc()}")
+            try:
+                deps.send_alert_fn(
+                    subject=f"[ALERTE P1] Erreur live-only — {backtest_pair}",
+                    body_main=(
+                        f"La tâche live-only (2 min) a planté.\n\n"
+                        f"Paire : {backtest_pair}\n"
+                        f"Erreur : {type(trade_err).__name__}: {str(trade_err)[:300]}\n\n"
+                        f"Traceback (tronqué) :\n{traceback.format_exc()[:500]}\n\n"
+                        f"Le bot continue mais ce cycle de trading a été ignoré."
+                    ),
+                    client=deps.client,
+                )
+            except Exception as _e:
+                logger.warning("[LIVE-ONLY] Email alerte impossible: %s", _e)
 
+        # Always update last_execution — even on trade error (D-10: dashboard Last Cycle)
         pair_state = cast(Dict[str, Any], deps.bot_state.setdefault(backtest_pair, {}))
         current_run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         pair_state['last_run_time'] = current_run_time

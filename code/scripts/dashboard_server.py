@@ -274,7 +274,7 @@ def collect_data() -> dict:
             except Exception:
                 pass
 
-        sl = ps.get("stop_loss")
+        sl = ps.get("stop_loss") or ps.get("stop_loss_at_entry")
         sl_dist_pct = None
         if in_position and entry and sl:
             try:
