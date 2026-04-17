@@ -270,3 +270,32 @@ if _sl_oid and not str(_sl_oid).isdigit():
 **Erreur** : `_daily_pnl_tracker` ne contenait pas `starting_equity`. Le JS dashboard fallait sur `d.usdc_balance` (solde libre, pas l'equity totale).
 **Règle** : Toute donnée affichée par le dashboard doit être explicitement persistée dans `bot_state`. Ne pas compter sur des fallbacks JS côté client.
 **Ref** : D-06 — `MULTI_SYMBOLS.py` après L1411
+
+---
+
+### L-21 · BUY en boucle — 3 failles combinées (save non-forcé + pas de guard state + dust reset)
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-04-17
+
+**Contexte** : En production, 19 ordres BUY ONDOUSDC exécutés sur Binance en 36 minutes (06:22→06:58 UTC). Trade journal montre 18 entrées consécutives identiques (qty=799.5, equity_before=252.18).  
+**Erreur** : 3 failles combinées dans `order_manager.py` :
+1. `deps.save_fn()` sans `force=True` après BUY → état throttlé 5s → si PM2 restart entre cycles, `last_order_side` non persisté → pair re-initialisée sans historique → `last_order_side=None` → buy autorisé à nouveau.
+2. `_validate_buy_preconditions()` ne vérifiait PAS `last_order_side == 'BUY'` → pas de guard état interne.
+3. `_handle_dust_cleanup()` resetait `last_order_side='SELL'` si dust notional < min_notional ET `last_order_side=='BUY'` → boucle d'achat si position réelle trop petite pour être vendue.
+
+**Règle** :
+- Après chaque BUY confirmé FILLED, toujours `save_fn(force=True)` — l'état post-achat est critique (capital engagé).
+- `_validate_buy_preconditions()` doit être le premier guard explicite sur `last_order_side=='BUY'`.
+- Tout reset de `last_order_side BUY→SELL` dans dust cleanup doit logger `CRITICAL` (capital risqué si position réelle).
+
+**Pattern correct** :
+```python
+# Dans _validate_buy_preconditions — premier guard
+if ps.get('last_order_side') == 'BUY':
+    logger.info("[BUY BLOCKED P0-BUY] %s — last_order_side='BUY'", ctx.backtest_pair)
+    return False
+
+# Après BUY confirmé
+ps.update({..., 'last_order_side': 'BUY', ...})
+deps.save_fn(force=True)  # OBLIGATOIRE — jamais save_fn() après un achat
+```
+**Ref** : commit `5b48c42` · `order_manager.py` L1270, L1502, L923
