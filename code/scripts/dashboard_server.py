@@ -142,9 +142,16 @@ def _age_seconds(ts_str: str) -> int:
 def _get_daily_pnl(tracker: Any) -> tuple[float, float]:
     if not isinstance(tracker, dict):
         return 0.0, 0.0
-    # Tracker format: {"date": "YYYY-MM-DD", "daily_pnl": ..., "daily_pnl_pct": ...}
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # P5-DASH: new format — {today: {total_pnl, trade_count}, starting_equity: ...}
+    day_entry = tracker.get(today)
+    if isinstance(day_entry, dict) and "total_pnl" in day_entry:
+        total_pnl = float(day_entry.get("total_pnl", 0.0))
+        equity = float(tracker.get("starting_equity", 0))
+        pct = (total_pnl / equity * 100.0) if equity > 0 else 0.0
+        return total_pnl, pct
+    # Legacy format — {date: "YYYY-MM-DD", daily_pnl: ..., daily_pnl_pct: ...}
     tracker_date = tracker.get("date", "")
-    today = datetime.now().strftime("%Y-%m-%d")
     if tracker_date and tracker_date != today:
         return 0.0, 0.0
     if "daily_pnl" in tracker:

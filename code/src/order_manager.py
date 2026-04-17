@@ -450,6 +450,9 @@ def _execute_one_partial(ctx: '_TradeCtx', deps: '_TradingDeps', *, partial_numb
             account_info = deps.client.get_account()
             _, ctx.coin_balance_free, ctx.coin_balance_locked, ctx.coin_balance = _get_coin_balance(account_info, ctx.coin_symbol)
 
+            # P5-DASH: mettre à jour initial_position_size pour refléter la position restante
+            ps['initial_position_size'] = ctx.coin_balance
+
             # F-1: Replacer SL exchange sur la quantité restante après partiel
             _sl_price = ps.get('stop_loss_at_entry')
             if _sl_price and ctx.coin_balance > ctx.min_qty:

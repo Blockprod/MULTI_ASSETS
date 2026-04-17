@@ -1088,6 +1088,10 @@ def _fetch_indicators(real_trading_pair: str, time_interval: str, best_params: D
 def _sync_order_history(real_trading_pair: str, pair_state: 'PairState') -> Tuple[List[Any], Optional[str]]:
     """Synchronise last_order_side avec l'historique des ordres Binance.
 
+    P5-DASH: ne pas écraser BUY→SELL quand la position est encore ouverte
+    (partial sell). entry_price != None signifie que la position n'a pas été
+    entièrement clôturée (signal sell et SL reset entry_price à None).
+
     Returns:
         (orders, last_side)
     """
@@ -1099,10 +1103,19 @@ def _sync_order_history(real_trading_pair: str, pair_state: 'PairState') -> Tupl
     last_side = last_filled_order['side'] if last_filled_order else None
 
     if last_side and pair_state.get('last_order_side') != last_side:
-        pair_state['last_order_side'] = last_side
-        if last_side != 'BUY':  # ST-P2-02: réinitialise le flag drawdown à la fermeture de position
-            pair_state['drawdown_halted'] = False
-        save_bot_state()
+        # P5-DASH: guard partial sell — position still open if entry_price is set
+        if (last_side == 'SELL'
+                and pair_state.get('last_order_side') == 'BUY'
+                and pair_state.get('entry_price') is not None):
+            logger.debug(
+                "[SYNC] Partial sell detected for %s — keeping last_order_side='BUY'",
+                real_trading_pair,
+            )
+        else:
+            pair_state['last_order_side'] = last_side
+            if last_side != 'BUY':  # ST-P2-02: réinitialise le flag drawdown à la fermeture de position
+                pair_state['drawdown_halted'] = False
+            save_bot_state()
 
     return orders, last_side
 
