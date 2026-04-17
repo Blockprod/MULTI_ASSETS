@@ -920,6 +920,14 @@ def _handle_dust_cleanup(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
                 or ps.get('last_order_side') == 'BUY'
             )
             if _stale_fields:
+                # P0-BUY: log CRITICAL si on reset un état BUY — c'est anormal et doit être investigué
+                if ps.get('last_order_side') == 'BUY':
+                    logger.critical(
+                        "[DUST P0-BUY] %s — RESET last_order_side BUY→SELL sur dust intradable "
+                        "(balance=%.8f, notional=%.2f, min_notional=%.2f). "
+                        "Vérifier si un achat réel a été perdu.",
+                        ctx.backtest_pair, ctx.coin_balance, dust_notional_value, ctx.min_notional,
+                    )
                 ps.update({
                     'entry_price': None, 'max_price': None, 'stop_loss': None,
                     'trailing_stop': None, 'trailing_stop_activated': False,
@@ -1265,6 +1273,14 @@ def _validate_buy_preconditions(
     """
     ps = ctx.pair_state
 
+    # P0-BUY: guard explicite — si l'état dit qu'on a déjà acheté, ne JAMAIS re-acheter
+    if ps.get('last_order_side') == 'BUY':
+        logger.info(
+            "[BUY BLOCKED P0-BUY] %s — last_order_side='BUY' dans pair_state, achat bloqué",
+            ctx.backtest_pair,
+        )
+        return False
+
     if ps.get('oos_blocked'):
         logger.warning(
             "[BUY BLOCKED P0-03] %s — OOS gates non passées depuis %s. "
@@ -1498,7 +1514,7 @@ def _place_buy_and_verify(
         'entry_ema1': ctx.ema1_period,
         'entry_ema2': ctx.ema2_period,
     })
-    deps.save_fn()
+    deps.save_fn(force=True)  # P0-BUY: état critique post-achat, forcer la persistence
 
     return actual_qty_str
 
