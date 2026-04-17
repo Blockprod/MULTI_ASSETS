@@ -1705,9 +1705,16 @@ def _execute_buy(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
         )
         return
 
-    # MULTI-PAIR: sérialiser l'allocation USDC pour éviter que deux paires
-    # n'achètent en même temps avec le même solde USDC.
+    # MULTI-PAIR: sérialiser UNIQUEMENT l'allocation USDC (fetch → sizing → buy).
+    # Dès que le buy est FILLED, le USDC est dépensé côté Binance → on relâche
+    # le lock pour que les autres paires puissent acheter sans attendre le SL/journal.
     _alloc_lock = deps.buy_allocation_lock
+    actual_qty_str = None
+    quantity_rounded = None
+    entry_price = 0.0
+    atr_value = 0.0
+
+    # ── Section critique : fetch balance → sizing → place buy ──
     if _alloc_lock is not None:
         _alloc_lock.acquire()
     try:
@@ -1731,45 +1738,49 @@ def _execute_buy(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
         if qty_data is not None:
             quantity_rounded, qty_str, quote_amount, entry_price, atr_value = qty_data
 
-            # === PLACE BUY + TRAITEMENT FILL + EMAIL + STATE ===
+            # === PLACE BUY (market order → fill immédiat) ===
             actual_qty_str = _place_buy_and_verify(
                 ctx, deps, qty_str, quote_amount, entry_price, atr_value, quantity_rounded, usdc_for_buy,
             )
-            if actual_qty_str is not None:
-                # === STOP LOSS (P0-01 / P0-STOP) ===
-                _place_sl_after_buy(ctx, deps, actual_qty_str)
-
-                # === JOURNAL DE TRADING ===
-                try:
-                    logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
-                    log_trade(
-                        logs_dir=logs_dir,
-                        pair=ctx.real_trading_pair,
-                        side='buy',
-                        quantity=float(quantity_rounded),
-                        price=entry_price,
-                        fee=float(quantity_rounded) * deps.config.taker_fee * entry_price,
-                        slippage=deps.config.slippage_buy,
-                        scenario=ctx.scenario,
-                        timeframe=ctx.time_interval,
-                        ema1=ctx.best_params.get('ema1_period'),
-                        ema2=ctx.best_params.get('ema2_period'),
-                        atr_value=atr_value,
-                        stop_price=ps.get('stop_loss_at_entry'),
-                        equity_before=ctx.usdc_balance,
-                    )
-                except Exception as journal_err:
-                    logger.error("[JOURNAL] Erreur écriture achat: %s", journal_err)
-
-                # Rafraîchir le solde USDC après achat
-                account_info = deps.client.get_account()
-                _, ctx.usdc_balance, _, _ = _get_coin_balance(account_info, 'USDC')
-
     except Exception as e:
-        logger.error("[ACHAT] Erreur lors de l'exécution : %s", e)
+        logger.error("[ACHAT] Erreur lors de l'allocation/achat : %s", e)
     finally:
         if _alloc_lock is not None:
             _alloc_lock.release()
+
+    # ── Hors lock : SL + journal + refresh (les autres paires peuvent acheter) ──
+    if actual_qty_str is not None and quantity_rounded is not None:
+        try:
+            # === STOP LOSS (P0-01 / P0-STOP) ===
+            _place_sl_after_buy(ctx, deps, actual_qty_str)
+
+            # === JOURNAL DE TRADING ===
+            try:
+                logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+                log_trade(
+                    logs_dir=logs_dir,
+                    pair=ctx.real_trading_pair,
+                    side='buy',
+                    quantity=float(quantity_rounded),
+                    price=entry_price,
+                    fee=float(quantity_rounded) * deps.config.taker_fee * entry_price,
+                    slippage=deps.config.slippage_buy,
+                    scenario=ctx.scenario,
+                    timeframe=ctx.time_interval,
+                    ema1=ctx.best_params.get('ema1_period'),
+                    ema2=ctx.best_params.get('ema2_period'),
+                    atr_value=atr_value,
+                    stop_price=ps.get('stop_loss_at_entry'),
+                    equity_before=ctx.usdc_balance,
+                )
+            except Exception as journal_err:
+                logger.error("[JOURNAL] Erreur écriture achat: %s", journal_err)
+
+            # Rafraîchir le solde USDC après achat
+            account_info = deps.client.get_account()
+            _, ctx.usdc_balance, _, _ = _get_coin_balance(account_info, 'USDC')
+        except Exception as e:
+            logger.error("[POST-BUY] Erreur SL/journal : %s", e)
 
     # Afficher panel ACHAT (avec le solde AVANT achat si achat exécuté)
     display_buy_signal_panel(
