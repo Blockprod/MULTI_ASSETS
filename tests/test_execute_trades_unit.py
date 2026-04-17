@@ -158,9 +158,9 @@ class TestEmergencyHalt:
         mock_client = MagicMock()
         mock_client.get_account.side_effect = Exception("client error - expected in test")
         monkeypatch.setattr(ms, 'client', mock_client)
-        # Doit tenter d'appeler get_account (et lever l'exception capturée)
+        # Doit tenter d'appeler get_account (equity refresh + _fetch_balances)
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
-        mock_client.get_account.assert_called_once()
+        assert mock_client.get_account.call_count >= 1
 
 
 # ---------------------------------------------------------------------------

@@ -613,19 +613,71 @@ def _update_daily_pnl(pnl_usdc: float | None) -> None:
     save_bot_state()
 
 
+# P2-EQUITY: date du dernier refresh equity (évite de le recalculer à chaque cycle de 2 min)
+_equity_last_date: str = ''
+
+
+def _refresh_starting_equity_if_new_day() -> None:
+    """Recalcule starting_equity au premier cycle de chaque jour UTC.
+
+    Equity = USDC libre + Σ(coin_balance × prix courant) pour chaque position ouverte.
+    Persiste dans _daily_pnl_tracker['starting_equity'] pour le daily loss limit.
+    """
+    global _equity_last_date
+    today = _get_today_iso()
+    if _equity_last_date == today:
+        return  # déjà calculé pour aujourd'hui
+    try:
+        _acc = client.get_account()
+        _, _usdc, _, _ = _get_coin_balance(_acc, 'USDC')
+        _total = _usdc
+        # Itérer sur les positions ouvertes (last_order_side='BUY') dans bot_state
+        with _bot_state_lock:
+            _open_pairs = [
+                (bp, ps) for bp, ps in bot_state.items()
+                if isinstance(ps, dict) and ps.get('last_order_side') == 'BUY'
+            ]
+        for _bp, _ps in _open_pairs:
+            _coin = _bp.replace('USDT', '').replace('USDC', '')
+            _found, _, _, _bal = _get_coin_balance(_acc, _coin)
+            if _found and _bal > 0:
+                # Estimation via entry_price (fiable) — pas de ticker pour éviter
+                # d'utiliser backtest_pair qui peut différer du real_pair
+                _entry = _ps.get('entry_price', 0)
+                if _entry and _entry > 0:
+                    _total += _bal * _entry
+        with _bot_state_lock:
+            _tracker = bot_state.setdefault('_daily_pnl_tracker', {})
+            _tracker['starting_equity'] = round(_total, 2)
+        save_bot_state(force=True)
+        _equity_last_date = today
+        logger.info(
+            "[P2-EQUITY] Equity jour %s: %.2f USDC (libre=%.2f + positions)",
+            today, _total, _usdc,
+        )
+    except Exception as _err:
+        logger.warning("[P2-EQUITY] Refresh equity échoué: %s — conserve l'ancien", _err)
+
+
 def _is_daily_loss_limit_reached() -> bool:
-    """Retourne True si la perte journalière dépasse daily_loss_limit_pct × initial_wallet."""
+    """Retourne True si la perte journalière dépasse daily_loss_limit_pct × starting_equity du jour.
+
+    L'equity de référence est recalculée au premier appel de chaque jour UTC
+    (USDC libre + valeur des positions ouvertes). Fallback sur config.initial_wallet
+    si aucune equity n'a encore été enregistrée.
+    """
     today = _get_today_iso()
     with _bot_state_lock:
         tracker = bot_state.get('_daily_pnl_tracker', {})
         total_pnl = tracker.get(today, {}).get('total_pnl', 0.0)
-    limit_usdc = config.initial_wallet * config.daily_loss_limit_pct
+        equity_base = tracker.get('starting_equity', config.initial_wallet)
+    limit_usdc = equity_base * config.daily_loss_limit_pct
     if total_pnl < -limit_usdc:
         logger.warning(
             "[DAILY-LIMIT P5-A] Perte journalière %.2f USDC >= limite -%.2f USDC "
-            "(%.1f %% de %.0f USDC initial). Achats bloqués jusqu'à 00:00 UTC.",
+            "(%.1f %% de %.0f USDC equity). Achats bloqués jusqu'à 00:00 UTC.",
             abs(total_pnl), limit_usdc,
-            config.daily_loss_limit_pct * 100, config.initial_wallet,
+            config.daily_loss_limit_pct * 100, equity_base,
         )
         # C-08: email d'alerte avec cooldown throttlé (AlertThrottle P1-05)
         if _runtime.daily_loss_throttle.check_and_mark():
@@ -634,7 +686,7 @@ def _is_daily_loss_limit_reached() -> bool:
                 body_main=(
                     f"La perte journaliere cumulee ({abs(total_pnl):.2f} USDC) a atteint "
                     f"la limite configuree ({limit_usdc:.2f} USDC = "
-                    f"{config.daily_loss_limit_pct * 100:.1f}% de {config.initial_wallet:.0f} USDC initials).\n\n"
+                    f"{config.daily_loss_limit_pct * 100:.1f}% de {equity_base:.0f} USDC equity).\n\n"
                     f"Les achats sont bloques jusqu'a 00:00 UTC. Les stops restent actifs."
                 ),
                 client=client,
@@ -1092,6 +1144,9 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
         )
         return
 
+    # P2-EQUITY: recalculer l'equity de référence au premier cycle de chaque jour UTC
+    _refresh_starting_equity_if_new_day()
+
     # ST-P1-01: guard anti-corrélation — limite le nombre de positions longues simultanées
     with _bot_state_lock:
         _open_longs = [
@@ -1410,6 +1465,7 @@ if __name__ == "__main__":
         load_bot_state()
 
         # D-06: persister starting_equity pour le dashboard (daily loss limit)
+        # Placeholder — recalculée après réconciliation avec l'equity réelle
         with _bot_state_lock:
             _tracker = bot_state.setdefault('_daily_pnl_tracker', {})
             if 'starting_equity' not in _tracker:
@@ -1438,6 +1494,9 @@ if __name__ == "__main__":
                 wal_clear()
             except Exception as _wal_clear_err:
                 logger.warning("[WAL] Erreur nettoyage WAL post-reconciliation: %s", _wal_clear_err)
+
+            # P2-EQUITY: calculer l'equity réelle au démarrage
+            _refresh_starting_equity_if_new_day()
         except Exception as reconcile_err:
             logger.error(
                 "[RECONCILE TS-P2-02] Erreur lors de la réconciliation: %s",
