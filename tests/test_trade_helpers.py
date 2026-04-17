@@ -25,6 +25,7 @@ from order_manager import (
     _TradeCtx,
     _TradingDeps,
 )
+from trade_helpers import check_partial_exits_from_history
 
 
 # ---------------------------------------------------------------------------
@@ -654,9 +655,6 @@ class TestHandleDustCleanup:
 # ---------------------------------------------------------------------------
 # Tests check_partial_exits_from_history (trade_helpers.py)
 # ---------------------------------------------------------------------------
-
-from trade_helpers import check_partial_exits_from_history
-
 
 def _make_trade(*, is_buyer: bool, qty: float, price: float, time: int,
                 order_id: int = 1) -> dict:
