@@ -70,6 +70,39 @@ class _TradingDeps:
     buy_allocation_lock: Any = None        # _usdc_allocation_lock (Lock) — sérialise les achats multi-paires
 
 
+def _restore_exchange_sl(ctx: '_TradeCtx', deps: '_TradingDeps', label: str) -> None:
+    """Re-place le SL exchange après une vente partielle bloquée ou échouée.
+
+    Doit être appelé dans TOUS les chemins d'échec de _execute_one_partial
+    pour garantir que la position ne reste jamais sans SL.
+    """
+    ps = ctx.pair_state
+    if ps.get('sl_exchange_placed'):
+        return  # SL déjà actif
+    _sl_price = ps.get('stop_loss_at_entry') or ps.get('stop_loss')
+    if not _sl_price or ctx.coin_balance <= float(ctx.min_qty_dec):
+        logger.warning("[%s] Impossible de restaurer SL: prix=%s, balance=%s", label, _sl_price, ctx.coin_balance)
+        return
+    try:
+        _remaining_dec = Decimal(str(ctx.coin_balance))
+        _remaining_rounded = (_remaining_dec // ctx.step_size_dec) * ctx.step_size_dec
+        _remaining_str = f"{_remaining_rounded:.{ctx.step_decimals}f}"
+        _sl_result = deps.place_sl_fn(
+            symbol=ctx.real_trading_pair,
+            quantity=_remaining_str,
+            stop_price=float(_sl_price),
+        )
+        ps['sl_order_id'] = _sl_result.get('orderId')
+        ps['sl_exchange_placed'] = True
+        deps.save_fn()
+        logger.info(
+            "[%s] SL exchange RESTAURÉ après échec vente (qty=%s, stop=%.4f, orderId=%s)",
+            label, _remaining_str, _sl_price, ps['sl_order_id'],
+        )
+    except Exception as _sl_err:
+        logger.error("[%s] CRITIQUE: Échec restauration SL après vente bloquée: %s", label, _sl_err)
+
+
 def _cancel_exchange_sl(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
     """F-1: Annule l'ordre SL exchange avant vente signal/partielle pour libérer les coins lockés.
 
@@ -419,6 +452,7 @@ def _execute_one_partial(ctx: '_TradeCtx', deps: '_TradingDeps', *, partial_numb
             ps['partial_taken_2'] = True
         deps.save_fn()
         logger.info(f"[{label}] Montant trop faible — Flag mis à True pour éviter retry")
+        _restore_exchange_sl(ctx, deps, label)
         return
 
     try:
@@ -529,9 +563,11 @@ def _execute_one_partial(ctx: '_TradeCtx', deps: '_TradingDeps', *, partial_numb
                 )
             except Exception as _email_err:
                 logger.error(f"[{label}] Échec envoi email vente non-filled: {_email_err}")
+            _restore_exchange_sl(ctx, deps, label)
 
     except Exception as e:
         logger.error(f"[{label}] Erreur lors de l'exécution de la vente partielle: {e}")
+        _restore_exchange_sl(ctx, deps, label)
 
 
 

@@ -572,6 +572,102 @@ class TestExecutePartialSells:
         assert ps.get('partial_taken_1') is True
         deps.send_alert_fn.assert_not_called()
 
+    def test_partial_blocked_min_notional_restores_sl(self):
+        """P0: SL cancelled before partial → min_notional blocks sell → SL MUST be re-placed."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'partial_taken_1': True,
+            'partial_taken_2': False,
+            'partial_enabled': True,
+            'sl_order_id': 'SL_ORIG',
+            'sl_exchange_placed': True,
+            'stop_loss_at_entry': 94.0,
+        }
+        # coin_balance=2.0, price=111 → qty_to_sell=2.0*0.3=0.6 → rounds to 0 with step=1.0
+        # 0 < min_qty(1.0) → blocked. But coin_balance=2.0 > min_qty → SL can be restored
+        mock_client = MagicMock()
+        mock_client.cancel_order.return_value = {'orderId': 'SL_ORIG', 'status': 'CANCELED'}
+        mock_client.get_account.return_value = {
+            'balances': [{'asset': 'TRX', 'free': '2.0', 'locked': '0'}]
+        }
+        ctx = _make_ctx(
+            pair_state=ps,
+            coin_balance_free=2.0, coin_balance=2.0,
+            current_price=111.0,  # +11% >= partial_threshold_2(10%)
+            min_notional=10.0,
+            min_qty_dec=Decimal('1.0'),  # step rounds 0.6 to 0 < min_qty
+            max_qty_dec=Decimal('100000.0'),
+            step_size_dec=Decimal('1.0'),
+            step_decimals=0,
+        )
+        deps = _make_deps(client=mock_client)
+        deps.check_partial_exits_fn.return_value = (True, False)
+        deps.place_sl_fn.return_value = {'orderId': 'SL_RESTORED'}
+        _execute_partial_sells(ctx, deps)
+        # Partial-2 blocked → flag set
+        assert ps.get('partial_taken_2') is True
+        # SL MUST have been restored
+        deps.place_sl_fn.assert_called_once()
+        assert ps.get('sl_order_id') == 'SL_RESTORED'
+        assert ps.get('sl_exchange_placed') is True
+
+    def test_partial_sell_not_filled_restores_sl(self):
+        """SL cancelled → sell order not FILLED → SL MUST be re-placed."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'partial_taken_1': False,
+            'partial_taken_2': False,
+            'partial_enabled': True,
+            'sl_order_id': 'SL_B4',
+            'sl_exchange_placed': True,
+            'stop_loss_at_entry': 94.0,
+        }
+        mock_client = MagicMock()
+        mock_client.cancel_order.return_value = {'orderId': 'SL_B4', 'status': 'CANCELED'}
+        mock_client.get_account.return_value = {
+            'balances': [{'asset': 'TRX', 'free': '10.0', 'locked': '0'}]
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance_free=10.0, coin_balance=10.0,
+                        current_price=106.0)
+        deps = _make_deps(client=mock_client)
+        deps.check_partial_exits_fn.return_value = (False, False)
+        deps.market_sell_fn.return_value = {'status': 'EXPIRED'}  # NOT FILLED
+        deps.place_sl_fn.return_value = {'orderId': 'SL_AFTER_FAIL'}
+        _execute_partial_sells(ctx, deps)
+        # SL must be restored after failed sell
+        assert ps.get('sl_order_id') == 'SL_AFTER_FAIL'
+        assert ps.get('sl_exchange_placed') is True
+
+    def test_partial_sell_exception_restores_sl(self):
+        """SL cancelled → sell raises exception → SL MUST be re-placed."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'partial_taken_1': False,
+            'partial_taken_2': False,
+            'partial_enabled': True,
+            'sl_order_id': 'SL_EXC',
+            'sl_exchange_placed': True,
+            'stop_loss_at_entry': 94.0,
+        }
+        mock_client = MagicMock()
+        mock_client.cancel_order.return_value = {'orderId': 'SL_EXC', 'status': 'CANCELED'}
+        mock_client.get_account.return_value = {
+            'balances': [{'asset': 'TRX', 'free': '10.0', 'locked': '0'}]
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance_free=10.0, coin_balance=10.0,
+                        current_price=106.0)
+        deps = _make_deps(client=mock_client)
+        deps.check_partial_exits_fn.return_value = (False, False)
+        deps.market_sell_fn.side_effect = Exception("API timeout")
+        deps.place_sl_fn.return_value = {'orderId': 'SL_RECOVERED'}
+        _execute_partial_sells(ctx, deps)
+        # SL must be restored despite sell exception
+        assert ps.get('sl_order_id') == 'SL_RECOVERED'
+        assert ps.get('sl_exchange_placed') is True
+
 
 # ---------------------------------------------------------------------------
 # Tests _handle_dust_cleanup

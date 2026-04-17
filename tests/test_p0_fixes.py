@@ -715,3 +715,67 @@ class TestExecuteTradesCriticalLogs:
             for r in caplog.records
             if r.levelno == logging.CRITICAL
         ), 'CRITICAL log P0-02 non trouvé pour flt=None avec BUY ouvert'
+
+
+class TestSLManquantAutoCorrection:
+    """F-SL-FIX: Si sl_order_id existe et SL est actif sur Binance,
+    sl_exchange_placed est auto-corrigé à True sans email CRITIQUE."""
+
+    _TEST_PAIR = '__SL_FIX_TEST__'
+    _TEST_REAL_PAIR = 'BTCUSDC'
+
+    def test_sl_manquant_auto_corrected_when_sl_active_on_binance(self, monkeypatch, caplog):
+        """sl_exchange_placed=False + sl_order_id présent + SL actif → auto-correction."""
+        import logging
+        import MULTI_SYMBOLS as ms
+
+        mock_cfg = MagicMock()
+        mock_cfg.max_concurrent_long = 999
+        monkeypatch.setattr(ms, 'config', mock_cfg)
+
+        # Setup: position BUY with sl_order_id but sl_exchange_placed=False
+        sl_order_id = 260022854
+        with ms._bot_state_lock:
+            ms.bot_state.pop('emergency_halt', None)
+            ms.bot_state[self._TEST_PAIR] = {
+                'last_order_side': 'BUY',
+                'entry_price': 0.2655,
+                'sl_exchange_placed': False,
+                'sl_order_id': sl_order_id,
+                'entry_scenario': None,
+            }
+
+        # Mock client.get_open_orders → SL active on Binance
+        mock_client = MagicMock()
+        mock_client.get_open_orders.return_value = [
+            {'orderId': sl_order_id, 'type': 'STOP_LOSS', 'status': 'NEW'},
+        ]
+        monkeypatch.setattr(ms, 'client', mock_client)
+        monkeypatch.setattr(ms, 'save_bot_state', lambda force=False: None)
+        monkeypatch.setattr(ms, '_fetch_balances', lambda _pair: None)
+
+        try:
+            with caplog.at_level(logging.INFO, logger='MULTI_SYMBOLS'):
+                try:
+                    ms._execute_real_trades_inner(
+                        real_trading_pair=self._TEST_REAL_PAIR,
+                        time_interval='15m',
+                        best_params={'scenario': 'StochRSI'},
+                        backtest_pair=self._TEST_PAIR,
+                        sizing_mode='risk',
+                    )
+                except Exception:
+                    pass
+
+            # Verify auto-correction
+            ps = ms.bot_state[self._TEST_PAIR]
+            assert ps['sl_exchange_placed'] is True, 'sl_exchange_placed should be auto-corrected to True'
+            assert any('F-SL-FIX' in r.message and 'Auto-correction' in r.message for r in caplog.records)
+            # No CRITICAL SL-MANQUANT alert
+            assert not any(
+                r.levelno == logging.CRITICAL and 'SL-MANQUANT' in r.message
+                for r in caplog.records
+            ), 'CRITICAL SL-MANQUANT should NOT be logged when SL is active on Binance'
+        finally:
+            with ms._bot_state_lock:
+                ms.bot_state.pop(self._TEST_PAIR, None)

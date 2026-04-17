@@ -257,6 +257,25 @@ def load_state() -> Dict:
                 )
                 loaded = pickle.loads(raw)
 
+        # F-SL-FIX: Migration format legacy — si une clé "bot_state" dict existe
+        # au top-level, dé-imbriquer les paires vers le top-level.
+        # Ancien format: {"bot_state": {"SOLUSDT": {...}}, "_state_version": ...}
+        # Nouveau format: {"SOLUSDT": {...}, "_state_version": ...}
+        if isinstance(loaded, dict) and 'bot_state' in loaded and isinstance(loaded['bot_state'], dict):
+            _inner = loaded.pop('bot_state')
+            for _k, _v in _inner.items():
+                if _k not in loaded:
+                    loaded[_k] = _v
+                else:
+                    logger.warning(
+                        "[STATE F-SL-FIX] Clé dupliquée '%s' ignorée lors de la migration "
+                        "du format imbriqué — la version top-level est conservée.", _k,
+                    )
+            logger.warning(
+                "[STATE F-SL-FIX] Format legacy détecté: clé 'bot_state' imbriquée migrée "
+                "vers le top-level (%d paires extraites). Re-signé au prochain save.", len(_inner),
+            )
+
         # C-17: Validation de schéma (informative, non-bloquante)
         if isinstance(loaded, dict):
             validate_bot_state(loaded)

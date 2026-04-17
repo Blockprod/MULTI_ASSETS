@@ -443,6 +443,50 @@ class TestPlainJSONFallback:
         assert raw.startswith(state_manager._JSON_HEADER())
 
 
+class TestNestedBotStateMigration:
+    """F-SL-FIX: Migration du format legacy avec clé 'bot_state' imbriquée."""
+
+    def test_nested_bot_state_is_unwrapped(self, tmp_state_dir, caplog):
+        """Un fichier avec {"bot_state": {"SOLUSDT": {...}}} est dé-imbriqué."""
+        import state_manager
+        state_path = state_manager._get_state_path()
+        nested = {
+            "bot_state": {
+                "SOLUSDT": {"entry_price": 100.0, "last_order_side": "BUY"},
+            },
+            "_state_version": 2,
+        }
+        with open(state_path, 'w', encoding='utf-8') as f:
+            json.dump(nested, f)
+        with caplog.at_level('WARNING'):
+            loaded = state_manager.load_state()
+        # SOLUSDT should be at top level now
+        assert "SOLUSDT" in loaded
+        assert loaded["SOLUSDT"]["entry_price"] == 100.0
+        # "bot_state" key should be removed
+        assert "bot_state" not in loaded
+        assert "_state_version" in loaded
+        assert "F-SL-FIX" in caplog.text
+
+    def test_nested_bot_state_preserves_top_level_keys(self, tmp_state_dir):
+        """Les clés top-level existantes ne sont pas écrasées par les clés imbriquées."""
+        import state_manager
+        state_path = state_manager._get_state_path()
+        nested = {
+            "bot_state": {
+                "SOLUSDT": {"entry_price": 50.0},
+            },
+            "SOLUSDT": {"entry_price": 200.0, "sl_exchange_placed": True},
+            "_state_version": 2,
+        }
+        with open(state_path, 'w', encoding='utf-8') as f:
+            json.dump(nested, f)
+        loaded = state_manager.load_state()
+        # Top-level SOLUSDT should win over nested one
+        assert loaded["SOLUSDT"]["entry_price"] == 200.0
+        assert loaded["SOLUSDT"]["sl_exchange_placed"] is True
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # P6-A — Étape 3.3 : Robustesse aux fichiers corrompus / tronqués
 # ══════════════════════════════════════════════════════════════════════════════

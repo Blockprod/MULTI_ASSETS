@@ -233,6 +233,32 @@ Si aucun résultat → archiver dans `code/legacy/` et retirer de `config/setup.
 
 ---
 
+### L-19 · SL exchange annulé mais jamais restauré si la vente partielle échoue
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-04-17
+
+**Contexte** : `_execute_partial_sells` annule le SL exchange (via `_cancel_exchange_sl`) AVANT d'appeler `_execute_one_partial`. Si la vente est bloquée (MIN_NOTIONAL, LOT_SIZE), échoue (NOT FILLED), ou lève une exception, le SL n'est jamais re-placé.  
+**Erreur** : En production, PARTIAL-2 déclenchée pour ONDOUSDC → SL annulé → notional 4.18 USDC < MIN_NOTIONAL 10.00 → vente bloquée → position sans SL pendant plusieurs cycles (alerte `[SL-MANQUANT]` 2 min plus tard). Le détecteur `[SL-MANQUANT]` dans l'orchestrateur envoie un email mais ne prend aucune action corrective.  
+**Règles** :
+1. Tout chemin d'échec dans `_execute_one_partial` DOIT appeler `_restore_exchange_sl` pour remettre le SL.
+2. Ne jamais annuler un SL sans garantir qu'il sera re-placé dans TOUS les chemins (succès, échec, exception).
+3. C'est le 3ème variant du pattern "SL cancelled but not replaced" (après P0-01 et L-11).  
+**Ref** : `order_manager.py` `_restore_exchange_sl()` — commit fixant les 3 chemins (min_notional, not filled, exception)
+
+---
+
+### L-20 · `sl_exchange_placed=True` perdu après save → état incohérent
+**Sévérité** : 🟠 HAUTE · **Date** : 2026-04-17
+
+**Contexte** : Le `position_reconciler` (C-11) pose un SL, set `sl_exchange_placed=True`, et appelle `save_bot_state(force=True)`. 5 secondes plus tard, `_execute_real_trades_inner` lit `sl_exchange_placed=False` malgré `sl_order_id` présent.
+**Cause probable** : Race condition ou format legacy dans `bot_state.json` (clé `"bot_state"` imbriquée créant un dict fantôme).
+**Fixes** :
+1. Migration automatique du format legacy `{"bot_state": {...}}` dans `load_state()`.
+2. Auto-correction dans le check `[SL-MANQUANT]` : si `sl_order_id` présent, vérifier sur Binance si le SL est actif. Si oui, corriger `sl_exchange_placed=True` et sauvegarder.
+3. Diagnostic logging dans le reconciler post-save pour tracer le problème si récidive.
+**Ref** : `state_manager.py` migration F-SL-FIX, `MULTI_SYMBOLS.py` auto-correction F-SL-FIX
+
+---
+
 ## Référence — Patterns P0 appliqués (historique)
 
 > Ces patterns sont actifs dans le code. Mettre à jour si une correction change le comportement.

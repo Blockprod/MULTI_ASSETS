@@ -369,14 +369,23 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
                         _sl_result = deps.place_sl_fn(real_pair, _qty_str, sl_price)
                         if _sl_result:
                             with deps.bot_state_lock:
-                                deps.bot_state.setdefault(backtest_pair, {})['sl_order_id'] = (
-                                    _sl_result.get('orderId')
-                                )
+                                _ps = deps.bot_state.setdefault(backtest_pair, {})
+                                _ps['sl_order_id'] = _sl_result.get('orderId')
+                                _ps['sl_exchange_placed'] = True
                             deps.save_fn(force=True)
                             logger.info(
                                 "[RECONCILE C-11] SL reposé avec succès pour %s: "
                                 "orderId=%s qty=%s stop=%.8f",
                                 backtest_pair, _sl_result.get('orderId'), _qty_str, sl_price,
+                            )
+                            # F-SL-FIX: diagnostic — vérifier immédiatement que la valeur est persistée
+                            _diag_ps = deps.bot_state.get(backtest_pair, {})
+                            logger.info(
+                                "[RECONCILE C-11 DIAG] Vérification post-save: "
+                                "sl_exchange_placed=%s, sl_order_id=%s, id(ps)=%d, id(bot_state[pair])=%d",
+                                _diag_ps.get('sl_exchange_placed'),
+                                _diag_ps.get('sl_order_id'),
+                                id(_ps), id(_diag_ps),
                             )
                         else:
                             logger.error(

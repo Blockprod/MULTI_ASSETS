@@ -1186,7 +1186,33 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
 
     # EM-P1-04: Alerte si position BUY ouverte sans SL confirmé sur l'exchange
     if pair_state.get('last_order_side') == 'BUY' and not pair_state.get('sl_exchange_placed'):
-        if _runtime.sl_missing_throttle.check_and_mark(key=backtest_pair):
+        # F-SL-FIX: Auto-correction — si sl_order_id existe, vérifier sur Binance avant d'alerter
+        _sl_oid_check = pair_state.get('sl_order_id')
+        _sl_auto_corrected = False
+        if _sl_oid_check and str(_sl_oid_check).isdigit():
+            try:
+                _open_ords = client.get_open_orders(symbol=real_trading_pair)
+                _stop_types = {'STOP_LOSS', 'STOP_LOSS_LIMIT'}
+                _has_active_sl = any(
+                    str(o.get('orderId')) == str(_sl_oid_check) and o.get('type', '') in _stop_types
+                    for o in _open_ords
+                )
+                if _has_active_sl:
+                    with _bot_state_lock:
+                        pair_state['sl_exchange_placed'] = True
+                    save_bot_state(force=True)
+                    logger.info(
+                        "[SL-MANQUANT F-SL-FIX] Auto-correction: SL orderId=%s actif sur Binance "
+                        "pour %s — sl_exchange_placed corrigé à True.",
+                        _sl_oid_check, backtest_pair,
+                    )
+                    _sl_auto_corrected = True
+            except Exception as _sl_check_err:
+                logger.warning(
+                    "[SL-MANQUANT F-SL-FIX] Vérification Binance impossible pour %s: %s",
+                    backtest_pair, _sl_check_err,
+                )
+        if not _sl_auto_corrected and _runtime.sl_missing_throttle.check_and_mark(key=backtest_pair):
             logger.critical(
                 "[SL-MANQUANT] %s en position BUY sans sl_exchange_placed=True.",
                 backtest_pair,
