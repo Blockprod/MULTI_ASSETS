@@ -1,5 +1,5 @@
 {
-  "backtest_engine_standard.cp311-win_amd64.pyd": "65ab99b4cc593ed6f1bfd637982d9fae859ca87715a8b612fcebbba5233edbe4",
+  "backtest_engine_standard.cp311-win_amd64.pyd": "0b585bc14137ac40b9c11996b77f99ccd5b386cd0e1b59cb163cd3edf5d90160",
   "backtest_engine_standard.cp313-win_amd64.pyd": "1c1ad580437fc6beb067abc1f8a6d56117c2ecacb07ef1af51e1a9646b11f683",
   "indicators.cp311-win_amd64.pyd": "c0d50e5183528b888ac578a3b084309b3cc8b2ea0a770ddaf6c76b5ebadcd334",
   "indicators.cp313-win_amd64.pyd": "ae42a8d9f4df98babf66d18731717e9a107df6d5adb14dc46999f95967aedd94"
