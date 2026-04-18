@@ -78,6 +78,12 @@ def display_buy_signal_panel(
     cond_grid.add_row("Stratégie active", "", f"[bold cyan]{_strategy_label}[/bold cyan]")
     cond_grid.add_row("EMA1 > EMA2", _ok(row['ema1'] > row['ema2']), f"EMA1={row['ema1']:.2f}  EMA2={row['ema2']:.2f}")
     cond_grid.add_row("StochRSI < 80%", _ok(row['stoch_rsi'] < 0.8), f"{row['stoch_rsi']*100:.1f}%")
+    _buy_min = getattr(config, 'stoch_rsi_buy_min', 0.05)
+    cond_grid.add_row(
+        f"StochRSI > {_buy_min*100:.0f}%",
+        _ok(row['stoch_rsi'] > _buy_min),
+        f"{row['stoch_rsi']*100:.1f}%",
+    )
     cond_grid.add_row(f"Solde {quote_currency} > 0", _ok(usdc_balance > 0), f"{usdc_balance:.2f} {quote_currency}")
 
     # Scenario-specific conditions
@@ -95,6 +101,17 @@ def display_buy_signal_panel(
     if buy_reason:
         cond_grid.add_row("", "", "")
         cond_grid.add_row(f"[dim italic]{buy_reason}[/dim italic]", "", "")
+
+    # A-3 cooldown display
+    import time as _time_mod
+    _cd_until = pair_state.get('_stop_loss_cooldown_until', 0)
+    if _cd_until > _time_mod.time():
+        _cd_min = (_cd_until - _time_mod.time()) / 60
+        cond_grid.add_row(
+            "Cooldown A-3",
+            "[bold red]\u2718 BLOQUE[/bold red]",
+            f"[bold red]{_cd_min:.0f} min restantes[/bold red]",
+        )
 
     panel_title = (
         "[bold green]SIGNAL D'ACHAT - CONDITIONS REMPLIES[/bold green]"

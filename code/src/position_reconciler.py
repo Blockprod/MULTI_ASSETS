@@ -188,6 +188,7 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
         _sl_fill_price = _current_price  # fallback
         _sl_exec_qty = 0.0
         _sl_was_filled = False
+        _sl_fill_ts: float = 0.0  # epoch seconds — actual Binance fill time
         # D-03: filtrer les IDs non-numériques (résidu DRY-RUN mode DEMO)
         if _sl_oid and not str(_sl_oid).isdigit():
             logger.warning("[RECONCILE] SL ID non-numérique ignoré (DRY-RUN résidu): %s", _sl_oid)
@@ -200,6 +201,9 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
                     _sl_was_filled = True
                     _eq = float(_sl_info.get('executedQty', 0))
                     _cq = float(_sl_info.get('cummulativeQuoteQty', 0))
+                    _ut = _sl_info.get('updateTime', 0)
+                    if _ut:
+                        _sl_fill_ts = float(_ut) / 1000.0  # ms → s
                     if _eq > 0:
                         _sl_exec_qty = _eq
                     if _eq > 0 and _cq > 0:
@@ -271,6 +275,9 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
             except Exception as _j_err:
                 logger.error("[RECONCILE] Erreur journal: %s", _j_err)
 
+        # Save entry_timeframe before reset (needed for A-3 cooldown calc)
+        _saved_entry_tf = pair_state.get('entry_timeframe')
+
         # Reset complet du pair_state
         with deps.bot_state_lock:
             if backtest_pair in deps.bot_state:
@@ -291,14 +298,28 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
                 # A-3: cooldown post-SL si configuré
                 _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
                 if _cd_candles > 0 and _sl_was_filled:
-                    _tf = pair_state.get('entry_timeframe') or '1h'
+                    _tf = _saved_entry_tf or '1h'
                     _TF_SEC: dict[str, int] = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800,
                                '1h': 3600, '4h': 14400, '1d': 86400}
                     _candle_sec = _TF_SEC.get(_tf, 3600)
-                    update_pair_state(
-                        deps.bot_state, backtest_pair,
-                        _stop_loss_cooldown_until=time.time() + (_cd_candles * _candle_sec),
-                    )
+                    # Use actual SL fill timestamp from Binance, not current time
+                    _cd_base = _sl_fill_ts if _sl_fill_ts > 0 else time.time()
+                    _cd_until = _cd_base + (_cd_candles * _candle_sec)
+                    # If cooldown already expired (bot was down long), skip it
+                    if _cd_until > time.time():
+                        update_pair_state(
+                            deps.bot_state, backtest_pair,
+                            _stop_loss_cooldown_until=_cd_until,
+                        )
+                        logger.info(
+                            "[A-3 COOLDOWN] Reconcile: %.0f min restantes (basé sur fill time)",
+                            (_cd_until - time.time()) / 60,
+                        )
+                    else:
+                        logger.info(
+                            "[A-3 COOLDOWN] Reconcile: cooldown déjà expiré (fill il y a %.1fh)",
+                            (time.time() - _cd_base) / 3600,
+                        )
         deps.save_fn(force=True)
         logger.info("[RECONCILE] État réinitialisé pour %s — prêt pour nouvel achat", backtest_pair)
     else:
@@ -306,6 +327,69 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
             f"[RECONCILE] {backtest_pair}: cohérent "
             f"(balance={coin_balance:.6f} {coin_symbol}, in_position={local_in_position})"
         )
+        # ── Re-validate stale A-3 cooldown using actual Binance fill time ──
+        if not local_in_position and backtest_pair in deps.bot_state:
+            _ps = deps.bot_state[backtest_pair]
+            _cd_until = _ps.get('_stop_loss_cooldown_until', 0)
+            if _cd_until > time.time():
+                # Cooldown active — verify against last SELL order on Binance
+                _cd_revalidated = False
+                try:
+                    _orders = deps.client.get_all_orders(symbol=real_pair, limit=20)
+                    _filled_sells = [
+                        o for o in (_orders or [])
+                        if o.get('side') == 'SELL' and o.get('status') == 'FILLED'
+                    ]
+                    if _filled_sells:
+                        _last_sell = _filled_sells[-1]
+                        _sell_ts = float(_last_sell.get('updateTime', 0)) / 1000.0
+                        if _sell_ts > 0:
+                            _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
+                            _tf = _ps.get('entry_timeframe') or '1h'
+                            _TF_MAP: dict[str, int] = {
+                                '1m': 60, '5m': 300, '15m': 900, '30m': 1800,
+                                '1h': 3600, '4h': 14400, '1d': 86400,
+                            }
+                            _candle_sec = _TF_MAP.get(_tf, 3600)
+                            _correct_cd = _sell_ts + (_cd_candles * _candle_sec)
+                            if _correct_cd <= time.time():
+                                # Cooldown already expired based on real fill time
+                                with deps.bot_state_lock:
+                                    _ps.pop('_stop_loss_cooldown_until', None)
+                                deps.save_fn(force=True)
+                                _cd_revalidated = True
+                                logger.info(
+                                    "[A-3 REVALIDATE] %s — cooldown expiré "
+                                    "(fill il y a %.1fh, cooldown=%dh). Supprimé.",
+                                    backtest_pair,
+                                    (time.time() - _sell_ts) / 3600,
+                                    (_cd_candles * _candle_sec) // 3600,
+                                )
+                            else:
+                                # Cooldown still valid — adjust to correct value
+                                if abs(_correct_cd - _cd_until) > 60:
+                                    with deps.bot_state_lock:
+                                        _ps['_stop_loss_cooldown_until'] = _correct_cd
+                                    deps.save_fn(force=True)
+                                    _cd_revalidated = True
+                                    logger.info(
+                                        "[A-3 REVALIDATE] %s — cooldown corrigé: "
+                                        "%.0f min restantes (était %.0f min)",
+                                        backtest_pair,
+                                        (_correct_cd - time.time()) / 60,
+                                        (_cd_until - time.time()) / 60,
+                                    )
+                except Exception as _cd_err:
+                    logger.warning(
+                        "[A-3 REVALIDATE] %s — impossible de vérifier: %s",
+                        backtest_pair, _cd_err,
+                    )
+                if not _cd_revalidated:
+                    logger.info(
+                        "[A-3 COOLDOWN] %s — cooldown actif: %.0f min restantes",
+                        backtest_pair, (_cd_until - time.time()) / 60,
+                    )
+
         # Nettoyer les champs d'entrée stales quand pas de position réelle
         if not local_in_position and backtest_pair in deps.bot_state:
             _ps = deps.bot_state[backtest_pair]

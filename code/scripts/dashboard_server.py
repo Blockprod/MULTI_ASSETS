@@ -26,9 +26,10 @@ import os
 import re
 import sys
 import time
+import threading
 import urllib.request
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from typing import Any
 
 BASE_DIR     = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -355,570 +356,635 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="darkreader-lock">
   <title>MULTI_ASSETS | Spot Monitor</title>
-  <style>
-    :root {
-      --bg-0: #06080d;
-      --bg-1: #0c1017;
-      --bg-2: #111820;
-      --bg-3: #19212d;
-      --border: #1e2a3a;
-      --border-accent: #2a3a52;
-      --text-0: #e8edf5;
-      --text-1: #a4b1c7;
-      --text-2: #6b7a94;
-      --text-3: #3f4f66;
-      --accent: #3b82f6;
-      --accent-dim: #1e3a5f;
-      --green: #10b981;
-      --green-dim: #064e3b;
-      --red: #ef4444;
-      --red-dim: #4c1414;
-      --yellow: #f59e0b;
-      --yellow-dim: #4a3508;
-      --cyan: #06b6d4;
-      --purple: #8b5cf6;
-      --font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
-      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=optional" rel="stylesheet">
+  <script>
+    // Purge any residual service workers
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(r) {
+        r.forEach(function(sw) { sw.unregister(); });
+      });
     }
+  </script>
+  <style>
+    /* ==========================================================
+       CARBON g100 Dark Theme — AlphaEdge Navy Palette
+       IBM Carbon Design System patterns + AlphaEdge color base
+       ========================================================== */
+    :root {
+      /* ── Background layers (AlphaEdge navy mapped to Carbon g100) ── */
+      --cds-background:       #06080d;
+      --cds-layer-01:         #0c1017;
+      --cds-layer-02:         #111820;
+      --cds-layer-03:         #19212d;
+      --cds-layer-hover-01:   #101824;
+      --cds-layer-hover-02:   #162030;
+      --cds-layer-active:     #1e2a3a;
+      --cds-layer-selected:   #152030;
+      /* ── Borders ── */
+      --cds-border-subtle:    #1e2a3a;
+      --cds-border-strong:    #2a3a52;
+      --cds-border-interactive:#3b82f6;
+      --cds-border-disabled:  rgba(110,130,160,0.2);
+      /* ── Text (Carbon g100 luminance steps) ── */
+      --cds-text-primary:     #e8edf5;
+      --cds-text-secondary:   #a4b1c7;
+      --cds-text-helper:      #6b7a94;
+      --cds-text-placeholder: #3f4f66;
+      --cds-text-on-color:    #ffffff;
+      --cds-text-inverse:     #06080d;
+      /* ── Interactive / Accent ── */
+      --cds-interactive:      #3b82f6;
+      --cds-link-primary:     #78a9ff;
+      --cds-focus:            #ffffff;
+      /* ── Support / Semantic ── */
+      --cds-support-success:  #10b981;
+      --cds-support-error:    #ef4444;
+      --cds-support-warning:  #f59e0b;
+      --cds-support-info:     #06b6d4;
+      /* ── Extended semantic ── */
+      --green:     #10b981;  --green-dim:  #064e3b;
+      --red:       #ef4444;  --red-dim:    #4c1414;
+      --yellow:    #f59e0b;  --yellow-dim: #4a3508;
+      --cyan:      #06b6d4;  --purple:     #8b5cf6;
+      /* ── Typography (IBM Plex) ── */
+      --cds-body-01:    14px/1.43 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --cds-label-01:   12px/1.34 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --cds-helper-01:  12px/1.34 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --cds-code-01:    12px/1.34 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+      --cds-code-02:    14px/1.43 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+      --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+      /* ── Spacing (Carbon 2x grid) ── */
+      --cds-spacing-03: 8px;   --cds-spacing-04: 12px;
+      --cds-spacing-05: 16px;  --cds-spacing-06: 24px;
+      --cds-spacing-07: 32px;  --cds-spacing-08: 40px;
+      --cds-spacing-09: 48px;
+      /* ── Motion ── */
+      --cds-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+      --cds-duration-fast-01: 70ms;
+      --cds-duration-fast-02: 110ms;
+      --cds-duration-moderate-01: 150ms;
+      --cds-duration-moderate-02: 240ms;
+    }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { height: 100%; }
     body {
-      font-family: var(--font-sans);
-      background: var(--bg-0);
-      color: var(--text-0);
-      font-size: 13px;
-      line-height: 1.4;
-      overflow-x: hidden;
+      font: var(--cds-body-01);
+      background: var(--cds-background);
+      color: var(--cds-text-primary);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
       height: 100%;
       display: flex;
       flex-direction: column;
+      overflow-x: hidden;
     }
+    ::selection { background: var(--cds-interactive); color: var(--cds-text-on-color); }
 
-    /* --- TOP BAR --- */
-    .topbar {
+    /* ── SCROLLBAR (Carbon-style thin) ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--cds-border-strong); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--cds-text-helper); }
+
+    /* ═══════════════════════════════════════════
+       CARBON UI SHELL — Header (48px)
+       ═══════════════════════════════════════════ */
+    .cds--header {
+      height: 48px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 8px 20px;
-      background: var(--bg-1);
-      border-bottom: 1px solid var(--border);
+      padding: 0 var(--cds-spacing-05);
+      background: var(--cds-layer-01);
+      border-bottom: 1px solid var(--cds-border-subtle);
       flex-shrink: 0;
-      z-index: 100;
+      z-index: 8000;
     }
-    .topbar-left {
+    .cds--header__left {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: var(--cds-spacing-05);
+      height: 100%;
     }
-    .logo {
+    .cds--header__prefix {
+      display: flex;
+      align-items: center;
+      height: 100%;
+      padding-right: var(--cds-spacing-05);
+      border-right: 1px solid var(--cds-border-subtle);
       font-family: var(--font-mono);
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--accent);
-      letter-spacing: 2px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--cds-interactive);
     }
-    .logo span { color: var(--text-2); font-weight: 400; }
-    .mode-badge {
+    .cds--header__name {
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--cds-text-secondary);
+      letter-spacing: 0.16px;
+    }
+    .cds--header__right {
+      display: flex;
+      align-items: center;
+      gap: var(--cds-spacing-05);
+      font: var(--cds-code-01);
+      color: var(--cds-text-helper);
+    }
+    .cds--header__right .sep { color: var(--cds-border-subtle); }
+    .cds--header__right .val { color: var(--cds-text-secondary); }
+
+    /* ═══════════════════════════════════════════
+       CARBON TAGS — Status badge in header
+       ═══════════════════════════════════════════ */
+    .cds--tag {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 3px 10px;
-      border-radius: 4px;
-      font-size: 11px;
+      height: 24px;
+      padding: 0 8px;
+      font: var(--cds-label-01);
       font-weight: 600;
       font-family: var(--font-mono);
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 0.32px;
+      white-space: nowrap;
+      border-radius: 100px;
     }
-    .mode-badge.live { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
-    .mode-badge.disconnected { background: var(--red-dim); color: var(--red); border: 1px solid var(--red); }
-    .mode-badge.halted { background: var(--red-dim); color: var(--red); border: 1px solid var(--red); }
-    .mode-badge.paused { background: var(--yellow-dim); color: var(--yellow); border: 1px solid var(--yellow); }
+    .cds--tag--green  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(16,185,129,0.3); }
+    .cds--tag--red    { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(239,68,68,0.3); }
+    .cds--tag--yellow { background: var(--yellow-dim); color: var(--yellow); border: 1px solid rgba(245,158,11,0.3); }
+
     .status-dot {
       width: 8px; height: 8px; border-radius: 50%;
-      display: inline-block;
+      display: inline-block; flex-shrink: 0;
     }
-    .status-dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
-    .status-dot.warn { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
-    .status-dot.err { background: var(--red); box-shadow: 0 0 6px var(--red); animation: pulse 1.5s infinite; }
-    @keyframes pulse {
-      0%,100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-    .topbar-right {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--text-2);
-    }
-    .topbar-right .tick { color: var(--text-1); }
+    .status-dot.ok   { background: var(--green);  box-shadow: 0 0 8px var(--green); }
+    .status-dot.warn { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+    .status-dot.err  { background: var(--red);    box-shadow: 0 0 8px var(--red); animation: pulse-dot 1.5s ease infinite; }
+    @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
-    /* --- MAIN GRID --- */
-    .dashboard {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr 1fr;
-      grid-template-rows: auto 1fr 1fr auto;
-      gap: 1px;
-      padding: 1px;
-      background: var(--border);
+    /* ═══════════════════════════════════════════
+       CARBON INLINE NOTIFICATIONS — Banners
+       ═══════════════════════════════════════════ */
+    .cds--inline-notification {
+      display: none;
+      align-items: center;
+      gap: var(--cds-spacing-04);
+      padding: var(--cds-spacing-04) var(--cds-spacing-05);
+      font: var(--cds-body-01);
+      font-weight: 500;
+      letter-spacing: 0.16px;
+      border-left: 3px solid;
+      flex-shrink: 0;
+    }
+    .cds--inline-notification.visible { display: flex; }
+    .cds--inline-notification--error {
+      background: var(--red-dim);
+      border-color: var(--red);
+      color: var(--red);
+    }
+    .cds--inline-notification__icon { font-size: 20px; flex-shrink: 0; line-height: 1; }
+
+    /* ═══════════════════════════════════════════
+       MAIN CONTENT — Carbon flex column
+       ═══════════════════════════════════════════ */
+    .cds--content {
       flex: 1;
       overflow: auto;
-    }
-
-    /* --- PANELS --- */
-    .panel {
-      background: var(--bg-1);
-      padding: 14px 16px;
+      padding: var(--cds-spacing-05);
       display: flex;
       flex-direction: column;
-    }
-    .panel-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 10px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--border);
-    }
-    .panel-title {
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-      color: var(--text-2);
-    }
-    .panel-badge {
-      font-size: 10px;
-      font-family: var(--font-mono);
-      padding: 2px 6px;
-      border-radius: 3px;
-      background: var(--bg-3);
-      color: var(--text-2);
+      gap: var(--cds-spacing-05);
     }
 
-    /* --- KPI STRIP --- */
-    .kpi-strip {
-      grid-column: 1 / -1;
+    /* ═══════════════════════════════════════════
+       CARBON KPI STRIP — Metric tiles row
+       ═══════════════════════════════════════════ */
+    .cds--kpi-strip {
       display: grid;
-      grid-template-columns: repeat(7, 1fr);
+      grid-template-columns: repeat(7, minmax(0, 1fr));
       gap: 1px;
-      background: var(--border);
+      background: var(--cds-border-subtle);
+      border-radius: 0;
+      flex-shrink: 0;
+      min-height: 70px;
     }
-    .kpi {
-      background: var(--bg-1);
-      padding: 12px 16px;
+    .cds--kpi {
+      background: var(--cds-layer-01);
+      padding: var(--cds-spacing-05);
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
+      min-width: 0;
+      border-top: 3px solid transparent;
+      transition: border-color var(--cds-duration-fast-02) var(--cds-ease),
+                  background var(--cds-duration-fast-02) var(--cds-ease);
     }
-    .kpi-label {
-      font-size: 10px;
-      font-weight: 600;
+    .cds--kpi:hover { border-top-color: var(--cds-interactive); background: var(--cds-layer-hover-01); }
+    .cds--kpi__label {
+      font: var(--cds-label-01);
+      font-weight: 500;
+      letter-spacing: 0.32px;
       text-transform: uppercase;
-      letter-spacing: 1px;
-      color: var(--text-2);
+      color: var(--cds-text-helper);
     }
     .kpi-value {
       font-family: var(--font-mono);
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--text-0);
-      line-height: 1.2;
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--cds-text-primary);
+      line-height: 1.3;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .kpi-sub {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--text-2);
+      font: var(--cds-helper-01);
+      color: var(--cds-text-placeholder);
+      letter-spacing: 0.32px;
     }
     .kpi-value.positive { color: var(--green); }
     .kpi-value.negative { color: var(--red); }
-    .kpi-value.warn { color: var(--yellow); }
-    .kpi-value.accent { color: var(--accent); }
+    .kpi-value.warn     { color: var(--yellow); }
+    .kpi-value.accent   { color: var(--cds-interactive); }
 
-    /* --- BANNERS --- */
-    .halt-banner {
-      display: none;
-      background: var(--red-dim);
-      border-bottom: 1px solid var(--red);
-      padding: 10px 16px;
-      text-align: center;
-      font-family: var(--font-mono);
-      font-size: 12px;
+    /* Progress bar (Carbon-style) */
+    .cds--progress-bar__track {
+      height: 4px;
+      background: var(--cds-layer-03);
+      overflow: hidden;
+      margin-top: 6px;
+    }
+    .cds--progress-bar__fill {
+      height: 100%;
+      transition: width 0.4s var(--cds-ease);
+    }
+
+    /* ═══════════════════════════════════════════
+       GRID ROWS — 2-column layout system
+       ═══════════════════════════════════════════ */
+    .cds--grid-row { display: grid; gap: var(--cds-spacing-05); }
+    .cds--grid-row--top    { grid-template-columns: 3fr 1fr; }
+    .cds--grid-row--bottom { grid-template-columns: 1fr 1fr; }
+
+    /* ═══════════════════════════════════════════
+       CARBON TILE — Container component
+       ═══════════════════════════════════════════ */
+    .cds--tile {
+      background: var(--cds-layer-01);
+      border: 1px solid var(--cds-border-subtle);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 0;
+    }
+    .cds--tile__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--cds-spacing-04) var(--cds-spacing-05);
+      border-bottom: 1px solid var(--cds-border-subtle);
+      flex-shrink: 0;
+    }
+    .cds--tile__title {
+      font-size: 14px;
       font-weight: 600;
-      color: var(--red);
-      letter-spacing: 1px;
-      flex-shrink: 0;
+      letter-spacing: 0.16px;
+      text-transform: uppercase;
+      color: var(--cds-text-secondary);
     }
-    .halt-banner.visible { display: block; }
-    .disconnected-banner {
-      display: none;
-      background: var(--red-dim);
-      border-bottom: 1px solid var(--red);
-      padding: 8px 16px;
-      text-align: center;
-      font-family: var(--font-mono);
-      font-size: 12px;
-      color: var(--red);
-      flex-shrink: 0;
+    .cds--tile__badge {
+      font: var(--cds-code-01);
+      font-weight: 600;
+      padding: 2px 10px;
+      background: var(--cds-layer-03);
+      color: var(--cds-link-primary);
+      border-radius: 100px;
+      letter-spacing: 0.32px;
     }
-    .disconnected-banner.visible { display: block; }
+    .cds--tile__body { padding: var(--cds-spacing-05); flex: 1; overflow: auto; }
+    .cds--tile__body--flush { padding: 0; }
 
-    /* --- POSITIONS TABLE --- */
-    .positions-panel { grid-column: 1 / 4; }
-    .data-table {
+    /* ═══════════════════════════════════════════
+       CARBON DATA TABLE
+       ═══════════════════════════════════════════ */
+    .cds--data-table {
       width: 100%;
       border-collapse: collapse;
-      font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 14px;
     }
-    .data-table th {
+    .cds--data-table th {
       text-align: left;
-      padding: 6px 8px;
-      font-size: 10px;
+      padding: 10px var(--cds-spacing-05);
+      font: var(--cds-label-01);
       font-weight: 600;
+      letter-spacing: 0.32px;
+      color: var(--cds-text-helper);
+      background: var(--cds-layer-02);
+      border-bottom: 1px solid var(--cds-border-subtle);
       text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--text-3);
-      border-bottom: 1px solid var(--border-accent);
       white-space: nowrap;
     }
-    .data-table th.right, .data-table td.right { text-align: right; }
-    .data-table td {
-      padding: 5px 8px;
-      border-bottom: 1px solid var(--bg-3);
-      color: var(--text-1);
+    .cds--data-table th.right, .cds--data-table td.right { text-align: right; }
+    .cds--data-table td {
+      padding: 8px var(--cds-spacing-05);
+      border-bottom: 1px solid var(--cds-border-subtle);
+      color: var(--cds-text-secondary);
+      font-family: var(--font-mono);
+      font-size: 13px;
       white-space: nowrap;
+      transition: background var(--cds-duration-fast-01) var(--cds-ease);
     }
-    .data-table tr:hover td { background: var(--bg-2); }
-    .pnl-pos { color: var(--green); }
-    .pnl-neg { color: var(--red); }
-    .sl-ok { color: var(--green); }
+    .cds--data-table tbody tr:hover td { background: var(--cds-layer-hover-01); }
+    .pnl-pos { color: var(--green) !important; }
+    .pnl-neg { color: var(--red)   !important; }
+    .sl-ok      { color: var(--green); }
     .sl-missing { color: var(--red); font-weight: 600; }
     .trailing-on { color: var(--cyan); }
+
     .empty-state {
       display: flex;
       align-items: center;
       justify-content: center;
-      flex: 1;
-      color: var(--text-3);
-      font-size: 12px;
-      font-style: italic;
-      min-height: 40px;
+      padding: var(--cds-spacing-09) var(--cds-spacing-05);
+      color: var(--cds-text-placeholder);
+      font-size: 14px;
+      min-height: 80px;
     }
-    .panel { overflow: auto; min-height: 0; }
 
-    /* --- SYSTEM PANEL --- */
-    .system-panel { grid-column: 4 / 5; }
-    .sys-row {
+    /* ═══════════════════════════════════════════
+       STATUS BADGES — Operational tags
+       ═══════════════════════════════════════════ */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      height: 20px;
+      padding: 0 8px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.32px;
+      white-space: nowrap;
+      border-radius: 100px;
+    }
+    .status-badge.long    { background: var(--green-dim);  color: var(--green); }
+    .status-badge.waiting { background: var(--cds-layer-03); color: var(--cds-text-helper); }
+    .status-badge.oos     { background: var(--red-dim);    color: var(--red); }
+    .status-badge.halted  { background: var(--yellow-dim); color: var(--yellow); }
+
+    /* ═══════════════════════════════════════════
+       CARBON STRUCTURED LIST — System panel
+       ═══════════════════════════════════════════ */
+    .cds--structured-list { width: 100%; }
+    .cds--structured-list__row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 5px 0;
-      border-bottom: 1px solid var(--bg-3);
+      padding: 9px 0;
+      border-bottom: 1px solid var(--cds-border-subtle);
     }
-    .sys-row:last-child { border-bottom: none; }
-    .sys-label { font-size: 11px; color: var(--text-2); }
-    .sys-value {
+    .cds--structured-list__row:last-child { border-bottom: none; }
+    .cds--structured-list__label {
+      font: var(--cds-body-01);
+      color: var(--cds-text-helper);
+    }
+    .cds--structured-list__value {
       font-family: var(--font-mono);
-      font-size: 12px;
-      color: var(--text-1);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--cds-text-primary);
     }
 
-    /* --- PAIRS OVERVIEW --- */
-    .pairs-panel { grid-column: 1 / 3; }
-    .pairs-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-family: var(--font-mono);
-      font-size: 11px;
-    }
-    .pairs-table th {
-      text-align: left;
-      padding: 6px 8px;
-      font-size: 10px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--text-3);
-      border-bottom: 1px solid var(--border-accent);
-      white-space: nowrap;
-    }
-    .pairs-table td {
-      padding: 5px 8px;
-      border-bottom: 1px solid var(--bg-3);
-      color: var(--text-1);
-      white-space: nowrap;
-    }
-    .pairs-table tr:hover td { background: var(--bg-2); }
-    .status-badge {
-      display: inline-block;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.5px;
-    }
-    .status-badge.long { background: var(--green-dim); color: var(--green); }
-    .status-badge.waiting { background: var(--bg-3); color: var(--text-2); }
-    .status-badge.oos { background: var(--red-dim); color: var(--red); }
-    .status-badge.halted { background: var(--yellow-dim); color: var(--yellow); }
-
-    /* --- RISK PANEL --- */
-    .risk-panel { grid-column: 3 / 5; }
-    .risk-grid {
+    /* ═══════════════════════════════════════════
+       RISK GRID — 2x4 metric tiles
+       ═══════════════════════════════════════════ */
+    .cds--risk-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 1px;
-      background: var(--border);
-      border-radius: 4px;
-      overflow: hidden;
+      background: var(--cds-border-subtle);
     }
-    .risk-item {
-      background: var(--bg-1);
-      padding: 10px 12px;
+    .cds--risk-item {
+      background: var(--cds-layer-01);
+      padding: var(--cds-spacing-05);
     }
-    .risk-label {
-      font-size: 10px;
+    .cds--risk-label {
+      font: var(--cds-label-01);
+      letter-spacing: 0.32px;
+      color: var(--cds-text-placeholder);
+      margin-bottom: 4px;
       text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--text-3);
-      margin-bottom: 2px;
     }
-    .risk-value {
+    .cds--risk-value {
       font-family: var(--font-mono);
       font-size: 16px;
       font-weight: 600;
-      color: var(--text-0);
+      color: var(--cds-text-primary);
     }
 
-    /* --- PROGRESS BAR --- */
-    .progress-track {
-      height: 4px;
-      background: var(--bg-3);
-      border-radius: 2px;
-      overflow: hidden;
-      margin-top: 4px;
-    }
-    .progress-fill {
-      height: 100%;
-      border-radius: 2px;
-      transition: width 0.5s ease;
-    }
-
-    /* --- ACTIVITY LOG --- */
-    .alerts-panel { grid-column: 1 / -1; }
+    /* ═══════════════════════════════════════════
+       ACTIVITY LOG — Monospace event stream
+       ═══════════════════════════════════════════ */
     .log-line {
       display: flex;
-      gap: 12px;
-      padding: 4px 0;
-      border-bottom: 1px solid var(--bg-3);
-      font-family: var(--font-mono);
-      font-size: 11px;
+      gap: var(--cds-spacing-05);
+      padding: 6px var(--cds-spacing-05);
+      border-bottom: 1px solid var(--cds-border-subtle);
+      font: var(--cds-code-01);
+      transition: background var(--cds-duration-fast-01) var(--cds-ease);
     }
-    .log-time { color: var(--text-3); min-width: 70px; }
+    .log-line:hover { background: var(--cds-layer-hover-01); }
+    .log-time { color: var(--cds-text-placeholder); min-width: 75px; }
     .log-level {
-      min-width: 50px;
+      min-width: 48px;
       font-weight: 600;
       text-transform: uppercase;
+      letter-spacing: 0.32px;
     }
-    .log-level.ok { color: var(--green); }
+    .log-level.ok   { color: var(--green); }
     .log-level.warn { color: var(--yellow); }
-    .log-level.err { color: var(--red); }
+    .log-level.err  { color: var(--red); }
     .log-level.info { color: var(--cyan); }
-    .log-msg { color: var(--text-1); }
-    .log-pair { color: var(--accent); min-width: 80px; }
+    .log-pair { color: var(--cds-link-primary); min-width: 85px; }
+    .log-msg  { color: var(--cds-text-secondary); }
 
-    /* --- RESPONSIVE --- */
+    /* ═══════════════════════════════════════════
+       RESPONSIVE — Carbon breakpoints
+       ═══════════════════════════════════════════ */
     @media (max-width: 1200px) {
-      .kpi-strip { grid-template-columns: repeat(4, 1fr); }
-      .dashboard { grid-template-columns: 1fr 1fr; }
-      .positions-panel { grid-column: 1 / -1; }
-      .system-panel { grid-column: 1 / -1; }
-      .pairs-panel { grid-column: 1 / -1; }
-      .risk-panel { grid-column: 1 / -1; }
-      .alerts-panel { grid-column: 1 / -1; }
+      .cds--kpi-strip        { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .cds--grid-row--top    { grid-template-columns: 1fr; }
+      .cds--grid-row--bottom { grid-template-columns: 1fr; }
     }
     @media (max-width: 768px) {
-      .kpi-strip { grid-template-columns: repeat(2, 1fr); }
-      .topbar { flex-direction: column; gap: 8px; }
+      .cds--kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .cds--header { flex-direction: column; height: auto; padding: 8px var(--cds-spacing-05); gap: 8px; }
     }
   </style>
 </head>
 <body>
 
-  <!-- TOP BAR -->
-  <div class="topbar">
-    <div class="topbar-left">
-      <div class="logo">MULTI_ASSETS <span>| SPOT MONITOR</span></div>
-      <div class="mode-badge live" id="mode-badge">
+  <!-- ═══ CARBON UI SHELL HEADER ═══ -->
+  <header class="cds--header">
+    <div class="cds--header__left">
+      <div class="cds--header__prefix">MULTI_ASSETS</div>
+      <span class="cds--header__name">Spot Monitor</span>
+      <div class="cds--tag cds--tag--green" id="mode-badge">
         <span class="status-dot ok" id="status-dot"></span>
         <span id="mode-text">LIVE</span>
       </div>
     </div>
-    <div class="topbar-right">
-      <span>CYCLE <span class="tick" id="loop-counter">--</span></span>
-      <span>|</span>
-      <span id="bot-status">--</span>
-      <span>|</span>
-      <span id="clock">--:--:--</span>
+    <div class="cds--header__right">
+      <span>Cycle <span class="val" id="loop-counter">--</span></span>
+      <span class="sep">|</span>
+      <span class="val" id="bot-status">--</span>
+      <span class="sep">|</span>
+      <span class="val" id="clock">--:--:--</span>
     </div>
-  </div>
+  </header>
 
-  <!-- BANNERS (outside grid for clean layout) -->
-  <div class="disconnected-banner" id="disconnect-banner">
-    BOT DISCONNECTED -- No heartbeat detected. Check PM2 process or start the bot.
+  <!-- ═══ CARBON INLINE NOTIFICATIONS ═══ -->
+  <div class="cds--inline-notification cds--inline-notification--error" id="disconnect-banner">
+    <span class="cds--inline-notification__icon">&#9888;</span>
+    Bot disconnected &mdash; no heartbeat detected. Check PM2 process.
   </div>
-  <div class="halt-banner" id="halt-banner">
+  <div class="cds--inline-notification cds--inline-notification--error" id="halt-banner">
+    <span class="cds--inline-notification__icon">&#9888;</span>
     EMERGENCY HALT ACTIVE
   </div>
 
-  <!-- DASHBOARD -->
-  <div class="dashboard" id="dashboard">
+  <!-- ═══ MAIN CONTENT ═══ -->
+  <main class="cds--content">
 
     <!-- KPI STRIP -->
-    <div class="kpi-strip">
-      <div class="kpi">
-        <div class="kpi-label">USDC Balance</div>
+    <div class="cds--kpi-strip">
+      <div class="cds--kpi">
+        <div class="cds--kpi__label">USDC Balance</div>
         <div class="kpi-value accent" id="kpi-balance">--</div>
         <div class="kpi-sub" id="kpi-balance-sub">&nbsp;</div>
       </div>
-      <div class="kpi">
-        <div class="kpi-label">Daily P&amp;L</div>
+      <div class="cds--kpi">
+        <div class="cds--kpi__label">Daily P&amp;L</div>
         <div class="kpi-value" id="kpi-daily-pnl">--</div>
         <div class="kpi-sub" id="kpi-daily-pct">&nbsp;</div>
       </div>
-      <div class="kpi">
-        <div class="kpi-label">Cumulative P&amp;L</div>
+      <div class="cds--kpi">
+        <div class="cds--kpi__label">Cumulative P&amp;L</div>
         <div class="kpi-value" id="kpi-cumul-pnl">--</div>
         <div class="kpi-sub" id="kpi-cumul-trades">&nbsp;</div>
       </div>
-      <div class="kpi">
-        <div class="kpi-label">Positions</div>
+      <div class="cds--kpi">
+        <div class="cds--kpi__label">Positions</div>
         <div class="kpi-value accent" id="kpi-positions">--</div>
         <div class="kpi-sub" id="kpi-pairs-count">&nbsp;</div>
       </div>
-      <div class="kpi">
-        <div class="kpi-label">Daily Loss Limit</div>
+      <div class="cds--kpi">
+        <div class="cds--kpi__label">Daily Loss Limit</div>
         <div class="kpi-value" id="kpi-daily-loss">--</div>
         <div class="kpi-sub" id="kpi-daily-loss-sub">&nbsp;</div>
-        <div class="progress-track"><div class="progress-fill" id="loss-progress" style="width:0%;background:var(--green)"></div></div>
+        <div class="cds--progress-bar__track"><div class="cds--progress-bar__fill" id="loss-progress" style="width:0%;background:var(--green)"></div></div>
       </div>
-      <div class="kpi">
-        <div class="kpi-label">OOS Blocked</div>
+      <div class="cds--kpi">
+        <div class="cds--kpi__label">OOS Blocked</div>
         <div class="kpi-value" id="kpi-oos">--</div>
         <div class="kpi-sub" id="kpi-oos-sub">&nbsp;</div>
       </div>
-      <div class="kpi">
-        <div class="kpi-label">Circuit Breaker</div>
+      <div class="cds--kpi">
+        <div class="cds--kpi__label">Circuit Breaker</div>
         <div class="kpi-value" id="kpi-circuit">--</div>
         <div class="kpi-sub" id="kpi-errors">&nbsp;</div>
       </div>
     </div>
 
-    <!-- OPEN POSITIONS TABLE -->
-    <div class="panel positions-panel">
-      <div class="panel-header">
-        <div class="panel-title">Open Positions</div>
-        <div class="panel-badge" id="pos-count">0</div>
+    <!-- ROW 1: Open Positions + System -->
+    <div class="cds--grid-row cds--grid-row--top">
+      <div class="cds--tile">
+        <div class="cds--tile__header">
+          <div class="cds--tile__title">Open Positions</div>
+          <div class="cds--tile__badge" id="pos-count">0</div>
+        </div>
+        <div class="cds--tile__body cds--tile__body--flush" id="positions-body">
+          <div class="empty-state">No open positions</div>
+        </div>
       </div>
-      <div id="positions-body">
-        <div class="empty-state">No open positions</div>
-      </div>
-    </div>
-
-    <!-- SYSTEM STATUS -->
-    <div class="panel system-panel">
-      <div class="panel-header">
-        <div class="panel-title">System</div>
-        <div class="panel-badge" id="sys-version">--</div>
-      </div>
-      <div id="system-rows">
-        <div class="sys-row"><span class="sys-label">PID</span><span class="sys-value" id="sys-pid">--</span></div>
-        <div class="sys-row"><span class="sys-label">Heartbeat</span><span class="sys-value" id="sys-heartbeat">--</span></div>
-        <div class="sys-row"><span class="sys-label">Circuit Mode</span><span class="sys-value" id="sys-circuit">--</span></div>
-        <div class="sys-row"><span class="sys-label">Error Count</span><span class="sys-value" id="sys-errors">--</span></div>
-        <div class="sys-row"><span class="sys-label">Loop Counter</span><span class="sys-value" id="sys-loop">--</span></div>
-        <div class="sys-row"><span class="sys-label">Taker Fee</span><span class="sys-value" id="sys-taker">--</span></div>
-        <div class="sys-row"><span class="sys-label">Maker Fee</span><span class="sys-value" id="sys-maker">--</span></div>
-        <div class="sys-row"><span class="sys-label">API Latency</span><span class="sys-value" id="sys-latency">--</span></div>
-        <div class="sys-row"><span class="sys-label">Metrics Update</span><span class="sys-value" id="sys-metrics-ts">--</span></div>
-        <div class="sys-row"><span class="sys-label">Last Refresh</span><span class="sys-value" id="sys-refresh">--</span></div>
-      </div>
-    </div>
-
-    <!-- PAIRS OVERVIEW -->
-    <div class="panel pairs-panel">
-      <div class="panel-header">
-        <div class="panel-title">Pairs Overview</div>
-        <div class="panel-badge" id="pairs-total">0</div>
-      </div>
-      <div id="pairs-body">
-        <div class="empty-state">No pairs configured</div>
+      <div class="cds--tile">
+        <div class="cds--tile__header">
+          <div class="cds--tile__title">System</div>
+          <div class="cds--tile__badge" id="sys-version">--</div>
+        </div>
+        <div class="cds--tile__body">
+          <div class="cds--structured-list" id="system-rows">
+            <div class="cds--structured-list__row"><span class="cds--structured-list__label">PID</span><span class="cds--structured-list__value" id="sys-pid">--</span></div>
+            <div class="cds--structured-list__row"><span class="cds--structured-list__label">Heartbeat</span><span class="cds--structured-list__value" id="sys-heartbeat">--</span></div>
+            <div class="cds--structured-list__row"><span class="cds--structured-list__label">Circuit Mode</span><span class="cds--structured-list__value" id="sys-circuit">--</span></div>
+            <div class="cds--structured-list__row"><span class="cds--structured-list__label">Error Count</span><span class="cds--structured-list__value" id="sys-errors">--</span></div>
+            <div class="cds--structured-list__row"><span class="cds--structured-list__label">Loop Counter</span><span class="cds--structured-list__value" id="sys-loop">--</span></div>
+            <div class="cds--structured-list__row"><span class="cds--structured-list__label">Taker Fee</span><span class="cds--structured-list__value" id="sys-taker">--</span></div>
+            <div class="cds--structured-list__row"><span class="cds--structured-list__label">Maker Fee</span><span class="cds--structured-list__value" id="sys-maker">--</span></div>
+            <div class="cds--structured-list__row"><span class="cds--structured-list__label">API Latency</span><span class="cds--structured-list__value" id="sys-latency">--</span></div>
+            <div class="cds--structured-list__row"><span class="cds--structured-list__label">Metrics Update</span><span class="cds--structured-list__value" id="sys-metrics-ts">--</span></div>
+            <div class="cds--structured-list__row"><span class="cds--structured-list__label">Last Refresh</span><span class="cds--structured-list__value" id="sys-refresh">--</span></div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- RISK & PERFORMANCE -->
-    <div class="panel risk-panel">
-      <div class="panel-header">
-        <div class="panel-title">Risk &amp; Performance</div>
-        <div class="panel-badge">live</div>
+    <!-- ROW 2: Pairs Overview + Risk & Performance -->
+    <div class="cds--grid-row cds--grid-row--bottom">
+      <div class="cds--tile">
+        <div class="cds--tile__header">
+          <div class="cds--tile__title">Pairs Overview</div>
+          <div class="cds--tile__badge" id="pairs-total">0</div>
+        </div>
+        <div class="cds--tile__body cds--tile__body--flush" id="pairs-body">
+          <div class="empty-state">No pairs configured</div>
+        </div>
       </div>
-      <div class="risk-grid" id="risk-grid">
-        <div class="risk-item">
-          <div class="risk-label">Cumul P&amp;L</div>
-          <div class="risk-value" id="r-cumul">--</div>
+      <div class="cds--tile">
+        <div class="cds--tile__header">
+          <div class="cds--tile__title">Risk &amp; Performance</div>
+          <div class="cds--tile__badge">Live</div>
         </div>
-        <div class="risk-item">
-          <div class="risk-label">Closed Trades</div>
-          <div class="risk-value" id="r-trades">--</div>
-        </div>
-        <div class="risk-item">
-          <div class="risk-label">Daily P&amp;L %</div>
-          <div class="risk-value" id="r-daily-pct">--</div>
-        </div>
-        <div class="risk-item">
-          <div class="risk-label">Starting Equity</div>
-          <div class="risk-value" id="r-equity">--</div>
-        </div>
-        <div class="risk-item">
-          <div class="risk-label">Emergency Halt</div>
-          <div class="risk-value" id="r-halt">--</div>
-        </div>
-        <div class="risk-item">
-          <div class="risk-label">OOS Blocked</div>
-          <div class="risk-value" id="r-oos">--</div>
-        </div>
-        <div class="risk-item">
-          <div class="risk-label">Taker Fee</div>
-          <div class="risk-value" id="r-taker">--</div>
-        </div>
-        <div class="risk-item">
-          <div class="risk-label">Unrealized P&amp;L</div>
-          <div class="risk-value" id="r-unrealized">--</div>
+        <div class="cds--tile__body cds--tile__body--flush">
+          <div class="cds--risk-grid" id="risk-grid">
+            <div class="cds--risk-item"><div class="cds--risk-label">Cumul P&amp;L</div><div class="cds--risk-value" id="r-cumul">--</div></div>
+            <div class="cds--risk-item"><div class="cds--risk-label">Closed Trades</div><div class="cds--risk-value" id="r-trades">--</div></div>
+            <div class="cds--risk-item"><div class="cds--risk-label">Daily P&amp;L %</div><div class="cds--risk-value" id="r-daily-pct">--</div></div>
+            <div class="cds--risk-item"><div class="cds--risk-label">Starting Equity</div><div class="cds--risk-value" id="r-equity">--</div></div>
+            <div class="cds--risk-item"><div class="cds--risk-label">Emergency Halt</div><div class="cds--risk-value" id="r-halt">--</div></div>
+            <div class="cds--risk-item"><div class="cds--risk-label">OOS Blocked</div><div class="cds--risk-value" id="r-oos">--</div></div>
+            <div class="cds--risk-item"><div class="cds--risk-label">Taker Fee</div><div class="cds--risk-value" id="r-taker">--</div></div>
+            <div class="cds--risk-item"><div class="cds--risk-label">Unrealized P&amp;L</div><div class="cds--risk-value" id="r-unrealized">--</div></div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- ACTIVITY LOG -->
-    <div class="panel alerts-panel">
-      <div class="panel-header">
-        <div class="panel-title">Activity Log</div>
-        <div class="panel-badge" id="log-count">0</div>
+    <div class="cds--tile" style="flex-shrink:0">
+      <div class="cds--tile__header">
+        <div class="cds--tile__title">Activity Log</div>
+        <div class="cds--tile__badge" id="log-count">0</div>
       </div>
-      <div id="log-body">
+      <div class="cds--tile__body cds--tile__body--flush" id="log-body">
         <div class="empty-state">Waiting for data...</div>
       </div>
     </div>
 
-  </div>
+  </main>
 
   <script>
     // ================================================================
-    // MULTI_ASSETS Dashboard -- Data Engine
-    // Polls /api/data every 5s via client-side fetch (no page reload)
+    // MULTI_ASSETS Dashboard — Data Engine (Carbon Edition)
+    // Polls /api/data every 5s via client-side fetch
     // ================================================================
     const POLL_MS = 5000;
     const LOG_MAX = 40;
@@ -1005,7 +1071,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         return;
       }
 
-      let html = '<table class="data-table"><thead><tr>'
+      let html = '<table class="cds--data-table"><thead><tr>'
         + '<th>Pair</th>'
         + '<th class="right">Entry</th>'
         + '<th class="right">Current</th>'
@@ -1044,7 +1110,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         if (p.partial_taken_2) flags += '<span style="color:var(--purple);margin-left:4px" title="Partial 2 taken">P2</span>';
 
         html += '<tr>'
-          + '<td style="color:var(--accent);font-weight:600">' + escapeHtml(p.real_pair) + flags + '</td>'
+          + '<td style="color:var(--cds-link-primary);font-weight:600">' + escapeHtml(p.real_pair) + flags + '</td>'
           + '<td class="right">' + fmtNum(p.entry_price) + '</td>'
           + '<td class="right">' + fmtNum(p.spot_price) + '</td>'
           + '<td class="right">' + fmtNum(p.qty, 6) + '</td>'
@@ -1072,7 +1138,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         return;
       }
 
-      let html = '<table class="pairs-table"><thead><tr>'
+      let html = '<table class="cds--data-table"><thead><tr>'
         + '<th>Pair</th>'
         + '<th>Status</th>'
         + '<th>Price</th>'
@@ -1099,12 +1165,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         }
 
         html += '<tr>'
-          + '<td style="color:var(--accent)">' + escapeHtml(p.real_pair) + '</td>'
+          + '<td style="color:var(--cds-link-primary)">' + escapeHtml(p.real_pair) + '</td>'
           + '<td>' + statusBadge + '</td>'
-          + '<td style="font-family:var(--font-mono)">' + fmtNum(p.spot_price) + '</td>'
+          + '<td>' + fmtNum(p.spot_price) + '</td>'
           + '<td>' + lastExec + '</td>'
           + '<td>' + escapeHtml(p.scenario || '--') + '</td>'
-          + '<td style="font-family:var(--font-mono)">' + (p.execution_count || 0) + '</td>'
+          + '<td>' + (p.execution_count || 0) + '</td>'
           + '</tr>';
       }
       html += '</tbody></table>';
@@ -1132,7 +1198,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         // -- Connection state --
         if (!alive) {
           banner.classList.add('visible');
-          badge.className = 'mode-badge disconnected';
+          badge.className = 'cds--tag cds--tag--red';
           dot.className = 'status-dot err';
           $('mode-text').textContent = 'DISCONNECTED';
           $('bot-status').textContent = 'NO HEARTBEAT';
@@ -1140,8 +1206,6 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
             addLog('ERR', 'Bot heartbeat lost -- ' + fmtAge(d.age_seconds));
             _lastAlive = false;
           }
-          renderLog();
-          return;
         } else {
           banner.classList.remove('visible');
           if (_lastAlive === false) {
@@ -1153,8 +1217,9 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         // -- Halt state --
         if (d.emergency_halt) {
           haltBanner.classList.add('visible');
-          haltBanner.textContent = 'EMERGENCY HALT ACTIVE' + (d.halt_reason ? ' -- ' + d.halt_reason : '');
-          badge.className = 'mode-badge halted';
+          haltBanner.querySelector('.cds--inline-notification__icon').nextSibling.textContent =
+            ' EMERGENCY HALT ACTIVE' + (d.halt_reason ? ' \u2014 ' + d.halt_reason : '');
+          badge.className = 'cds--tag cds--tag--red';
           dot.className = 'status-dot err';
           $('mode-text').textContent = 'HALTED';
           $('bot-status').textContent = 'EMERGENCY HALT';
@@ -1167,11 +1232,11 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
           const circuitMode = (d.circuit_mode || 'default').toUpperCase();
           const isNominal = circuitMode === 'DEFAULT' || circuitMode === 'RUNNING';
           if (circuitMode === 'PAUSED' || circuitMode === 'ALERT' || circuitMode === 'UNKNOWN') {
-            badge.className = 'mode-badge paused';
+            badge.className = 'cds--tag cds--tag--yellow';
             dot.className = 'status-dot warn';
             $('mode-text').textContent = circuitMode;
           } else {
-            badge.className = 'mode-badge live';
+            badge.className = 'cds--tag cds--tag--green';
             dot.className = 'status-dot ok';
             $('mode-text').textContent = isNominal ? 'LIVE' : circuitMode;
           }
@@ -1236,7 +1301,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         $('sys-circuit').textContent = circuitText;
         $('sys-circuit').style.color = isCircuitOk ? 'var(--green)' : 'var(--yellow)';
         $('sys-errors').textContent = d.error_count;
-        $('sys-errors').style.color = d.error_count > 0 ? 'var(--red)' : 'var(--text-1)';
+        $('sys-errors').style.color = d.error_count > 0 ? 'var(--red)' : 'var(--cds-text-primary)';
         $('sys-loop').textContent = '#' + (d.loop_counter || 0);
         $('sys-taker').textContent = d.taker_fee ? (d.taker_fee * 100).toFixed(2) + '%' : '--';
         $('sys-maker').textContent = d.maker_fee ? (d.maker_fee * 100).toFixed(2) + '%' : '--';
@@ -1335,7 +1400,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+            self.send_header("Pragma", "no-cache")
             self.end_headers()
             self.wfile.write(body)
         elif self.path == "/api/data":
@@ -1344,7 +1410,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+            self.send_header("Pragma", "no-cache")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(body)
@@ -1366,8 +1433,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 # --- entry point ---------------------------------------------------------
 
+def _prewarm_cache() -> None:
+    """Warm up Binance balance cache in background so first /api/data is instant."""
+    try:
+        _fetch_usdc_balance()
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
-    server = HTTPServer(("127.0.0.1", PORT), DashboardHandler)
+    threading.Thread(target=_prewarm_cache, daemon=True).start()
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), DashboardHandler)
+    server.daemon_threads = True
     print(f"[DASHBOARD] Server started -> http://127.0.0.1:{PORT}/dashboard")
     print("[DASHBOARD] Ctrl+C to stop.")
     try:

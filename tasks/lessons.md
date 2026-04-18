@@ -348,3 +348,33 @@ ps.update({..., 'last_order_side': 'BUY', ...})
 deps.save_fn(force=True)  # OBLIGATOIRE — jamais save_fn() après un achat
 ```
 **Ref** : commit `5b48c42` · `order_manager.py` L1270, L1502, L923
+
+---
+
+### L-22 · SL exchange FILLED mais balance=0 → P0-BUY bloque indéfiniment
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-04-26
+
+**Contexte** : ONDOUSDC — SL STOP_LOSS_LIMIT rempli par Binance, balance tombe à exactement 0. Le bot répète `[BUY BLOCKED P0-BUY]` toutes les 2 min pendant 2+ heures. Aucun buy possible.
+**Erreur** : 3 chemins runtime échouent tous quand `coin_balance == 0` :
+1. `_check_and_execute_stop_loss` bails à `ctx.coin_balance <= 0` (L910) → ne détecte jamais le SL fill
+2. `_handle_dust_cleanup` : `coin_balance > min_qty * 0.01` faux quand balance=0 → pas de dust détecté
+3. `_sync_order_history` : partial-sell guard bloque la mise à jour `BUY→SELL` car `entry_price is not None`
+Seul le reconciler (startup) corrigeait l'état → si le bot ne redémarre pas, blocage permanent.
+**Fix** : Nouvelle fonction `_reconcile_zero_balance_sl()` appelée dans `_check_and_execute_stop_loss` quand `last_order_side='BUY'` et `coin_balance <= 0`. Vérifie le SL sur Binance, reset complet de l'état, email d'alerte.
+**Règle** : Tout guard `coin_balance > 0` dans le chemin SL doit avoir un fallback pour balance=0 avec last_order_side='BUY'.
+**Ref** : `order_manager.py` · `_reconcile_zero_balance_sl()`
+
+---
+
+### L-23 · Cooldown A-3 calculé depuis time.time() au lieu du fill Binance → blocage persistant
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-04-27
+
+**Contexte** : Après un SL fill, le reconciler et `_reconcile_zero_balance_sl` calculaient le cooldown A-3 avec `time.time()` (heure de réconciliation) au lieu du `updateTime` Binance (heure réelle du fill). Si le bot redémarre 27h après le fill, le cooldown (12h) est recalculé depuis maintenant → bloque 12h de plus alors que le vrai cooldown a expiré depuis 15h.
+**Erreur 2** : `entry_timeframe` lu APRÈS `update_pair_state(reset)` → toujours `None` → fallback 1h au lieu du vrai 4h.
+**Erreur 3** : La valeur stale `_stop_loss_cooldown_until` persiste dans bot_state.json. Le fix du calcul ne corrige que les NOUVEAUX cooldowns, pas la valeur déjà écrite.
+**Fix** :
+1. Cooldown utilise `updateTime` de l'ordre Binance (ms → s) comme base
+2. `_saved_entry_tf` extrait AVANT le reset de pair_state
+3. Branche "cohérent" du reconciler : startup re-validation — si cooldown > now mais le fill Binance est assez ancien → recalcule ou supprime
+**Règle** : Tout cooldown basé sur un event exchange doit utiliser le timestamp exchange, jamais `time.time()`. Les valeurs persistées doivent être re-validées au startup.
+**Ref** : `position_reconciler.py` · `order_manager.py`

@@ -899,16 +899,185 @@ def _handle_manual_sl_trigger(
     return True
 
 
+def _reconcile_zero_balance_sl(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
+    """Reconcile pair_state when balance=0 but last_order_side='BUY'.
+
+    The SL was filled by Binance (or position closed externally) but
+    _handle_exchange_sl_fill was never reached because coin_balance was already 0
+    when the bot checked.  This resets pair_state so P0-BUY no longer blocks.
+
+    Returns True (position handled — caller should ``return``).
+    """
+    ps = ctx.pair_state
+    sl_oid = ps.get('sl_order_id')
+    _fill_price: float = ctx.current_price
+    _fill_qty: float = 0.0
+    _sl_was_filled = False
+    _sl_fill_ts: float = 0.0  # epoch seconds — actual Binance fill time
+
+    # ── Query Binance for SL order status ──────────────────────────
+    if sl_oid:
+        try:
+            sl_info = deps.client.get_order(
+                symbol=ctx.real_trading_pair, orderId=sl_oid,
+            )
+            sl_status = sl_info.get('status', '')
+            if sl_status == 'FILLED':
+                _sl_was_filled = True
+                eq = float(sl_info.get('executedQty', 0))
+                cq = float(sl_info.get('cummulativeQuoteQty', 0))
+                _ut = sl_info.get('updateTime', 0)
+                if _ut:
+                    _sl_fill_ts = float(_ut) / 1000.0  # ms → s
+                if eq > 0:
+                    _fill_qty = eq
+                if eq > 0 and cq > 0:
+                    _fill_price = cq / eq
+                logger.info(
+                    "[SL-RECONCILE] Ordre SL %s FILLED — prix moyen %.4f, qty %.8f",
+                    sl_oid, _fill_price, _fill_qty,
+                )
+            else:
+                logger.warning(
+                    "[SL-RECONCILE] SL %s status=%s mais balance=0 — "
+                    "position fermée hors SL.",
+                    sl_oid, sl_status,
+                )
+        except Exception as e:
+            logger.warning("[SL-RECONCILE] Erreur vérification SL %s: %s", sl_oid, e)
+    else:
+        logger.warning(
+            "[SL-RECONCILE] %s — Pas de sl_order_id et balance=0 — "
+            "position fermée hors bot.",
+            ctx.backtest_pair,
+        )
+
+    # ── Log & email alert ──────────────────────────────────────────
+    _entry_px = ps.get('entry_price') or 0
+    _pnl_pct = ((_fill_price / _entry_px) - 1) * 100 if _entry_px > 0 else None
+    logger.critical(
+        "[SL-RECONCILE] %s — balance=0, last_order_side='BUY' (entry=%.4f). "
+        "SL filled=%s. Reset → SELL.",
+        ctx.backtest_pair, _entry_px, _sl_was_filled,
+    )
+
+    if _sl_was_filled and _fill_qty > 0:
+        _usdc_received = _fill_qty * _fill_price
+        stop_loss_fixed = ps.get('stop_loss_at_entry')
+        trailing_stop = ps.get('trailing_stop', 0)
+        trailing_activated = ps.get('trailing_stop_activated', False)
+        is_trailing_stop = (
+            trailing_activated
+            and trailing_stop is not None
+            and stop_loss_fixed is not None
+            and trailing_stop > (stop_loss_fixed or 0)
+        )
+        stop_type = (
+            "TRAILING-STOP (dynamique)" if is_trailing_stop
+            else "STOP-LOSS (fixe à 3×ATR)"
+        )
+        subj, body = sell_executed_email(
+            pair=ctx.real_trading_pair, qty=_fill_qty,
+            price=_fill_price, usdc_received=_usdc_received,
+            sell_reason=f"{stop_type} — réconciliation balance=0",
+            pnl_pct=_pnl_pct,
+            extra_details=(
+                f"Prix d'entree : {_entry_px:.4f} USDC\n"
+                f"Timeframe : {ctx.time_interval}\n"
+                f"Scenario : {ctx.scenario}\n"
+                f"Détecté via réconciliation runtime (balance=0)"
+            ),
+        )
+        try:
+            deps.send_alert_fn(subject=subj, body_main=body, client=deps.client)
+        except Exception as _email_err:
+            logger.error("[SL-RECONCILE] Échec envoi email: %s", _email_err)
+
+    # ── Complete state reset (mirrors _handle_exchange_sl_fill) ────
+    _saved_entry_price = ps.get('entry_price') or 0.0
+    ps.update({
+        'entry_price': None, 'max_price': None, 'stop_loss': None,
+        'trailing_stop': None, 'trailing_stop_activated': False,
+        'atr_at_entry': None, 'stop_loss_at_entry': None,
+        'trailing_activation_price_at_entry': None,
+        'initial_position_size': None,
+        'last_order_side': 'SELL',
+        'breakeven_triggered': False,
+        'entry_scenario': None, 'entry_timeframe': None,
+        'entry_ema1': None, 'entry_ema2': None,
+        'sl_order_id': None, 'sl_exchange_placed': False,
+    })
+
+    # A-3: cooldown post-stop-loss (use actual fill time, not current time)
+    _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
+    if _cd_candles > 0:
+        _candle_sec = TIMEFRAME_SECONDS.get(ctx.time_interval, 3600)
+        _cd_base = _sl_fill_ts if _sl_fill_ts > 0 else time.time()
+        _cd_until = _cd_base + (_cd_candles * _candle_sec)
+        if _cd_until > time.time():
+            ps['_stop_loss_cooldown_until'] = _cd_until
+            logger.info(
+                "[A-3 COOLDOWN] SL-reconcile: %.0f min restantes (basé sur fill time)",
+                (_cd_until - time.time()) / 60,
+            )
+        else:
+            logger.info(
+                "[A-3 COOLDOWN] SL-reconcile: cooldown déjà expiré (fill il y a %.1fh)",
+                (time.time() - _cd_base) / 3600,
+            )
+
+    deps.save_fn(force=True)
+
+    # Trade journal
+    _j_qty = _fill_qty or (ps.get('initial_position_size') or 0)
+    if _j_qty > 0:
+        try:
+            logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+            _pnl = (_fill_price - _saved_entry_price) * _j_qty if _saved_entry_price else None
+            _pnl_pct_j = ((_fill_price / _saved_entry_price) - 1) if _saved_entry_price else None
+            deps.update_daily_pnl_fn(_pnl)
+            _buy_ts = ps.get('buy_timestamp')
+            _dur = (time.time() - _buy_ts) if _buy_ts else None
+            log_trade(
+                logs_dir=logs_dir,
+                pair=ctx.real_trading_pair,
+                side='sell',
+                quantity=_j_qty,
+                price=_fill_price,
+                fee=_j_qty * deps.config.taker_fee * _fill_price,
+                scenario=ctx.scenario,
+                timeframe=ctx.time_interval,
+                pnl=_pnl,
+                pnl_pct=_pnl_pct_j,
+                extra={'sell_reason': 'SL_EXCHANGE_RECONCILE_ZERO_BAL', 'duration_s': _dur},
+            )
+        except Exception as _journal_err:
+            logger.error("[SL-RECONCILE] Erreur journal: %s", _journal_err)
+
+    display_closure_panel(
+        f"Réconciliation SL (balance=0)",
+        ctx.current_price, ctx.coin_symbol, ctx.coin_balance, deps.console,
+    )
+    ps['last_execution'] = datetime.now(timezone.utc).isoformat()
+    deps.save_fn()
+    return True
+
+
 def _check_and_execute_stop_loss(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
     """C-15: Vérifie et exécute le stop-loss/trailing. Retourne True si position fermée.
 
     P0-04: Dispatcher — calcule le stop effectif, puis délègue à :
       _handle_exchange_sl_fill (coins verrouillés dans ordre exchange)
       _handle_manual_sl_trigger (coins libres, market-sell immédiat)
+      _reconcile_zero_balance_sl (balance=0, SL rempli par Binance)
     """
     ps = ctx.pair_state
-    if ps.get('last_order_side') != 'BUY' or ctx.coin_balance <= 0:
+    if ps.get('last_order_side') != 'BUY':
         return False
+
+    # ── Balance = 0 but state says BUY → SL filled or position closed externally
+    if ctx.coin_balance <= 0:
+        return _reconcile_zero_balance_sl(ctx, deps)
 
     stop_loss_fixed = ps.get('stop_loss_at_entry')  # Stop-loss FIXE à 3×ATR
     trailing_stop = ps.get('trailing_stop', 0)       # Trailing (si activé)
