@@ -1055,7 +1055,7 @@ def _reconcile_zero_balance_sl(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
             logger.error("[SL-RECONCILE] Erreur journal: %s", _journal_err)
 
     display_closure_panel(
-        f"Réconciliation SL (balance=0)",
+        "Réconciliation SL (balance=0)",
         ctx.current_price, ctx.coin_symbol, ctx.coin_balance, deps.console,
     )
     ps['last_execution'] = datetime.now(timezone.utc).isoformat()
