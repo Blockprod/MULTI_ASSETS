@@ -301,7 +301,7 @@ class TestUpdateTrailingStop:
         assert ps.get('trailing_stop_activated') is True
 
     def test_breakeven_stop_triggered(self):
-        """Profit >= breakeven_trigger_pct → stop_loss_at_entry remonté, breakeven_triggered=True."""
+        """Profit >= breakeven_trigger_pct → stop_loss remonté, breakeven_triggered=True, stop_loss_at_entry inchangé."""
         ps = {
             'last_order_side': 'BUY',
             'entry_price': 100.0,
@@ -310,6 +310,7 @@ class TestUpdateTrailingStop:
             'trailing_stop_activated': False,
             'max_price': 103.0,
             'stop_loss_at_entry': 94.0,
+            'stop_loss': 94.0,
             'breakeven_triggered': False,
         }
         # current_price=103 : profit 3% >= trigger 2%
@@ -317,7 +318,10 @@ class TestUpdateTrailingStop:
         deps = _make_deps()
         _update_trailing_stop(ctx, deps)
         assert ps.get('breakeven_triggered') is True
-        sl_val = ps.get('stop_loss_at_entry')
+        # stop_loss_at_entry remains immutable (original ATR SL)
+        assert ps.get('stop_loss_at_entry') == 94.0
+        # stop_loss (active SL) is raised to entry + slippage
+        sl_val = ps.get('stop_loss')
         assert sl_val is not None
         assert sl_val > 94.0  # remonté au prix d'entrée
 

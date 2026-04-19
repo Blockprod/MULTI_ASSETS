@@ -1496,12 +1496,18 @@ if __name__ == "__main__":
             logger.error("Impossible de valider la connexion API. Arret du programme.")
             exit(1)
 
-        # Récupération des frais réels depuis l'API Binance (P0-01: stockés dans _runtime)
+        # Récupération des frais réels depuis l'API Binance (P0-01: log only)
+        # Note: l'API retourne les frais VIP nominaux (sans remise BNB/promo).
+        # Les valeurs config (taker_fee/maker_fee) sont autoritatives.
         real_taker, real_maker = get_binance_trading_fees(client)
-        _runtime.taker_fee = real_taker
-        _runtime.maker_fee = real_maker
+        if abs(real_taker - _runtime.taker_fee) > 1e-6 or abs(real_maker - _runtime.maker_fee) > 1e-6:
+            logger.warning(
+                "[P0-01] Frais API Binance (%.5f/%.5f) différents de config (%.5f/%.5f) — "
+                "config conservée (peut inclure remise BNB/promo)",
+                real_taker, real_maker, _runtime.taker_fee, _runtime.maker_fee,
+            )
         logger.info(
-            "[P0-01] Frais live Binance: taker=%.5f maker=%.5f",
+            "[P0-01] Frais live utilisés: taker=%.5f maker=%.5f (source: config)",
             _runtime.taker_fee, _runtime.maker_fee,
         )
 

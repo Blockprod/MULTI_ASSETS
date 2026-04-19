@@ -79,7 +79,7 @@ def _restore_exchange_sl(ctx: '_TradeCtx', deps: '_TradingDeps', label: str) -> 
     ps = ctx.pair_state
     if ps.get('sl_exchange_placed'):
         return  # SL déjà actif
-    _sl_price = ps.get('stop_loss_at_entry') or ps.get('stop_loss')
+    _sl_price = ps.get('stop_loss') or ps.get('stop_loss_at_entry')
     if not _sl_price or ctx.coin_balance <= float(ctx.min_qty_dec):
         logger.warning("[%s] Impossible de restaurer SL: prix=%s, balance=%s", label, _sl_price, ctx.coin_balance)
         return
@@ -290,17 +290,17 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
             ps['trailing_stop'] = new_trailing
             logger.info(f"[TRAILING] Nouveau stop : {new_trailing:.4f} (max: {max_price:.4f})")
 
-    # B-3: Break-even stop — remonter stop_loss_at_entry au prix d'entrée dès que
+    # B-3: Break-even stop — remonter stop_loss au prix d'entrée dès que
     # le profit atteint breakeven_trigger_pct. Identique au backtest (backtest_runner.py).
+    # Note: stop_loss_at_entry reste immutable (SL original ATR).
     _be_enabled = getattr(config, 'breakeven_enabled', True)
     if _be_enabled and not ps.get('breakeven_triggered', False) and entry_price and entry_price > 0:
         if ctx.current_price is not None:
             _be_profit = (ctx.current_price - entry_price) / entry_price
             if _be_profit >= getattr(config, 'breakeven_trigger_pct', 0.02):
                 _be_new_stop = entry_price * (1 + deps.config.slippage_buy)
-                _current_sl = ps.get('stop_loss_at_entry') or 0
+                _current_sl = ps.get('stop_loss') or 0
                 if _be_new_stop > _current_sl:
-                    ps['stop_loss_at_entry'] = _be_new_stop
                     ps['stop_loss'] = _be_new_stop
                     logger.info(
                         "[B-3 BREAKEVEN] Stop remonté au prix d'entrée + slippage : %.4f "
@@ -497,11 +497,8 @@ def _execute_one_partial(ctx: '_TradeCtx', deps: '_TradingDeps', *, partial_numb
             account_info = deps.client.get_account()
             _, ctx.coin_balance_free, ctx.coin_balance_locked, ctx.coin_balance = _get_coin_balance(account_info, ctx.coin_symbol)
 
-            # P5-DASH: mettre à jour initial_position_size pour refléter la position restante
-            ps['initial_position_size'] = ctx.coin_balance
-
             # F-1: Replacer SL exchange sur la quantité restante après partiel
-            _sl_price = ps.get('stop_loss_at_entry')
+            _sl_price = ps.get('stop_loss') or ps.get('stop_loss_at_entry')
             if _sl_price and ctx.coin_balance > ctx.min_qty:
                 try:
                     _remaining_dec = Decimal(str(ctx.coin_balance))
@@ -1079,7 +1076,7 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool
     if ctx.coin_balance <= 0:
         return _reconcile_zero_balance_sl(ctx, deps)
 
-    stop_loss_fixed = ps.get('stop_loss_at_entry')  # Stop-loss FIXE à 3×ATR
+    stop_loss_fixed = ps.get('stop_loss') or ps.get('stop_loss_at_entry')  # SL actif (breakeven/ATR), fallback legacy
     trailing_stop = ps.get('trailing_stop', 0)       # Trailing (si activé)
     trailing_activated = ps.get('trailing_stop_activated', False)
 
