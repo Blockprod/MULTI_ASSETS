@@ -519,12 +519,13 @@ def _execute_one_partial(ctx: '_TradeCtx', deps: '_TradingDeps', *, partial_numb
                 except Exception as _sl_err:
                     logger.warning("[%s] Échec replacement SL exchange: %s", label, _sl_err)
 
-            # Journal de trading
+            # Journal de trading + PnL journalier
             try:
                 logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
                 _entry_px = ps.get('entry_price') or 0
                 _pnl = (float(executed_price) - _entry_px) * float(qty_str) if _entry_px else None
                 _pnl_pct = ((float(executed_price) / _entry_px) - 1) if _entry_px else None
+                deps.update_daily_pnl_fn(_pnl)
                 _buy_ts = ps.get('buy_timestamp')
                 _duration_s = (time.time() - _buy_ts) if _buy_ts else None
                 log_trade(
@@ -683,6 +684,7 @@ def _handle_exchange_sl_fill(
         'trailing_activation_price_at_entry': None,
         'initial_position_size': None,
         'last_order_side': 'SELL',
+        'partial_taken_1': False, 'partial_taken_2': False,
         'breakeven_triggered': False,
         'entry_scenario': None, 'entry_timeframe': None,
         'entry_ema1': None, 'entry_ema2': None,
@@ -819,10 +821,13 @@ def _handle_manual_sl_trigger(
                 'trailing_stop': None, 'trailing_stop_activated': False,
                 'atr_at_entry': None, 'stop_loss_at_entry': None,
                 'trailing_activation_price_at_entry': None,
+                'initial_position_size': None,
                 'last_order_side': 'SELL',
+                'partial_taken_1': False, 'partial_taken_2': False,
                 'breakeven_triggered': False,
                 'entry_scenario': None, 'entry_timeframe': None,
                 'entry_ema1': None, 'entry_ema2': None,
+                'sl_order_id': None, 'sl_exchange_placed': False,
             })
 
             # A-3: cooldown post-stop-loss

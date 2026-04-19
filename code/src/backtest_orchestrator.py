@@ -273,11 +273,14 @@ def _execute_scheduled_trading(
                 best_result = deps.select_best_by_calmar_fn(_selection_pool)
                 best_profit = best_result['final_wallet'] - best_result['initial_wallet']
 
-                logger.info(f"[SCHEDULED] Meilleur resultat IS: {best_result['scenario']} sur {best_result['timeframe']} | Profit IS: ${best_profit:,.2f}")
+                logger.info(
+                    "[SCHEDULED] Meilleur resultat (Calmar, pool OOS=%d configs): %s sur %s | Profit IS: $%s",
+                    len(_selection_pool), best_result['scenario'], best_result['timeframe'], f"{best_profit:,.2f}",
+                )
 
                 # === AFFICHAGE DES RESULTATS ===
                 try:
-                    deps.display_results_fn(backtest_pair, backtest_results)
+                    deps.display_results_fn(backtest_pair, backtest_results, wf_config=_sched_wf_best)
                     logger.info(f"[SCHEDULED] Résultats affichés pour {backtest_pair}")
                     sys.stdout.flush()
                 except Exception as display_err:

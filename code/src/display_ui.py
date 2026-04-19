@@ -76,7 +76,7 @@ def display_buy_signal_panel(
     cond_grid.add_column("detail", style="dim")
 
     cond_grid.add_row("Stratégie active", "", f"[bold cyan]{_strategy_label}[/bold cyan]")
-    cond_grid.add_row("EMA1 > EMA2", _ok(row['ema1'] > row['ema2']), f"EMA1={row['ema1']:.2f}  EMA2={row['ema2']:.2f}")
+    cond_grid.add_row("EMA1 > EMA2", _ok(row['ema1'] > row['ema2']), f"EMA1={row['ema1']:.6f}  EMA2={row['ema2']:.6f}")
     cond_grid.add_row("StochRSI < 80%", _ok(row['stoch_rsi'] < 0.8), f"{row['stoch_rsi']*100:.1f}%")
     _buy_min = getattr(config, 'stoch_rsi_buy_min', 0.05)
     cond_grid.add_row(
@@ -170,9 +170,9 @@ def display_sell_signal_panel(
         _scenario = best_params.get('scenario', '?')
         sell_grid.add_row("Stratégie active", "", f"[bold cyan]{_scenario} EMA({_ema1_p}/{_ema2_p}) {_tf}[/bold cyan]")
 
-    sell_grid.add_row("EMA2 > EMA1", _ok(row['ema2'] > row['ema1']), "")
+    sell_grid.add_row("EMA2 > EMA1", _ok(row['ema2'] > row['ema1']), f"EMA1={row['ema1']:.6f}  EMA2={row['ema2']:.6f}")
     _stoch_exit = getattr(config, 'stoch_rsi_sell_exit', 0.4)
-    sell_grid.add_row(f"StochRSI > {_stoch_exit * 100:.0f}%", _ok(row['stoch_rsi'] > _stoch_exit), "")
+    sell_grid.add_row(f"StochRSI > {_stoch_exit * 100:.0f}%", _ok(row['stoch_rsi'] > _stoch_exit), f"{row['stoch_rsi']*100:.1f}%")
     sell_grid.add_row(f"Solde {coin_symbol} > 0", _ok(coin_balance > 0), "")
 
     # Sell reason
