@@ -411,7 +411,7 @@ def display_market_changes(changes: Dict[str, Any], pair: str, console: Optional
 MAX_TABLE_ROWS = 15  # Show top N results in backtest tables
 
 
-def display_results_for_pair(backtest_pair: str, results: List[Dict], console: Optional[Console] = None):
+def display_results_for_pair(backtest_pair: str, results: List[Dict], console: Optional[Console] = None, wf_config: Optional[Dict] = None):
     """Affiche les résultats d'une paire de façon claire et organisée."""
     _console = console or globals()['console']
 
@@ -439,18 +439,25 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict], console: O
 
     # Best result panel — displayed FIRST for immediate visibility
     champion_grid = Table(box=None, show_header=False, pad_edge=False, show_edge=False, padding=(0, 2))
-    champion_grid.add_column("label", width=18, no_wrap=True)
+    champion_grid.add_column("label", width=22, no_wrap=True)
     champion_grid.add_column("value")
-    champion_grid.add_row("[bold green]\u2605 Scenario[/bold green]", f"[bold magenta]{best_result['scenario']}[/bold magenta]")
-    champion_grid.add_row("[cyan]  Timeframe[/cyan]", best_result['timeframe'])
-    champion_grid.add_row("[blue]  EMA[/blue]", f"{best_result['ema_periods'][0]} / {best_result['ema_periods'][1]}")
-    champion_grid.add_row("[yellow]  Profit[/yellow]", f"[bold bright_green]${best_profit:,.2f}[/bold bright_green]")
+    champion_grid.add_row("[bold green]\u2605 Scenario IS[/bold green]", f"[bold magenta]{best_result['scenario']}[/bold magenta]")
+    champion_grid.add_row("[cyan]  Timeframe IS[/cyan]", best_result['timeframe'])
+    champion_grid.add_row("[blue]  EMA IS[/blue]", f"{best_result['ema_periods'][0]} / {best_result['ema_periods'][1]}")
+    champion_grid.add_row("[yellow]  Profit IS[/yellow]", f"[bold bright_green]${best_profit:,.2f}[/bold bright_green]")
     champion_grid.add_row("[red]  Max Drawdown[/red]", f"{best_result['max_drawdown']*100:.2f}%")
     champion_grid.add_row("[cyan]  Win Rate[/cyan]", f"{best_result['win_rate']:.2f}%")
+    if wf_config:
+        wf_ema = wf_config.get('ema_periods', ['-', '-'])
+        champion_grid.add_row("[dim white]─────────────────────[/dim white]", "")
+        champion_grid.add_row("[bold yellow]  \u27a4 Config tradée (WF)[/bold yellow]",
+                              f"[bold yellow]{wf_config.get('scenario', '?')} {wf_config.get('timeframe', '?')} EMA({wf_ema[0]},{wf_ema[1]})[/bold yellow]")
+        champion_grid.add_row("[cyan]  OOS Sharpe[/cyan]",
+                              f"[bold cyan]{wf_config.get('avg_oos_sharpe', 0):.2f}[/bold cyan]")
 
     best_panel = Panel(
         champion_grid,
-        title=f"[bold bright_green]\u2605 CHAMPION \u2014 {backtest_pair} \u2605[/bold bright_green]",
+        title=f"[bold bright_green]\u2605 CHAMPION IS \u2014 {backtest_pair} \u2605[/bold bright_green]",
         subtitle=f"[dim]{len(results)} configurations testees[/dim]",
         border_style="bright_green",
         padding=(1, 3),
