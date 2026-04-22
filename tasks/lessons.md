@@ -378,3 +378,13 @@ Seul le reconciler (startup) corrigeait l'état → si le bot ne redémarre pas,
 3. Branche "cohérent" du reconciler : startup re-validation — si cooldown > now mais le fill Binance est assez ancien → recalcule ou supprime
 **Règle** : Tout cooldown basé sur un event exchange doit utiliser le timestamp exchange, jamais `time.time()`. Les valeurs persistées doivent être re-validées au startup.
 **Ref** : `position_reconciler.py` · `order_manager.py`
+
+---
+
+### L-24 · Export metrics — `pairs` peut contenir des dicts non hashables
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-04-22
+
+**Contexte** : Le scheduler appelle `write_metrics(...)` avec `pairs=[p['backtest_pair'] for p in crypto_pairs]`. Selon la forme de `crypto_pairs`, certaines entrées peuvent être des dicts complets (ou hybrides) au lieu de chaînes.
+**Erreur** : `bot_state.get(pair)` reçoit un dict comme clé → `TypeError: unhashable type: 'dict'` et warning récurrent `[METRICS] Échec écriture metrics.json`.
+**Règle** : Toute API utilitaire qui accepte une collection de paires doit normaliser les entrées en `str` et ignorer les éléments non résolvables. Supporter explicitement les clés `backtest_pair`, `real_pair`, `pair`, `symbol`.
+**Ref** : `metrics.py` · `_normalize_pairs()` + test `test_write_accepts_pairs_as_dict_entries`

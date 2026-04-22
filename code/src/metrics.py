@@ -42,7 +42,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,64 @@ _METRICS_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', '..', 'metrics')
 )
 _METRICS_FILE = os.path.join(_METRICS_DIR, 'metrics.json')
+
+
+def _normalize_pairs(
+    bot_state: Dict[str, Any],
+    pairs: Optional[list],
+    system_keys: set[str],
+) -> List[str]:
+    """Normalise la liste des paires pour produire une liste de clés hashables.
+
+    Le scheduler peut parfois fournir ``pairs`` sous forme de dicts (ex: objets
+    ``crypto_pairs``), ce qui provoque ``unhashable type: 'dict'`` lorsqu'on les
+    utilise comme clés de ``bot_state``. Cette fonction convertit/filtre les
+    entrées et tente une résolution robuste des suffixes USDT/USDC.
+    """
+    if pairs is None:
+        raw_pairs = list(bot_state.keys())
+    else:
+        raw_pairs = list(pairs)
+
+    out: List[str] = []
+    seen: set[str] = set()
+
+    for item in raw_pairs:
+        candidate: Optional[str] = None
+
+        if isinstance(item, str):
+            candidate = item
+        elif isinstance(item, dict):
+            for key in ('backtest_pair', 'real_pair', 'pair', 'symbol'):
+                value = item.get(key)
+                if isinstance(value, str) and value:
+                    candidate = value
+                    break
+
+        if not candidate or candidate in system_keys:
+            continue
+
+        # Résolution tolérante si la clé exacte n'existe pas dans bot_state.
+        resolved = None
+        probes = [candidate]
+        if candidate.endswith('USDT'):
+            probes.append(candidate[:-4] + 'USDC')
+        elif candidate.endswith('USDC'):
+            probes.append(candidate[:-4] + 'USDT')
+
+        for probe in probes:
+            if probe in bot_state:
+                resolved = probe
+                break
+
+        if resolved is None:
+            resolved = candidate
+
+        if resolved not in seen:
+            seen.add(resolved)
+            out.append(resolved)
+
+    return out
 
 
 def write_metrics(
@@ -71,8 +129,9 @@ def write_metrics(
     circuit_breaker : object, optional
         Instance du circuit breaker (``error_handler.circuit_breaker``).
         Utilisé pour lire ``is_available()``.
-    pairs : list of str, optional
-        Liste des paires actives (e.g. ``['BTCUSDC', 'ETHUSDC']``).
+    pairs : list, optional
+        Liste des paires actives (e.g. ``['BTCUSDC', 'ETHUSDC']``) ou liste
+        d'objets dict contenant ``backtest_pair``/``real_pair``.
         Si None, toutes les clés non-système de ``bot_state`` sont utilisées.
     api_latency_ms : float, optional
         Latence de la dernière requête API en millisecondes.
@@ -86,8 +145,7 @@ def write_metrics(
         # --- Sélectionner les paires ---
         _system_keys = {'emergency_halt', 'emergency_halt_reason', '_daily_pnl_tracker',
                         '_state_version', 'reconcile_failed'}
-        if pairs is None:
-            pairs = [k for k in bot_state.keys() if k not in _system_keys]
+        pairs = _normalize_pairs(bot_state, pairs, _system_keys)
 
         # --- Construire le snapshot paire par paire ---
         pairs_snapshot: Dict[str, Any] = {}

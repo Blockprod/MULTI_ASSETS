@@ -231,6 +231,37 @@ class TestWriteMetrics:
             _m._METRICS_FILE = original_file
             _m._METRICS_DIR = original_dir
 
+    def test_write_accepts_pairs_as_dict_entries(self, mock_runtime, sample_bot_state, tmp_path):
+        """write_metrics doit accepter une liste de dicts (crypto_pairs-like)."""
+        write_metrics, _ = _import_metrics()
+        import metrics as _m
+        original_file = _m._METRICS_FILE
+        original_dir = _m._METRICS_DIR
+
+        metrics_file = str(tmp_path / 'metrics.json')
+        _m._METRICS_FILE = metrics_file
+        _m._METRICS_DIR = str(tmp_path)
+        try:
+            result = write_metrics(
+                bot_state=sample_bot_state,
+                runtime=mock_runtime,
+                pairs=[
+                    {'backtest_pair': 'BTCUSDC'},
+                    {'real_pair': 'ETHUSDC'},
+                    {'unknown': {'nested': 1}},  # doit être ignoré, pas planter
+                ],
+            )
+            assert result is True
+
+            with open(metrics_file, encoding='utf-8') as fh:
+                data = json.load(fh)
+
+            assert 'BTCUSDC' in data['pairs']
+            assert 'ETHUSDC' in data['pairs']
+        finally:
+            _m._METRICS_FILE = original_file
+            _m._METRICS_DIR = original_dir
+
 
 class TestReadMetrics:
     """P2-04: read_metrics lit le snapshot JSON."""

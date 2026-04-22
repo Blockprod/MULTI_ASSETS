@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="darkreader-lock">
+<title>MULTI ASSETS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Carbon-inspired design tokens (g100 adapted to midnight blue) */
+  --cds-background: #030711;
+  --cds-layer-01: #060d1e;
+  --cds-layer-02: #0a1429;
+  --cds-layer-03: #0f1d3a;
+  --cds-border-subtle-01: #1a3158;
+  --cds-border-subtle-02: #274677;
+  --cds-text-primary: #e4ecfa;
+  --cds-text-secondary: #9bb0d3;
+  --cds-text-helper: #6f86ac;
+  --cds-focus: #78a9ff;
+  --cds-support-success: #00c389;
+  --cds-support-error: #ff5f6d;
+  --cds-support-warning: #f1c21b;
+
+  /* Carbon spacing scale */
+  --spacing-01: 0.125rem;
+  --spacing-02: 0.25rem;
+  --spacing-03: 0.5rem;
+  --spacing-04: 0.75rem;
+  --spacing-05: 1rem;
+  --spacing-06: 1.5rem;
+  --vignette-gap: 0.875rem;
+
+  /* Carbon motion curve */
+  --motion-productive: cubic-bezier(0.2, 0, 0.38, 0.9);
+
+  --bg-top: #030711;
+  --bg-bottom: #070f21;
+  --bg: #030711;
+  --surface-0: #050c1b;
+  --surface-1: #060d1e;
+  --surface-2: #0a1429;
+  --tile-bg: #060d1e;
+  --panel-bg: #070d15;
+  --panel-head-bg: #0e1723;
+  --panel-border: #1a2a3b;
+  --panel-title: #d6a63a;
+  --panel-badge: #4e627b;
+  --line: #1a3158;
+  --line-strong: #274677;
+  --text-1: #e4ecfa;
+  --text-2: #9bb0d3;
+  --text-3: #6f86ac;
+  --brand: #f0b534;
+  --ok: #00c389;
+  --bad: #ff5f6d;
+  --warn: #f1c21b;
+  --mono: 'IBM Plex Mono', 'Courier New', monospace;
+  --sans: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-2);
+  background:
+    radial-gradient(1200px 520px at 20% -10%, rgba(47, 82, 150, 0.08), transparent 66%),
+    radial-gradient(940px 480px at 88% -18%, rgba(34, 70, 136, 0.07), transparent 69%),
+    linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+}
+
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 2px; }
+
+.app-header {
+  height: 44px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-0);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+.header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.logo {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: var(--text-1);
+  line-height: 1;
+}
+.logo .brand { color: var(--brand); }
+.logo-sub {
+  font-family: var(--sans);
+  font-size: 9px;
+  letter-spacing: 2.4px;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#clock {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+  letter-spacing: 0.4px;
+}
+.btn-refresh {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  padding: 4px 9px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background-color 120ms var(--motion-productive), color 120ms var(--motion-productive), border-color 120ms var(--motion-productive);
+}
+.btn-refresh:hover { background: var(--surface-2); color: var(--text-1); }
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok);
+  flex-shrink: 0;
+}
+.status-dot.offline {
+  background: var(--bad);
+  box-shadow: 0 0 6px var(--bad);
+  animation: blink 1.2s ease infinite;
+}
+.status-dot.warn {
+  background: var(--warn);
+  box-shadow: 0 0 6px var(--warn);
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+.alert {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-left: 3px solid var(--bad);
+  background: rgba(255, 95, 109, 0.08);
+  color: var(--bad);
+  font-family: var(--mono);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.alert.visible { display: flex; }
+
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--vignette-gap);
+  background: var(--bg);
+  padding: var(--vignette-gap) var(--vignette-gap) var(--spacing-03);
+  border-bottom: none;
+  flex-shrink: 0;
+}
+.kpi-card {
+  position: relative;
+  background: var(--tile-bg);
+  min-height: 82px;
+  padding: 11px 12px 8px 13px;
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  box-shadow: inset 0 1px 0 rgba(123, 165, 245, 0.08);
+  transition: border-color 140ms var(--motion-productive), background-color 140ms var(--motion-productive), transform 140ms var(--motion-productive);
+}
+.kpi-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--brand);
+}
+.kpi-card:hover {
+  background: var(--tile-bg);
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+.kpi-label {
+  font-size: 9px;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  color: var(--brand);
+  margin-bottom: 6px;
+  font-family: var(--sans);
+  font-weight: 600;
+}
+.kpi-value {
+  font-family: var(--mono);
+  font-size: 24px;
+  line-height: 1;
+  color: var(--text-1);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: flex-end;
+  flex: 1;
+}
+.kpi-value.pos { color: var(--ok); }
+.kpi-value.neg { color: var(--bad); }
+.kpi-sub {
+  margin-top: 3px;
+  min-height: 13px;
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: var(--mono);
+}
+.kpi-sub.pos { color: var(--ok); }
+.kpi-sub.neg { color: var(--bad); }
+
+.main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 42% 58%;
+  gap: var(--vignette-gap);
+  background: transparent;
+  padding: var(--spacing-03) var(--vignette-gap) var(--spacing-06);
+}
+.row {
+  display: grid;
+  gap: var(--vignette-gap);
+  min-height: 0;
+  background: transparent;
+}
+.row-top { grid-template-columns: 3fr 2fr; }
+.row-bottom { grid-template-columns: 1fr 1fr; }
+.row-bottom { padding-bottom: var(--vignette-gap); }
+
+.panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-bg);
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  border-radius: 0;
+  box-shadow: inset 0 1px 0 rgba(103, 136, 176, 0.06);
+}
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--panel-border);
+  padding: 9px 14px;
+  background: var(--panel-head-bg);
+  flex-shrink: 0;
+}
+.panel-title {
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--panel-title);
+  font-weight: 600;
+}
+.panel-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--panel-badge);
+}
+.panel-badge.pos { color: var(--ok); }
+.panel-badge.neg { color: var(--bad); }
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.chart-wrap {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 14px 8px;
+  overflow: hidden;
+}
+#equity-chart {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-head-bg);
+  border-bottom: 1px solid var(--panel-border);
+  color: var(--panel-badge);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 2.6px;
+  text-align: left;
+  padding: 8px 11px;
+  white-space: nowrap;
+}
+.table thead th.r { text-align: right; }
+.table tbody td {
+  border-bottom: 1px solid rgba(26, 42, 59, 0.9);
+  padding: 8px 11px;
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.table tbody td.r { text-align: right; }
+.table tbody tr:hover td { background: #0e1723; }
+.t-sym { color: var(--text-1) !important; font-weight: 600; }
+.t-dim { color: var(--text-3) !important; }
+.t-pos { color: var(--ok) !important; }
+.t-neg { color: var(--bad) !important; }
+.empty-cell {
+  color: var(--text-3) !important;
+  text-align: center !important;
+  font-style: italic;
+  padding: 14px !important;
+}
+
+.pnl-block { text-align: right; }
+.pnl-main { display: block; }
+.pnl-pct { display: block; font-size: 9px; opacity: 0.8; }
+
+.badge {
+  display: inline-block;
+  border: 1px solid;
+  padding: 1px 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+}
+.badge-buy {
+  color: var(--ok);
+  background: rgba(0, 195, 137, 0.12);
+  border-color: rgba(0, 195, 137, 0.3);
+}
+.badge-close {
+  color: #ff8790;
+  background: rgba(255, 135, 144, 0.1);
+  border-color: rgba(255, 135, 144, 0.28);
+}
+
+#live-log {
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.52;
+}
+.log-line {
+  padding: 2px 10px;
+  color: var(--text-3);
+  border-bottom: 1px solid rgba(26, 37, 56, 0.7);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-line:hover { background: var(--surface-2); }
+.log-line.err { color: #ff8790; }
+.log-line.warn { color: var(--warn); }
+.log-line.dbg { color: var(--text-3); opacity: 0.7; }
+
+footer {
+  height: 24px;
+  min-height: 24px;
+  border-top: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(11, 19, 34, 0.98), rgba(8, 18, 36, 0.98));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  color: var(--text-3);
+  font-size: 9px;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.btn-refresh:focus-visible,
+.kpi-card:focus-visible,
+.panel:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: 1px;
+}
+
+@media (max-width: 980px) {
+  .kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .row-top, .row-bottom { grid-template-columns: 1fr; }
+  .main { grid-template-rows: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+<header class="app-header">
+  <div class="header-left">
+    <span class="logo"><span class="brand">MULTI</span> ASSETS</span>
+    <span class="logo-sub">Dashboard</span>
+  </div>
+  <div class="header-right">
+    <span id="clock">--:--:-- LOCAL</span>
+    <button class="btn-refresh" id="btn-refresh" onclick="manualRefresh()">&#8635; REFRESH</button>
+    <span class="status-dot" id="status-dot"></span>
+  </div>
+</header>
+
+<div class="alert" id="disconnect-alert"><span>&#9888;</span><span>Bot disconnected - no heartbeat detected.</span></div>
+<div class="alert" id="halt-alert"><span>&#9888;</span><span>Emergency halt active.</span></div>
+
+<div class="kpi-strip">
+  <section class="kpi-card">
+    <div class="kpi-label">Equity</div>
+    <div class="kpi-value" id="kpi-equity">--</div>
+    <div class="kpi-sub" id="kpi-equity-sub">&nbsp;</div>
+  </section>
+  <section class="kpi-card">
+    <div class="kpi-label">Cash</div>
+    <div class="kpi-value" id="kpi-cash">--</div>
+    <div class="kpi-sub" id="kpi-cash-sub">&nbsp;</div>
+  </section>
+  <section class="kpi-card">
+    <div class="kpi-label">Day P&amp;L</div>
+    <div class="kpi-value" id="kpi-daypnl">--</div>
+    <div class="kpi-sub" id="kpi-daypnl-sub">&nbsp;</div>
+  </section>
+  <section class="kpi-card">
+    <div class="kpi-label">Vs. Start</div>
+    <div class="kpi-value" id="kpi-vsstart">--</div>
+    <div class="kpi-sub" id="kpi-vsstart-sub">&nbsp;</div>
+  </section>
+  <section class="kpi-card">
+    <div class="kpi-label">Positions</div>
+    <div class="kpi-value" id="kpi-positions">--</div>
+    <div class="kpi-sub" id="kpi-positions-sub">&nbsp;</div>
+  </section>
+</div>
+
+<main class="main">
+  <section class="row row-top">
+    <article class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Equity Curve</span>
+        <span class="panel-badge" id="curve-badge">no data</span>
+      </div>
+      <div class="chart-wrap">
+        <svg id="equity-chart" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Open Positions</span>
+        <span class="panel-badge" id="positions-badge">0 / 0</span>
+      </div>
+      <div class="panel-body">
+        <table class="table">
+          <colgroup>
+            <col style="width: 22%">
+            <col style="width: 13%">
+            <col style="width: 20%">
+            <col style="width: 20%">
+            <col style="width: 25%">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th class="r">Qty</th>
+              <th class="r">Entry</th>
+              <th class="r">Current</th>
+              <th class="r">P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody id="positions-body">
+            <tr><td class="empty-cell" colspan="5">No open positions</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+
+  <section class="row row-bottom">
+    <article class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Trade History</span>
+        <span class="panel-badge">last 50</span>
+      </div>
+      <div class="panel-body">
+        <table class="table">
+          <colgroup>
+            <col style="width: 16%">
+            <col style="width: 13%">
+            <col style="width: 14%">
+            <col style="width: 12%">
+            <col style="width: 45%">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Action</th>
+              <th>Symbol</th>
+              <th class="r">Qty</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="trades-body">
+            <tr><td class="empty-cell" colspan="5">No trades yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Live Log</span>
+        <span class="panel-badge">last 120 lines - auto-scroll</span>
+      </div>
+      <div class="panel-body" id="log-scroll">
+        <div id="live-log">
+          <div class="log-line dbg">Waiting for log data...</div>
+        </div>
+      </div>
+    </article>
+  </section>
+</main>
+
+<footer>
+  <span>LIVE TRADING // REAL CAPITAL AT RISK // RISK MANAGEMENT REQUIRED</span>
+  <span>Last refresh: <span id="last-refresh">--</span></span>
+</footer>
+
+<script>
+var POLL_MS = 5000;
+var curveData = [];
+var resizeTimer = null;
+
+function byId(id) { return document.getElementById(id); }
+
+function esc(text) {
+  if (text === null || text === undefined) return "";
+  var d = document.createElement("div");
+  d.textContent = String(text);
+  return d.innerHTML;
+}
+
+function formatNum(value, decimals) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "--";
+  return Number(value).toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  });
+}
+
+function formatMoney(value, decimals) {
+  return formatNum(value, decimals) + " $";
+}
+
+function formatPnl(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "--";
+  var n = Number(value);
+  return (n >= 0 ? "+" : "") + formatMoney(n, 2);
+}
+
+function formatPct(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "";
+  var n = Number(value);
+  return (n >= 0 ? "+" : "") + n.toFixed(2) + "%";
+}
+
+function formatPrice(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "--";
+  var n = Number(value);
+  var d = n >= 100 ? 2 : n >= 1 ? 4 : 6;
+  return formatMoney(n, d);
+}
+
+function formatQty(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "--";
+  var n = Number(value);
+  var d = n >= 100 ? 0 : n >= 1 ? 2 : 4;
+  return formatNum(n, d);
+}
+
+function signClass(value) {
+  var n = Number(value);
+  if (n > 0) return "pos";
+  if (n < 0) return "neg";
+  return "";
+}
+
+function stripQuote(pair) {
+  return (pair || "").replace(/USDC$/i, "").replace(/USDT$/i, "");
+}
+
+function formatTime(ts) {
+  if (!ts) return "--";
+  try {
+    var d = new Date(ts);
+    return String(d.getFullYear()).slice(2)
+      + "-" + String(d.getMonth() + 1).padStart(2, "0")
+      + "-" + String(d.getDate()).padStart(2, "0")
+      + " " + String(d.getHours()).padStart(2, "0")
+      + ":" + String(d.getMinutes()).padStart(2, "0");
+  } catch (err) {
+    return String(ts).slice(0, 16);
+  }
+}
+
+function updateClock() {
+  byId("clock").textContent = new Date().toLocaleTimeString("en-US", { hour12: false }) + " LOCAL";
+}
+
+function drawChart(points) {
+  var svg = byId("equity-chart");
+  if (!svg) return;
+
+  var width = svg.clientWidth || (svg.parentElement && svg.parentElement.offsetWidth) || 640;
+  var height = svg.clientHeight || (svg.parentElement && svg.parentElement.offsetHeight) || 210;
+  svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+  svg.innerHTML = "";
+
+  var NS = "http://www.w3.org/2000/svg";
+
+  if (!points || points.length < 2) {
+    var msg = document.createElementNS(NS, "text");
+    msg.setAttribute("x", width / 2);
+    msg.setAttribute("y", height / 2);
+    msg.setAttribute("text-anchor", "middle");
+    msg.setAttribute("fill", "#5c6880");
+    msg.setAttribute("font-family", "IBM Plex Mono, monospace");
+    msg.setAttribute("font-size", "11");
+    msg.textContent = "No historical data yet";
+    svg.appendChild(msg);
+    return;
+  }
+
+  var pad = { top: 12, right: 14, bottom: 30, left: 72 };
+  var chartW = width - pad.left - pad.right;
+  var chartH = height - pad.top - pad.bottom;
+
+  var vals = points.map(function (p) { return Number(p.equity); });
+  var ts = points.map(function (p) { return new Date(p.ts).getTime(); });
+
+  var AXIS_TARGET_MAX = 1000;
+  var minV = Math.min.apply(null, vals);
+  var maxV = Math.max.apply(null, vals);
+  var spread = maxV - minV;
+  var extra = spread > 0 ? spread * 0.08 : Math.abs(maxV || 1) * 0.03;
+
+  minV -= extra;
+  maxV += extra;
+
+  // Keep a stable left scale for live monitoring: always show at least up to 1000.
+  if (maxV < AXIS_TARGET_MAX) {
+    maxV = AXIS_TARGET_MAX;
+    minV = Math.min(minV, 0);
+  }
+
+  spread = maxV - minV || 1;
+
+  var minDomainDays = 30;
+  var minDomainMs = minDomainDays * 24 * 60 * 60 * 1000;
+  var dataStartTs = ts[0];
+  var dataEndTs = ts[ts.length - 1];
+  var nowTs = Date.now();
+  var domainEndTs = Math.max(dataEndTs, nowTs);
+  var domainStartTs = Math.min(dataStartTs, domainEndTs - minDomainMs);
+  var tSpread = Math.max(1, domainEndTs - domainStartTs);
+
+  function xPos(t) { return pad.left + ((t - domainStartTs) / tSpread) * chartW; }
+  function yPos(v) { return pad.top + chartH - ((v - minV) / spread) * chartH; }
+  function axisPrice(v) {
+    var sign = v < 0 ? "-" : "";
+    var absV = Math.abs(v);
+    if (absV >= 1000) {
+      var k = absV / 1000;
+      var kLabel = (k >= 10 ? k.toFixed(0) : k.toFixed(1)).replace(/\.0$/, "");
+      return sign + kLabel + "K$";
+    }
+    return sign + absV.toFixed(0) + "$";
+  }
+
+  var defs = document.createElementNS(NS, "defs");
+
+  var fillGrad = document.createElementNS(NS, "linearGradient");
+  fillGrad.setAttribute("id", "curve-fill");
+  fillGrad.setAttribute("x1", "0");
+  fillGrad.setAttribute("y1", "0");
+  fillGrad.setAttribute("x2", "0");
+  fillGrad.setAttribute("y2", "1");
+
+  var fs1 = document.createElementNS(NS, "stop");
+  fs1.setAttribute("offset", "0%");
+  fs1.setAttribute("stop-color", "#d9a227");
+  fs1.setAttribute("stop-opacity", "0.30");
+  fillGrad.appendChild(fs1);
+
+  var fs2 = document.createElementNS(NS, "stop");
+  fs2.setAttribute("offset", "100%");
+  fs2.setAttribute("stop-color", "#d9a227");
+  fs2.setAttribute("stop-opacity", "0.02");
+  fillGrad.appendChild(fs2);
+  defs.appendChild(fillGrad);
+
+  var glow = document.createElementNS(NS, "filter");
+  glow.setAttribute("id", "curve-glow");
+  glow.setAttribute("x", "-20%");
+  glow.setAttribute("y", "-20%");
+  glow.setAttribute("width", "140%");
+  glow.setAttribute("height", "140%");
+  var blur = document.createElementNS(NS, "feGaussianBlur");
+  blur.setAttribute("stdDeviation", "1.8");
+  blur.setAttribute("result", "coloredBlur");
+  glow.appendChild(blur);
+  defs.appendChild(glow);
+
+  svg.appendChild(defs);
+
+  var yTicks = 6;
+  for (var i = 0; i <= yTicks; i++) {
+    var v = minV + (spread * i) / yTicks;
+    var y = yPos(v);
+
+    var hLine = document.createElementNS(NS, "line");
+    hLine.setAttribute("x1", pad.left);
+    hLine.setAttribute("x2", pad.left + chartW);
+    hLine.setAttribute("y1", y);
+    hLine.setAttribute("y2", y);
+    hLine.setAttribute("stroke", "#193150");
+    hLine.setAttribute("stroke-width", "1");
+    svg.appendChild(hLine);
+
+    var yLabel = document.createElementNS(NS, "text");
+    yLabel.setAttribute("x", pad.left - 7);
+    yLabel.setAttribute("y", y + 3);
+    yLabel.setAttribute("text-anchor", "end");
+    yLabel.setAttribute("fill", "#567090");
+    yLabel.setAttribute("font-family", "IBM Plex Mono, monospace");
+    yLabel.setAttribute("font-size", "8");
+    yLabel.textContent = axisPrice(v);
+    svg.appendChild(yLabel);
+  }
+
+  var minTickSpacingPx = 220;
+  var xTicks = Math.max(2, Math.min(5, Math.floor(chartW / minTickSpacingPx)));
+  for (var j = 0; j <= xTicks; j++) {
+    var tickTs = domainStartTs + (tSpread * j) / xTicks;
+    var x = xPos(tickTs);
+
+    var vLine = document.createElementNS(NS, "line");
+    vLine.setAttribute("x1", x);
+    vLine.setAttribute("x2", x);
+    vLine.setAttribute("y1", pad.top);
+    vLine.setAttribute("y2", pad.top + chartH);
+    vLine.setAttribute("stroke", "#132741");
+    vLine.setAttribute("stroke-width", "1");
+    svg.appendChild(vLine);
+
+    var label = document.createElementNS(NS, "text");
+    label.setAttribute("x", x);
+    label.setAttribute("y", pad.top + chartH + 15);
+    label.setAttribute("text-anchor", j === 0 ? "start" : j === xTicks ? "end" : "middle");
+    label.setAttribute("fill", "#567090");
+    label.setAttribute("font-family", "IBM Plex Mono, monospace");
+    label.setAttribute("font-size", "8");
+    if (j === xTicks) {
+      label.textContent = "Now";
+    } else {
+      var dt = new Date(tickTs);
+      label.textContent = String(dt.getFullYear()) + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+    }
+    svg.appendChild(label);
+  }
+
+  var areaPath = "M" + xPos(ts[0]) + " " + (pad.top + chartH) + " L" + xPos(ts[0]) + " " + yPos(vals[0]);
+  for (var k = 1; k < points.length; k++) {
+    areaPath += " L" + xPos(ts[k]) + " " + yPos(vals[k]);
+  }
+  areaPath += " L" + xPos(ts[ts.length - 1]) + " " + (pad.top + chartH) + " Z";
+
+  var area = document.createElementNS(NS, "path");
+  area.setAttribute("d", areaPath);
+  area.setAttribute("fill", "url(#curve-fill)");
+  svg.appendChild(area);
+
+  var linePath = "M" + xPos(ts[0]) + " " + yPos(vals[0]);
+  for (var m = 1; m < points.length; m++) {
+    linePath += " L" + xPos(ts[m]) + " " + yPos(vals[m]);
+  }
+
+  var glowLine = document.createElementNS(NS, "path");
+  glowLine.setAttribute("d", linePath);
+  glowLine.setAttribute("fill", "none");
+  glowLine.setAttribute("stroke", "#d9a227");
+  glowLine.setAttribute("stroke-opacity", "0.35");
+  glowLine.setAttribute("stroke-width", "4");
+  glowLine.setAttribute("filter", "url(#curve-glow)");
+  glowLine.setAttribute("stroke-linecap", "round");
+  glowLine.setAttribute("stroke-linejoin", "round");
+  svg.appendChild(glowLine);
+
+  var line = document.createElementNS(NS, "path");
+  line.setAttribute("d", linePath);
+  line.setAttribute("fill", "none");
+  line.setAttribute("stroke", "#d9a227");
+  line.setAttribute("stroke-width", "2");
+  line.setAttribute("stroke-linecap", "round");
+  line.setAttribute("stroke-linejoin", "round");
+  svg.appendChild(line);
+
+  var xLast = xPos(ts[ts.length - 1]);
+  var yLast = yPos(vals[vals.length - 1]);
+
+  var lastGuide = document.createElementNS(NS, "line");
+  lastGuide.setAttribute("x1", xLast);
+  lastGuide.setAttribute("x2", xLast);
+  lastGuide.setAttribute("y1", pad.top);
+  lastGuide.setAttribute("y2", pad.top + chartH);
+  lastGuide.setAttribute("stroke", "#213b67");
+  lastGuide.setAttribute("stroke-width", "1");
+  lastGuide.setAttribute("stroke-dasharray", "3 3");
+  svg.appendChild(lastGuide);
+
+  var ring = document.createElementNS(NS, "circle");
+  ring.setAttribute("cx", xLast);
+  ring.setAttribute("cy", yLast);
+  ring.setAttribute("r", "4.6");
+  ring.setAttribute("fill", "rgba(217,162,39,0.15)");
+  ring.setAttribute("stroke", "#d9a227");
+  ring.setAttribute("stroke-width", "1.2");
+  svg.appendChild(ring);
+
+  var dot = document.createElementNS(NS, "circle");
+  dot.setAttribute("cx", xLast);
+  dot.setAttribute("cy", yLast);
+  dot.setAttribute("r", "2.4");
+  dot.setAttribute("fill", "#f0b534");
+  svg.appendChild(dot);
+}
+
+function renderPositions(pairs) {
+  var tbody = byId("positions-body");
+  var all = Object.values(pairs || {});
+  var open = all.filter(function (p) { return p.in_position; });
+
+  byId("positions-badge").textContent = open.length + " / " + all.length;
+
+  if (!open.length) {
+    tbody.innerHTML = '<tr><td class="empty-cell" colspan="5">No open positions</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = open.map(function (p) {
+    var sym = stripQuote(p.real_pair || "");
+    var pnl = p.unrealized_pnl;
+    var pct = p.unrealized_pct;
+    var c = pnl !== null && pnl !== undefined ? signClass(pnl) : "";
+
+    var pnlHtml = '<div class="pnl-block">'
+      + '<span class="pnl-main ' + c + '">' + (pnl !== null && pnl !== undefined ? formatPnl(pnl) : "--") + '</span>'
+      + (pct !== null && pct !== undefined ? '<span class="pnl-pct ' + c + '">' + formatPct(pct) + '</span>' : "")
+      + '</div>';
+
+    return '<tr>'
+      + '<td class="t-sym">' + esc(sym) + '</td>'
+      + '<td class="r">' + formatQty(p.qty) + '</td>'
+      + '<td class="r">' + formatPrice(p.entry_price) + '</td>'
+      + '<td class="r">' + formatPrice(p.spot_price) + '</td>'
+      + '<td>' + pnlHtml + '</td>'
+      + '</tr>';
+  }).join("");
+}
+
+function renderTrades(trades) {
+  var tbody = byId("trades-body");
+  if (!trades || !trades.length) {
+    tbody.innerHTML = '<tr><td class="empty-cell" colspan="5">No trades yet</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = trades.slice(0, 50).map(function (t) {
+    var buy = (t.side || "").toLowerCase() === "buy";
+    var badge = buy
+      ? '<span class="badge badge-buy">BUY</span>'
+      : '<span class="badge badge-close">CLOSE</span>';
+    var symbol = esc(stripQuote(t.pair || ""));
+
+    var details = "";
+    if (buy) {
+      if (t.stop !== null && t.stop !== undefined) {
+        details = "SL " + formatPrice(t.stop);
+      }
+    } else {
+      var reason = esc(t.sell_reason || "");
+      var pnlText = (t.pnl !== null && t.pnl !== undefined) ? " - P&L " + formatPnl(t.pnl) : "";
+      details = reason + pnlText;
+    }
+
+    return '<tr>'
+      + '<td class="t-dim">' + esc(formatTime(t.ts)) + '</td>'
+      + '<td>' + badge + '</td>'
+      + '<td class="t-sym">' + symbol + '</td>'
+      + '<td class="r">' + formatQty(t.qty) + '</td>'
+      + '<td>' + details + '</td>'
+      + '</tr>';
+  }).join("");
+}
+
+async function refreshLogs() {
+  try {
+    var resp = await fetch("/api/logs");
+    if (!resp.ok) return;
+
+    var lines = await resp.json();
+    var scroll = byId("log-scroll");
+    var log = byId("live-log");
+    var keepBottom = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 35;
+
+    log.innerHTML = lines.map(function (line) {
+      var cls = "log-line";
+      if (/ERROR|CRITICAL/i.test(line)) cls += " err";
+      else if (/WARNING|WARN/i.test(line)) cls += " warn";
+      else if (/DEBUG/i.test(line)) cls += " dbg";
+      return '<div class="' + cls + '">' + esc(line) + '</div>';
+    }).join("");
+
+    if (keepBottom) scroll.scrollTop = scroll.scrollHeight;
+  } catch (err) {
+  }
+}
+
+function setKpi(id, value, cls) {
+  var el = byId(id);
+  el.textContent = value;
+  el.className = "kpi-value" + (cls ? " " + cls : "");
+}
+
+function setKpiSub(id, value, cls) {
+  var el = byId(id);
+  el.textContent = value;
+  el.className = "kpi-sub" + (cls ? " " + cls : "");
+}
+
+async function refreshData() {
+  try {
+    var resp = await fetch("/api/data");
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+
+    var data = await resp.json();
+
+    if (!data.alive) {
+      byId("status-dot").className = "status-dot offline";
+      byId("disconnect-alert").classList.add("visible");
+    } else {
+      byId("disconnect-alert").classList.remove("visible");
+      if (data.emergency_halt) {
+        byId("status-dot").className = "status-dot warn";
+        byId("halt-alert").classList.add("visible");
+      } else {
+        byId("status-dot").className = "status-dot";
+        byId("halt-alert").classList.remove("visible");
+      }
+    }
+
+    var equity = data.total_equity !== null && data.total_equity !== undefined ? data.total_equity : data.usdc_balance;
+    var cash = data.usdc_balance;
+    var dayPnl = data.daily_pnl || 0;
+    var cumulPnl = data.cumul_pnl || 0;
+    var start = data.starting_equity;
+
+    setKpi("kpi-equity", formatMoney(equity, 2), "");
+    setKpiSub("kpi-equity-sub", start ? "start: " + formatMoney(start, 2) : "total portfolio", "");
+
+    setKpi("kpi-cash", formatMoney(cash, 2), "");
+    setKpiSub("kpi-cash-sub", "free USDC balance", "");
+
+    var dayCls = signClass(dayPnl);
+    setKpi("kpi-daypnl", formatPnl(dayPnl), dayCls);
+    setKpiSub("kpi-daypnl-sub", formatPct(data.daily_pnl_pct), dayCls);
+
+    var vsCls = signClass(cumulPnl);
+    var vsPct = start && start > 0 ? (cumulPnl / start) * 100 : 0;
+    setKpi("kpi-vsstart", formatPnl(cumulPnl), vsCls);
+    setKpiSub("kpi-vsstart-sub", formatPct(vsPct), vsCls);
+
+    setKpi("kpi-positions", data.open_count !== undefined && data.open_count !== null ? String(data.open_count) : "--", "");
+    setKpiSub("kpi-positions-sub", "max " + (data.total_pairs || "--"), "");
+
+    if (data.equity_curve && data.equity_curve.length > 1) {
+      curveData = data.equity_curve;
+      drawChart(curveData);
+
+      var first = curveData[0].equity;
+      var last = curveData[curveData.length - 1].equity;
+      var pct = first > 0 ? ((last - first) / first) * 100 : 0;
+      var badge = byId("curve-badge");
+      badge.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(2) + "% total";
+      badge.className = "panel-badge " + (pct >= 0 ? "pos" : "neg");
+    } else {
+      byId("curve-badge").textContent = "no data";
+      byId("curve-badge").className = "panel-badge";
+    }
+
+    renderPositions(data.pairs || {});
+    renderTrades(data.recent_trades || []);
+
+    byId("last-refresh").textContent = new Date().toLocaleTimeString("en-US", { hour12: false });
+  } catch (err) {
+    console.error("[dashboard]", err.message);
+  }
+}
+
+function manualRefresh() {
+  var btn = byId("btn-refresh");
+  btn.textContent = "...";
+  Promise.all([refreshData(), refreshLogs()]).then(function () {
+    btn.innerHTML = "&#8635; REFRESH";
+  });
+}
+
+window.addEventListener("resize", function () {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(function () {
+    if (curveData.length > 1) drawChart(curveData);
+  }, 150);
+});
+
+updateClock();
+setInterval(updateClock, 1000);
+refreshData();
+refreshLogs();
+setInterval(refreshData, POLL_MS);
+setInterval(refreshLogs, POLL_MS);
+</script>
+</body>
+</html>
