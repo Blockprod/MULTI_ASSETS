@@ -20,7 +20,7 @@ class _OkHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b'{}')
 
-    def log_message(self, format, *args):
+    def log_message(self, message_format, *args):
         return
 
 
