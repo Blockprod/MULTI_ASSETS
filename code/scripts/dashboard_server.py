@@ -38,14 +38,29 @@ HEARTBEAT    = os.path.join(SRC_DIR, "states", "heartbeat.json")
 BOT_STATE    = os.path.join(SRC_DIR, "states", "bot_state.json")
 LOGS_DIR     = os.path.join(SRC_DIR, "logs")
 METRICS_FILE = os.path.join(BASE_DIR, "metrics", "metrics.json")
+EQUITY_HISTORY_FILE = os.path.join(BASE_DIR, "states", "dashboard_equity_history.json")
 BOT_LOG      = os.path.join(BASE_DIR, "code", "logs", "trading_bot.log")
 MULTI_SRC    = os.path.join(SRC_DIR, "MULTI_SYMBOLS.py")
 ENV_FILE     = os.path.join(BASE_DIR, ".env")
 PORT         = 8082
 _BINANCE_REST = "https://api.binance.com"
 
-_balance_cache: tuple[float, float | None] = (0.0, None)
+_account_balances_cache: tuple[float, dict[str, float] | None] = (0.0, None)
 _BALANCE_TTL  = 120
+_QUOTE_CURRENCIES = ("USDC", "USDT", "BUSD", "EUR")
+_EQUITY_HISTORY_MAX_POINTS = 1440
+_EQUITY_HISTORY_SAMPLE_SECONDS = 60
+
+
+def _normalize_dashboard_log_line(line: str) -> str:
+  """Rewrite legacy voluntary shutdown lines so the dashboard does not flag them as critical."""
+  legacy_shutdown = " - CRITICAL - [SHUTDOWN] Signal 2 reçu — arrêt demandé"
+  if legacy_shutdown in line:
+    return line.replace(
+      legacy_shutdown,
+      " - INFO - [SHUTDOWN] Signal 2 (SIGINT) reçu — arrêt volontaire demandé [legacy]",
+    )
+  return line
 
 
 # --- solde USDC via Binance API ------------------------------------------
@@ -65,16 +80,16 @@ def _load_env_key(name: str) -> str | None:
     return os.environ.get(name)
 
 
-def _fetch_usdc_balance() -> float | None:
-    global _balance_cache
+def _fetch_account_balances() -> dict[str, float] | None:
+    global _account_balances_cache
     now = time.time()
-    if now - _balance_cache[0] < _BALANCE_TTL:
-        return _balance_cache[1]
+    if now - _account_balances_cache[0] < _BALANCE_TTL:
+        return _account_balances_cache[1]
 
     api_key    = _load_env_key("BINANCE_API_KEY")
     api_secret = _load_env_key("BINANCE_SECRET_KEY")
     if not api_key or not api_secret:
-        _balance_cache = (now, None)
+        _account_balances_cache = (now, None)
         return None
 
     try:
@@ -86,15 +101,30 @@ def _fetch_usdc_balance() -> float | None:
         req    = urllib.request.Request(url, headers={"X-MBX-APIKEY": api_key})
         with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode())
-        balance = next(
-            (float(b["free"]) for b in data.get("balances", []) if b["asset"] == "USDC"),
-            None,
-        )
-        _balance_cache = (now, balance)
-        return balance
+        balances = {
+            str(b.get("asset") or "").upper(): float(b.get("free") or 0.0) + float(b.get("locked") or 0.0)
+            for b in data.get("balances", [])
+            if b.get("asset")
+        }
+        _account_balances_cache = (now, balances)
+        return balances
     except Exception:
-        _balance_cache = (now, None)
+        _account_balances_cache = (now, None)
         return None
+
+def _fetch_usdc_balance() -> float | None:
+    balances = _fetch_account_balances()
+    if balances is None:
+        return None
+    return balances.get("USDC")
+
+
+def _extract_base_asset(symbol: str) -> str | None:
+    upper_symbol = symbol.upper()
+    for quote_currency in _QUOTE_CURRENCIES:
+        if upper_symbol.endswith(quote_currency) and len(upper_symbol) > len(quote_currency):
+            return upper_symbol[:-len(quote_currency)]
+    return None
 
 
 # --- parser crypto_pairs -------------------------------------------------
@@ -131,6 +161,78 @@ def _read_json(path: str) -> dict:
         return json.loads(raw.decode("utf-8"))
     except Exception:
         return {}
+
+def _coerce_timestamp(ts: str | float | int | None) -> float | None:
+    if isinstance(ts, (int, float)):
+        return float(ts)
+    if isinstance(ts, str) and ts.strip():
+        try:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            return None
+    return None
+
+
+def _read_equity_history() -> list[dict[str, float | str]]:
+    try:
+        with open(EQUITY_HISTORY_FILE, encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except Exception:
+        return []
+
+    points = payload.get("points", []) if isinstance(payload, dict) else payload
+    if not isinstance(points, list):
+        return []
+
+    cleaned: list[dict[str, float | str]] = []
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        point_ts = _coerce_timestamp(point.get("ts"))
+        equity = point.get("equity")
+        if point_ts is None or equity is None:
+            continue
+        try:
+            cleaned.append({
+                "ts": datetime.fromtimestamp(point_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "equity": round(float(equity), 2),
+            })
+        except Exception:
+            continue
+
+    cleaned.sort(key=lambda point: _coerce_timestamp(point["ts"]) or 0.0)
+    return cleaned[-_EQUITY_HISTORY_MAX_POINTS:]
+
+
+def _write_equity_history(points: list[dict[str, float | str]]) -> None:
+    try:
+        os.makedirs(os.path.dirname(EQUITY_HISTORY_FILE), exist_ok=True)
+        temp_path = f"{EQUITY_HISTORY_FILE}.tmp"
+        with open(temp_path, "w", encoding="utf-8") as fh:
+            json.dump({"points": points}, fh, ensure_ascii=True)
+        os.replace(temp_path, EQUITY_HISTORY_FILE)
+    except Exception:
+        pass
+
+
+def _update_equity_history(current_equity: float, now_ts: str | None = None) -> list[dict[str, float | str]]:
+    snapshot_ts = now_ts or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    snapshot_epoch = _coerce_timestamp(snapshot_ts)
+    snapshot = {"ts": snapshot_ts, "equity": round(float(current_equity), 2)}
+    points = _read_equity_history()
+
+    if points and snapshot_epoch is not None:
+        last_epoch = _coerce_timestamp(points[-1]["ts"])
+        if last_epoch is not None and (snapshot_epoch - last_epoch) < _EQUITY_HISTORY_SAMPLE_SECONDS:
+            points[-1] = snapshot
+        else:
+            points.append(snapshot)
+    else:
+        points.append(snapshot)
+
+    points = points[-_EQUITY_HISTORY_MAX_POINTS:]
+    _write_equity_history(points)
+    return points
 
 
 def _age_seconds(ts_str: str) -> int:
@@ -269,16 +371,68 @@ def _build_equity_curve(starting_equity: float, real_pairs: set[str]) -> list[di
     return points
 
 
-def _read_log_lines(n: int = 120) -> list[str]:
-    """Return last N lines from the main bot log file."""
-    for path in (BOT_LOG, os.path.join(LOGS_DIR, "trading_bot.log")):
-        try:
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                lines = fh.readlines()
-            return [ln.rstrip("\n\r") for ln in lines[-n:]]
-        except Exception:
+def _build_mark_to_market_curve(
+    starting_equity: float | None,
+    current_equity: float,
+    buy_timestamp: str | float | int | None,
+  history_points: list[dict[str, float | str]] | None = None,
+) -> list[dict]:
+    """Build a minimal mark-to-market curve anchored on the current session start equity."""
+    if starting_equity is None or starting_equity <= 0:
+        return []
+
+    now_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    start_ts = now_ts
+    if isinstance(buy_timestamp, (int, float)):
+        start_ts = datetime.fromtimestamp(float(buy_timestamp), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    elif isinstance(buy_timestamp, str) and buy_timestamp.strip():
+        start_ts = buy_timestamp
+
+    curve: list[dict[str, float | str]] = [
+        {"ts": start_ts, "equity": round(float(starting_equity), 2)},
+    ]
+
+    start_epoch = _coerce_timestamp(start_ts)
+    for point in history_points or []:
+        if not isinstance(point, dict):
             continue
-    return []
+        point_ts = point.get("ts")
+        point_equity = point.get("equity")
+        point_epoch = _coerce_timestamp(point_ts)
+        if point_epoch is None or point_equity is None:
+            continue
+        if start_epoch is not None and point_epoch < start_epoch:
+            continue
+        curve.append({
+            "ts": datetime.fromtimestamp(point_epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "equity": round(float(point_equity), 2),
+        })
+
+    final_point = {"ts": now_ts, "equity": round(float(current_equity), 2)}
+    if curve[-1]["ts"] != final_point["ts"]:
+        curve.append(final_point)
+    else:
+        curve[-1] = final_point
+
+    deduped: list[dict[str, float | str]] = []
+    for point in curve:
+        if deduped and deduped[-1]["ts"] == point["ts"]:
+            deduped[-1] = point
+        else:
+            deduped.append(point)
+    return deduped
+
+
+def _read_log_lines(n: int = 120) -> list[str]:
+  """Return last N lines from the main bot log file."""
+  for path in (BOT_LOG, os.path.join(LOGS_DIR, "trading_bot.log")):
+    try:
+      with open(path, encoding="utf-8", errors="replace") as fh:
+        lines = fh.readlines()
+      return [_normalize_dashboard_log_line(ln.rstrip("\n\r")) for ln in lines[-n:]]
+    except Exception:
+      continue
+  return []
 
 
 # --- data aggregation ----------------------------------------------------
@@ -303,8 +457,17 @@ def collect_data() -> dict:
     daily_pnl, daily_pnl_pct = _get_daily_pnl(tracker)
     starting_equity = _get_starting_equity(tracker)
     usdc_balance: float | None = hb.get("usdc_balance") if hb else None
+    needs_live_balances = usdc_balance is None or any(
+      isinstance(ps, dict)
+      and (not backtest_pairs or symbol in backtest_pairs)
+      and ps.get("last_order_side") == "BUY"
+      for symbol, ps in bot_state.items()
+    )
+    account_balances = _fetch_account_balances() if needs_live_balances else None
+    if usdc_balance is None and account_balances is not None:
+      usdc_balance = account_balances.get("USDC")
     if usdc_balance is None:
-        usdc_balance = _fetch_usdc_balance()
+      usdc_balance = _fetch_usdc_balance()
 
     if daily_pnl_pct == 0.0 and starting_equity and starting_equity > 0:
         daily_pnl_pct = (daily_pnl / starting_equity) * 100.0
@@ -321,14 +484,22 @@ def collect_data() -> dict:
         spot = ps.get("ticker_spot_price")
         qty = ps.get("initial_position_size")
 
+        mt_pair = (mt.get("pairs") or {}).get(symbol, {})
+        real_pair = next((p["real_pair"] for p in configured if p["backtest_pair"] == symbol), symbol)
+        base_asset = _extract_base_asset(real_pair)
+        live_qty = None
+        if in_position and account_balances is not None and base_asset is not None:
+          live_qty = account_balances.get(base_asset, 0.0)
+        display_qty = live_qty if live_qty is not None else qty
+
         unrealized_pnl = None
         unrealized_pct = None
-        if in_position and entry and spot and qty:
-            try:
-                unrealized_pnl = (float(spot) - float(entry)) * float(qty)
-                unrealized_pct = (float(spot) - float(entry)) / float(entry) * 100.0
-            except Exception:
-                pass
+        if in_position and entry and spot and display_qty is not None:
+          try:
+            unrealized_pnl = (float(spot) - float(entry)) * float(display_qty)
+            unrealized_pct = (float(spot) - float(entry)) / float(entry) * 100.0
+          except Exception:
+            pass
 
         sl = ps.get("stop_loss") or ps.get("stop_loss_at_entry")
         sl_dist_pct = None
@@ -337,9 +508,6 @@ def collect_data() -> dict:
                 sl_dist_pct = abs((float(entry) - float(sl)) / float(entry) * 100.0)
             except Exception:
                 pass
-
-        mt_pair = (mt.get("pairs") or {}).get(symbol, {})
-        real_pair = next((p["real_pair"] for p in configured if p["backtest_pair"] == symbol), symbol)
 
         is_oos_blocked = bool(ps.get("oos_blocked", mt_pair.get("oos_blocked", False)))
         if is_oos_blocked:
@@ -350,7 +518,7 @@ def collect_data() -> dict:
             "in_position":         in_position,
             "entry_price":         entry,
             "spot_price":          spot,
-            "qty":                 qty,
+            "qty":                 display_qty,
             "unrealized_pnl":      unrealized_pnl,
             "unrealized_pct":      unrealized_pct,
             "stop_loss":           sl,
@@ -360,6 +528,8 @@ def collect_data() -> dict:
             "trailing_stop":       ps.get("trailing_stop"),
             "scenario":            ps.get("entry_scenario") or (ps.get("last_best_params") or {}).get("scenario", ""),
             "timeframe":           ps.get("entry_timeframe") or (ps.get("last_best_params") or {}).get("timeframe", ""),
+          "entry_ema1":          ps.get("entry_ema1"),
+          "entry_ema2":          ps.get("entry_ema2"),
             "last_execution":      ps.get("last_execution"),
             "execution_count":     int(ps.get("execution_count") or 0),
             "oos_blocked":         is_oos_blocked,
@@ -384,11 +554,26 @@ def collect_data() -> dict:
         if p["in_position"] and p["spot_price"] and p["qty"]
     )
     total_equity = (usdc_balance or 0) + total_market_value
-    equity_curve = _build_equity_curve(float(starting_equity or 10000.0), real_pairs)
+    equity_delta = None
+    if starting_equity and starting_equity > 0:
+      equity_delta = total_equity - float(starting_equity)
+
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now_local = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    equity_history = _update_equity_history(total_equity, now_ts=now_utc)
+
+    latest_buy_ts = None
+    for pair_data in pairs.values():
+      if pair_data["in_position"] and pair_data.get("buy_timestamp") is not None:
+        _ts = pair_data.get("buy_timestamp")
+        if latest_buy_ts is None or _ts > latest_buy_ts:
+          latest_buy_ts = _ts
+
+    equity_curve = _build_mark_to_market_curve(starting_equity, total_equity, latest_buy_ts, equity_history)
 
     return {
-        "now":             datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "now_local":       datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "now":             now_utc,
+        "now_local":       now_local,
         "alive":           alive,
         "age_seconds":     age,
         "pid":             hb.get("pid"),
@@ -405,6 +590,7 @@ def collect_data() -> dict:
         "total_pairs":     len(pairs),
         "oos_blocked":     oos_blocked_count,
         "cumul_pnl":       cumul_pnl,
+        "equity_delta":    equity_delta,
         "trade_count":     trade_count,
         "pairs":           pairs,
         "recent_trades":        recent,
@@ -772,7 +958,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <div class="kpi-sub" id="kpi-daypnl-sub">&nbsp;</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">VS. Start</div>
+        <div class="kpi-label">Vs. Start</div>
         <div class="kpi-value" id="kpi-vsstart">--</div>
         <div class="kpi-sub" id="kpi-vsstart-sub">&nbsp;</div>
       </div>
@@ -1171,11 +1357,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         }
 
         // KPIs
-        var equity    = d.total_equity !== undefined ? d.total_equity : d.usdc_balance;
-        var cash      = d.usdc_balance;
-        var dayPnl    = d.daily_pnl  || 0;
-        var cumulPnl  = d.cumul_pnl  || 0;
-        var startEq   = d.starting_equity;
+        var equity      = d.total_equity !== undefined ? d.total_equity : d.usdc_balance;
+        var cash        = d.usdc_balance;
+        var dayPnl      = d.daily_pnl  || 0;
+        var realizedPnl = d.cumul_pnl  || 0;
+        var equityDelta = d.equity_delta;
+        var startEq     = d.starting_equity;
 
         $('kpi-equity').textContent = equity !== null && equity !== undefined
           ? fmtMoney(equity) + ' $' : '--';
@@ -1188,14 +1375,15 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 
         $('kpi-daypnl').textContent = fmtPnl(dayPnl);
         $('kpi-daypnl').className   = 'kpi-value ' + pnlCls(dayPnl);
-        $('kpi-daypnl-sub').textContent = fmtPct(d.daily_pnl_pct);
+        $('kpi-daypnl-sub').textContent = 'realized today ' + fmtPct(d.daily_pnl_pct);
         $('kpi-daypnl-sub').className   = 'kpi-sub ' + pnlCls(dayPnl);
 
-        $('kpi-vsstart').textContent = fmtPnl(cumulPnl);
-        $('kpi-vsstart').className   = 'kpi-value ' + pnlCls(cumulPnl);
-        var vsPct = (startEq && startEq > 0) ? (cumulPnl / startEq * 100) : 0;
-        $('kpi-vsstart-sub').textContent = fmtPct(vsPct);
-        $('kpi-vsstart-sub').className   = 'kpi-sub ' + pnlCls(cumulPnl);
+        var vsValue = (equityDelta !== null && equityDelta !== undefined) ? equityDelta : realizedPnl;
+        $('kpi-vsstart').textContent = fmtPnl(vsValue);
+        $('kpi-vsstart').className   = 'kpi-value ' + pnlCls(vsValue);
+        var vsPct = (startEq && startEq > 0) ? (vsValue / startEq * 100) : 0;
+        $('kpi-vsstart-sub').textContent = fmtPct(vsPct) + ' total · realized ' + fmtPnl(realizedPnl);
+        $('kpi-vsstart-sub').className   = 'kpi-sub ' + pnlCls(vsValue);
 
         $('kpi-positions').textContent = d.open_count;
         $('kpi-positions-sub').textContent = 'max ' + d.total_pairs;

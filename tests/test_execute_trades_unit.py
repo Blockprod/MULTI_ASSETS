@@ -161,8 +161,6 @@ class TestEmergencyHalt:
         # Doit tenter d'appeler get_account (equity refresh + _fetch_balances)
         ms._execute_real_trades_inner('TRXUSDC', '1h', _make_best_params(), 'TRX/USDC')
         assert mock_client.get_account.call_count >= 1
-
-
 # ---------------------------------------------------------------------------
 #  Tests: Concurrence / per-pair lock
 # ---------------------------------------------------------------------------

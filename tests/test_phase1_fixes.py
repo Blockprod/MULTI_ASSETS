@@ -367,7 +367,7 @@ class TestP1Sigint:
     """Verify SIGINT handling is in the source."""
 
     def test_sigint_in_source(self):
-        """signal.SIGINT should be registered alongside SIGTERM."""
+        """signal.SIGINT should be registered alongside SIGTERM and logged as voluntary."""
         import inspect
         import MULTI_SYMBOLS as MS
         source = inspect.getsource(MS)
@@ -376,6 +376,9 @@ class TestP1Sigint:
         )
         assert "signal.signal(signal.SIGTERM" in source, (
             "SIGTERM handler not found in MULTI_SYMBOLS source"
+        )
+        assert "arrêt volontaire demandé" in source, (
+            "Voluntary SIGINT shutdown message not found in MULTI_SYMBOLS source"
         )
 
 

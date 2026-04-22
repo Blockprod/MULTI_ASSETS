@@ -1980,13 +1980,14 @@ def _execute_buy(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
             # === JOURNAL DE TRADING ===
             try:
                 logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+                journal_qty = float(actual_qty_str)
                 log_trade(
                     logs_dir=logs_dir,
                     pair=ctx.real_trading_pair,
                     side='buy',
-                    quantity=float(quantity_rounded),
+                    quantity=journal_qty,
                     price=entry_price,
-                    fee=float(quantity_rounded) * deps.config.taker_fee * entry_price,
+                    fee=journal_qty * deps.config.taker_fee * entry_price,
                     slippage=deps.config.slippage_buy,
                     scenario=ctx.scenario,
                     timeframe=ctx.time_interval,

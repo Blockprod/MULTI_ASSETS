@@ -349,6 +349,17 @@ body {
 .table tbody td.r { text-align: right; }
 .table tbody tr:hover td { background: #0e1723; }
 .t-sym { color: var(--text-1) !important; font-weight: 600; }
+.t-sym-wrap { display: block; }
+.t-meta {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-3);
+  font-size: 9px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .t-dim { color: var(--text-3) !important; }
 .t-pos { color: var(--ok) !important; }
 .t-neg { color: var(--bad) !important; }
@@ -458,12 +469,12 @@ footer {
     <div class="kpi-sub" id="kpi-cash-sub">&nbsp;</div>
   </section>
   <section class="kpi-card">
-    <div class="kpi-label">Day P&amp;L</div>
+    <div class="kpi-label">Day Realized</div>
     <div class="kpi-value" id="kpi-daypnl">--</div>
     <div class="kpi-sub" id="kpi-daypnl-sub">&nbsp;</div>
   </section>
   <section class="kpi-card">
-    <div class="kpi-label">Vs. Start</div>
+    <div class="kpi-label">Vs. Ref</div>
     <div class="kpi-value" id="kpi-vsstart">--</div>
     <div class="kpi-sub" id="kpi-vsstart-sub">&nbsp;</div>
   </section>
@@ -615,7 +626,7 @@ function formatPrice(value) {
 function formatQty(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "--";
   var n = Number(value);
-  var d = n >= 100 ? 0 : n >= 1 ? 2 : 4;
+  var d = n >= 100 ? 2 : n >= 1 ? 2 : 4;
   return formatNum(n, d);
 }
 
@@ -679,30 +690,26 @@ function drawChart(points) {
   var vals = points.map(function (p) { return Number(p.equity); });
   var ts = points.map(function (p) { return new Date(p.ts).getTime(); });
 
-  var AXIS_TARGET_MAX = 1000;
   var minV = Math.min.apply(null, vals);
   var maxV = Math.max.apply(null, vals);
   var spread = maxV - minV;
-  var extra = spread > 0 ? spread * 0.08 : Math.abs(maxV || 1) * 0.03;
+  var magnitude = Math.max(Math.abs(maxV), Math.abs(minV), 1);
+  var extra = spread > 0
+    ? Math.max(spread * 0.12, magnitude * 0.005)
+    : Math.max(magnitude * 0.01, 0.5);
 
   minV -= extra;
   maxV += extra;
 
-  // Keep a stable left scale for live monitoring: always show at least up to 1000.
-  if (maxV < AXIS_TARGET_MAX) {
-    maxV = AXIS_TARGET_MAX;
-    minV = Math.min(minV, 0);
-  }
-
   spread = maxV - minV || 1;
 
-  var minDomainDays = 30;
-  var minDomainMs = minDomainDays * 24 * 60 * 60 * 1000;
   var dataStartTs = ts[0];
   var dataEndTs = ts[ts.length - 1];
-  var nowTs = Date.now();
-  var domainEndTs = Math.max(dataEndTs, nowTs);
-  var domainStartTs = Math.min(dataStartTs, domainEndTs - minDomainMs);
+  var dataSpanMs = Math.max(1, dataEndTs - dataStartTs);
+  var domainPaddingMs = Math.max(30 * 60 * 1000, dataSpanMs * 0.15);
+  var minDomainMs = 2 * 60 * 60 * 1000;
+  var domainStartTs = dataStartTs - domainPaddingMs;
+  var domainEndTs = Math.max(dataEndTs + domainPaddingMs, domainStartTs + minDomainMs);
   var tSpread = Math.max(1, domainEndTs - domainStartTs);
 
   function xPos(t) { return pad.left + ((t - domainStartTs) / tSpread) * chartW; }
@@ -893,6 +900,17 @@ function renderPositions(pairs) {
     var pnl = p.unrealized_pnl;
     var pct = p.unrealized_pct;
     var c = pnl !== null && pnl !== undefined ? signClass(pnl) : "";
+    var ema1 = p.entry_ema1;
+    var ema2 = p.entry_ema2;
+    var activeParts = [];
+    if (p.scenario) activeParts.push(p.scenario);
+    if (p.timeframe) activeParts.push(p.timeframe);
+    if (ema1 !== null && ema1 !== undefined && ema2 !== null && ema2 !== undefined) {
+      activeParts.push("EMA " + ema1 + "/" + ema2);
+    }
+    var activeHtml = activeParts.length
+      ? '<span class="t-meta">WF/OOS actif: ' + esc(activeParts.join(" · ")) + '</span>'
+      : "";
 
     var pnlHtml = '<div class="pnl-block">'
       + '<span class="pnl-main ' + c + '">' + (pnl !== null && pnl !== undefined ? formatPnl(pnl) : "--") + '</span>'
@@ -900,7 +918,7 @@ function renderPositions(pairs) {
       + '</div>';
 
     return '<tr>'
-      + '<td class="t-sym">' + esc(sym) + '</td>'
+      + '<td class="t-sym"><span class="t-sym-wrap">' + esc(sym) + activeHtml + '</span></td>'
       + '<td class="r">' + formatQty(p.qty) + '</td>'
       + '<td class="r">' + formatPrice(p.entry_price) + '</td>'
       + '<td class="r">' + formatPrice(p.spot_price) + '</td>'
@@ -1003,23 +1021,25 @@ async function refreshData() {
     var equity = data.total_equity !== null && data.total_equity !== undefined ? data.total_equity : data.usdc_balance;
     var cash = data.usdc_balance;
     var dayPnl = data.daily_pnl || 0;
-    var cumulPnl = data.cumul_pnl || 0;
+    var realizedPnl = data.cumul_pnl || 0;
+    var equityDelta = data.equity_delta;
     var start = data.starting_equity;
 
     setKpi("kpi-equity", formatMoney(equity, 2), "");
-    setKpiSub("kpi-equity-sub", start ? "start: " + formatMoney(start, 2) : "total portfolio", "");
+    setKpiSub("kpi-equity-sub", start ? "daily ref: " + formatMoney(start, 2) : "total portfolio", "");
 
     setKpi("kpi-cash", formatMoney(cash, 2), "");
     setKpiSub("kpi-cash-sub", "free USDC balance", "");
 
     var dayCls = signClass(dayPnl);
     setKpi("kpi-daypnl", formatPnl(dayPnl), dayCls);
-    setKpiSub("kpi-daypnl-sub", formatPct(data.daily_pnl_pct), dayCls);
+    setKpiSub("kpi-daypnl-sub", "realized today " + formatPct(data.daily_pnl_pct), dayCls);
 
-    var vsCls = signClass(cumulPnl);
-    var vsPct = start && start > 0 ? (cumulPnl / start) * 100 : 0;
-    setKpi("kpi-vsstart", formatPnl(cumulPnl), vsCls);
-    setKpiSub("kpi-vsstart-sub", formatPct(vsPct), vsCls);
+    var vsValue = (equityDelta !== null && equityDelta !== undefined) ? equityDelta : realizedPnl;
+    var vsCls = signClass(vsValue);
+    var vsPct = start && start > 0 ? (vsValue / start) * 100 : 0;
+    setKpi("kpi-vsstart", formatPnl(vsValue), vsCls);
+    setKpiSub("kpi-vsstart-sub", formatPct(vsPct) + " vs daily ref · realized " + formatPnl(realizedPnl), vsCls);
 
     setKpi("kpi-positions", data.open_count !== undefined && data.open_count !== null ? String(data.open_count) : "--", "");
     setKpiSub("kpi-positions-sub", "max " + (data.total_pairs || "--"), "");

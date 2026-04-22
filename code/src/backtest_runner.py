@@ -1032,24 +1032,34 @@ def run_all_backtests(
             executor.submit(run_single_backtest_optimized, task): task
             for task in tasks
         }
-        with tqdm(
-            total=len(tasks),
-            desc="[BACKTESTS]",
-            colour="green",
-            bar_format=(
-                "{desc}: {percentage:3.0f}%|"
-                "\u2588{bar:30}\u2588| "
-                "{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
-            ),
-        ) as pbar:
+        _stderr = getattr(sys, 'stderr', None)
+        _has_tty_progress = bool(_stderr and hasattr(_stderr, 'write') and hasattr(_stderr, 'isatty') and _stderr.isatty())
+        if _has_tty_progress:
+            with tqdm(
+                total=len(tasks),
+                desc="[BACKTESTS]",
+                colour="green",
+                bar_format=(
+                    "{desc}: {percentage:3.0f}%|"
+                    "\u2588{bar:30}\u2588| "
+                    "{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+                ),
+            ) as pbar:
+                for future in as_completed(future_to_task):
+                    try:
+                        result = future.result()
+                        results.append(result)
+                        pbar.update(1)
+                    except Exception as e:
+                        logger.error(f"Erreur future: {e}")
+                        pbar.update(1)
+        else:
             for future in as_completed(future_to_task):
                 try:
                     result = future.result()
                     results.append(result)
-                    pbar.update(1)
                 except Exception as e:
                     logger.error(f"Erreur future: {e}")
-                    pbar.update(1)
 
     return results
 

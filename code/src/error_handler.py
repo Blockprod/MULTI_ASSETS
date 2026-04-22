@@ -349,7 +349,7 @@ def initialize_error_handler(email_config: Optional[Dict[str, str]] = None) -> E
     """Initialize global error handler"""
     global _error_handler
     _error_handler = ErrorHandler(email_config=email_config)
-    logger.info("[HANDLER] Error handler initialized")
+    logger.debug("[HANDLER] Error handler initialized")
     return _error_handler
 
 

@@ -52,6 +52,10 @@ reports/
 # Couverture de code
 .coverage
 
+# Sorties de tests locales
+test_output*.txt
+tests_output*.txt
+
 # Caches d'outils d'analyse statique
 .mypy_cache/
 .pytest_cache/
@@ -65,5 +69,11 @@ code/src/cache/
 # Fichiers temporaires outils (pyright, etc.)
 *.tmp
 
+# Artefacts binaires locaux
+*.old
+
 # Fichiers de verrou runtime
 *.lock
+
+# Metriques runtime locales
+metrics/

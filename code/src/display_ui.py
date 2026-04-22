@@ -450,15 +450,18 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict], console: O
     if wf_config:
         wf_ema = wf_config.get('ema_periods', ['-', '-'])
         champion_grid.add_row("[dim white]─────────────────────[/dim white]", "")
-        champion_grid.add_row("[bold yellow]  \u27a4 Config tradée (WF)[/bold yellow]",
+        champion_grid.add_row("[bold yellow]  \u27a4 Config active (WF/OOS)[/bold yellow]",
                               f"[bold yellow]{wf_config.get('scenario', '?')} {wf_config.get('timeframe', '?')} EMA({wf_ema[0]},{wf_ema[1]})[/bold yellow]")
-        champion_grid.add_row("[cyan]  OOS Sharpe[/cyan]",
+        champion_grid.add_row("[cyan]  OOS Sharpe WF[/cyan]",
                               f"[bold cyan]{wf_config.get('avg_oos_sharpe', 0):.2f}[/bold cyan]")
 
     best_panel = Panel(
         champion_grid,
-        title=f"[bold bright_green]\u2605 CHAMPION IS \u2014 {backtest_pair} \u2605[/bold bright_green]",
-        subtitle=f"[dim]{len(results)} configurations testees[/dim]",
+        title=f"[bold bright_green]\u2605 MEILLEUR RESULTAT IS \u2014 {backtest_pair} \u2605[/bold bright_green]",
+        subtitle=(
+            f"[dim]{len(results)} configurations testees"
+            f"{' | execution reelle = config WF/OOS ci-dessus' if wf_config else ''}[/dim]"
+        ),
         border_style="bright_green",
         padding=(1, 3),
         width=PANEL_WIDTH,
@@ -468,7 +471,7 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict], console: O
     # Table — sorted by profit, limited to top N
     display_results = sorted_results[:MAX_TABLE_ROWS]
     table = Table(
-        title=f"[bold cyan]Top {len(display_results)} Resultats — {backtest_pair}[/bold cyan]",
+        title=f"[bold cyan]Top {len(display_results)} Resultats IS — {backtest_pair}[/bold cyan]",
         title_style="bold magenta",
         show_header=True,
         header_style="bold white on dark_blue",
@@ -506,7 +509,7 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict], console: O
 
     _console.print(table)
     if len(results) > MAX_TABLE_ROWS:
-        _console.print(f"[dim]   ... et {len(results) - MAX_TABLE_ROWS} autres configurations (triees par profit decroissant)[/dim]")
+        _console.print(f"[dim]   ... et {len(results) - MAX_TABLE_ROWS} autres configurations (triees par profit IS decroissant)[/dim]")
     _console.print(Rule(style="bright_yellow"))
 
 
@@ -526,17 +529,17 @@ def display_backtest_table(
     champion_grid = Table(box=None, show_header=False, pad_edge=False, show_edge=False, padding=(0, 2))
     champion_grid.add_column("label", width=18, no_wrap=True)
     champion_grid.add_column("value")
-    champion_grid.add_row("[bold green]\u2605 Scenario[/bold green]", f"[bold magenta]{best_result['scenario']}[/bold magenta]")
-    champion_grid.add_row("[cyan]  Timeframe[/cyan]", f"[cyan bold]{best_result['timeframe']}[/cyan bold]")
-    champion_grid.add_row("[blue]  EMA[/blue]", f"[cyan bold]{best_result['ema_periods'][0]} / {best_result['ema_periods'][1]}[/cyan bold]")
-    champion_grid.add_row("[yellow]  Profit[/yellow]", f"[bold bright_green]${best_profit:,.2f}[/bold bright_green]")
+    champion_grid.add_row("[bold green]\u2605 Scenario IS[/bold green]", f"[bold magenta]{best_result['scenario']}[/bold magenta]")
+    champion_grid.add_row("[cyan]  Timeframe IS[/cyan]", f"[cyan bold]{best_result['timeframe']}[/cyan bold]")
+    champion_grid.add_row("[blue]  EMA IS[/blue]", f"[cyan bold]{best_result['ema_periods'][0]} / {best_result['ema_periods'][1]}[/cyan bold]")
+    champion_grid.add_row("[yellow]  Profit IS[/yellow]", f"[bold bright_green]${best_profit:,.2f}[/bold bright_green]")
     champion_grid.add_row("[yellow]  Final Wallet[/yellow]", f"[bold yellow]${best_result['final_wallet']:,.2f}[/bold yellow]")
     champion_grid.add_row("[red]  Max Drawdown[/red]", f"[bold red]{best_result['max_drawdown']*100:.2f}%[/bold red]")
     champion_grid.add_row("[cyan]  Win Rate[/cyan]", f"[bold cyan]{best_result['win_rate']:.2f}%[/bold cyan]")
 
     console.print(Panel(
         champion_grid,
-        title=f"[bold bright_green]\u2605 CHAMPION \u2014 {backtest_pair} \u2605[/bold bright_green]",
+        title=f"[bold bright_green]\u2605 MEILLEUR RESULTAT IS \u2014 {backtest_pair} \u2605[/bold bright_green]",
         subtitle=f"[dim]{len(results)} configurations testees[/dim]",
         border_style="bright_green",
         padding=(1, 3),
@@ -546,7 +549,7 @@ def display_backtest_table(
     # Results table — top N only
     display_results = sorted_results[:MAX_TABLE_ROWS]
     table = Table(
-        title=f"[bold cyan]Top {len(display_results)} Backtest Results[/bold cyan]",
+        title=f"[bold cyan]Top {len(display_results)} Backtest IS Results[/bold cyan]",
         title_style="bold magenta",
         show_header=True,
         header_style="bold white on dark_blue",

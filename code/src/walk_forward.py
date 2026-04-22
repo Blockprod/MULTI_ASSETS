@@ -39,6 +39,7 @@ OOS_SHARPE_MIN = 0.8       # Minimum OOS annualized Sharpe (default)
 OOS_WIN_RATE_MIN = 30.0    # Minimum OOS win rate (%) (default)
 OOS_DECAY_MIN = 0.15       # Minimum OOS/FS Sharpe ratio (anti-overfit gate)
 RISK_FREE_RATE = 0.04      # Annual risk-free rate (default, P2-03: surchargé par config)
+DEFAULT_MIN_WF_BARS = 700
 
 
 def _get_risk_free_rate():
@@ -57,6 +58,15 @@ def _get_oos_thresholds():
         return getattr(config, 'oos_sharpe_min', OOS_SHARPE_MIN), getattr(config, 'oos_win_rate_min', OOS_WIN_RATE_MIN)
     except Exception:
         return OOS_SHARPE_MIN, OOS_WIN_RATE_MIN
+
+
+def _is_expected_wf_data_shortage(
+    timeframe: Optional[str],
+    available_bars: int,
+    required_bars: int,
+) -> bool:
+    """Downgrade expected 1d WF shortages to info until enough history accumulates."""
+    return timeframe == '1d' and available_bars < required_bars
 
 
 # ──────────────────────────────────────────────────────────────
@@ -292,6 +302,7 @@ def split_walk_forward_folds(
     initial_train_pct: float = 0.40,
     min_train_bars: int = 500,
     min_test_bars: int = 200,
+    timeframe: Optional[str] = None,
 ) -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
     """
     Split a DataFrame into anchored (expanding-window) walk-forward folds.
@@ -319,18 +330,30 @@ def split_walk_forward_folds(
     list of (train_df, test_df) tuples
     """
     n = len(df)
-    if n < min_train_bars + min_test_bars:
-        logger.warning(
-            f"Insufficient data for walk-forward: {n} bars "
-            f"(need >= {min_train_bars + min_test_bars})"
+    required_bars = min_train_bars + min_test_bars
+    expected_shortage = _is_expected_wf_data_shortage(timeframe, n, required_bars)
+    timeframe_suffix = f" for {timeframe}" if timeframe else ""
+    shortage_suffix = " - expected until more history accumulates" if expected_shortage else ""
+    if n < required_bars:
+        log_message = (
+            f"Insufficient data for walk-forward{timeframe_suffix}: {n} bars "
+            f"(need >= {required_bars}){shortage_suffix}"
         )
+        if expected_shortage:
+            logger.info(log_message)
+        else:
+            logger.warning(log_message)
         return []
 
     initial_train_end = max(int(n * initial_train_pct), min_train_bars)
     test_pool = n - initial_train_end
 
     if test_pool < min_test_bars:
-        logger.warning(f"Test pool too small: {test_pool} bars")
+        log_message = f"Test pool too small{timeframe_suffix}: {test_pool} bars{shortage_suffix}"
+        if expected_shortage:
+            logger.info(log_message)
+        else:
+            logger.warning(log_message)
         return []
 
     test_window = max(test_pool // n_folds, min_test_bars)
@@ -507,10 +530,14 @@ def run_walk_forward_validation(
 
         # Split into folds
         folds = split_walk_forward_folds(
-            full_df, n_folds=n_folds, initial_train_pct=_adaptive_train_pct,
+            full_df, n_folds=n_folds, initial_train_pct=_adaptive_train_pct, timeframe=tf,
         )
         if not folds:
-            logger.warning(f"No WF folds for {tf}; skipping config {scenario_name} EMA({ema1},{ema2})")
+            log_message = f"No WF folds for {tf}; skipping config {scenario_name} EMA({ema1},{ema2})"
+            if _is_expected_wf_data_shortage(tf, len(full_df), DEFAULT_MIN_WF_BARS):
+                logger.info("%s - expected until more history accumulates", log_message)
+            else:
+                logger.warning(log_message)
             continue
 
         s_params = scenario_params_map.get(scenario_name, {})
@@ -706,7 +733,7 @@ def run_walk_forward_optuna(
     folds_by_tf: Dict[str, List[Tuple[pd.DataFrame, pd.DataFrame]]] = {}
     for tf in tf_list:
         folds = split_walk_forward_folds(
-            base_dataframes[tf], n_folds=n_folds, initial_train_pct=initial_train_pct,
+            base_dataframes[tf], n_folds=n_folds, initial_train_pct=initial_train_pct, timeframe=tf,
         )
         if folds:
             folds_by_tf[tf] = folds

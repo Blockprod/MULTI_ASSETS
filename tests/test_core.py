@@ -180,6 +180,26 @@ class TestWalkForwardFolds(unittest.TestCase):
                                           min_train_bars=500, min_test_bars=200)
         self.assertEqual(len(folds), 0)
 
+    def test_insufficient_1d_data_logs_info_when_expected(self):
+        df = self._make_df(364)
+        with self.assertLogs('walk_forward', level='INFO') as captured:
+            folds = split_walk_forward_folds(
+                df,
+                n_folds=4,
+                initial_train_pct=0.4,
+                min_train_bars=500,
+                min_test_bars=200,
+                timeframe='1d',
+            )
+        self.assertEqual(len(folds), 0)
+        self.assertTrue(
+            any(
+                entry.startswith('INFO:walk_forward:Insufficient data for walk-forward for 1d: 364 bars')
+                and 'expected until more history accumulates' in entry
+                for entry in captured.output
+            )
+        )
+
 
 # ──────────────────────────────────────────────────────────────
 # OOS Validation Gate Tests

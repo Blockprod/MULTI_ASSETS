@@ -211,3 +211,18 @@ class TestSLChain:
         # Pas de rollback ni d'emergency_halt
         deps.market_sell_fn.assert_not_called()
         assert not bot_state.get('emergency_halt')
+
+    def test_buy_journal_uses_actual_filled_quantity(self):
+        """Le journal BUY doit refléter la quantité réellement détenue, pas la quantité d'ordre arrondie."""
+        bot_state: dict = {}
+        deps = _make_deps(
+            bot_state=bot_state,
+            market_buy_fn=MagicMock(return_value=_filled_buy_order(qty='9.73')),
+        )
+        ctx = _make_ctx()
+
+        with patch('order_manager.display_buy_signal_panel'), patch('order_manager.log_trade') as log_trade_mock:
+            _execute_buy(ctx, deps)
+
+        log_trade_mock.assert_called_once()
+        assert log_trade_mock.call_args.kwargs['quantity'] == 9.73

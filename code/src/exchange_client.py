@@ -265,7 +265,8 @@ class BinanceFinalClient(Client):
                     next_run = schedule.next_run()
                     if next_run:
                         delta = next_run - now
-                        minutes_left = max(0, int(delta.total_seconds() // 60))
+                        seconds_left = max(0, int(delta.total_seconds()))
+                        minutes_left = 0 if seconds_left == 0 else max(1, (seconds_left + 59) // 60)
                         logger.debug(
                             "[RETRY] %s - Bot actif (RUNNING) | Prochaine execution dans %s min (%s)",
                             now.strftime('%H:%M:%S'), minutes_left, next_run.strftime('%H:%M:%S'))

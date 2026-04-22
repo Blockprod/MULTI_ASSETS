@@ -259,6 +259,30 @@ Si aucun résultat → archiver dans `code/legacy/` et retirer de `config/setup.
 
 ---
 
+## Observabilité & Launchers
+
+### L-21 · Launcher basé sur `Start-Sleep` au lieu d'un signal de readiness réel
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-04-22
+
+**Contexte** : Un script de lancement démarre le bot ou le dashboard puis attend un délai fixe avant d'ouvrir la console ou le navigateur.
+**Erreur** : Le service peut être encore indisponible, ou au contraire déjà prêt bien avant. Résultat : UI ouverte sur une API KO, faux diagnostics, et comportements non déterministes selon la machine.
+**Règle** : Ne jamais utiliser un sleep fixe comme critère de readiness. Toujours attendre un signal métier réel :
+1. Dashboard : endpoint HTTP `/api/data` en 2xx.
+2. Bot : heartbeat frais + PID vivant + `loop_counter >= 1`.
+**Ref** : `code/scripts/wait_for_dashboard_ready.py`, `code/scripts/wait_for_bot_ready.py`, `code/scripts/manage_task.bat`
+
+---
+
+### L-22 · PID du heartbeat plus fiable que `.running.lock` quand plusieurs processus coexistent
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-04-22
+
+**Contexte** : `start_safe.ps1` ou un helper de readiness compare un PID de lock avec un PID actif vu ailleurs (heartbeat, processus Python multiples, relance console/hidden).
+**Erreur** : Le lock peut être stale ou refléter un ancien processus alors que le heartbeat identifie correctement l'instance réellement vivante. Suivre aveuglément le lock produit des faux positifs, des refus de démarrage, ou une attente infinie.
+**Règle** : En cas de divergence, traiter le heartbeat comme source de vérité seulement si son PID est vivant et que le PID du lock ne l'est plus. Si le lock PID est encore vivant mais différent, considérer la situation comme incohérente et ne pas la masquer.
+**Ref** : `start_safe.ps1`, `code/scripts/wait_for_bot_ready.py`
+
+---
+
 ## Référence — Patterns P0 appliqués (historique)
 
 > Ces patterns sont actifs dans le code. Mettre à jour si une correction change le comportement.

@@ -459,6 +459,7 @@ class _BotRuntime:
         # Backtest scheduling per pair
         self.last_backtest_time: Dict[str, float] = {}
         self.live_best_params: Dict[str, Dict[str, Any]] = {}
+        self.last_scheduled_trade_time: Dict[str, float] = {}
         # Alert throttles (1h default, per pair or global)
         self.oos_alert_throttle = AlertThrottle(cooldown=3600)
         self.daily_loss_throttle = AlertThrottle(
@@ -572,7 +573,14 @@ def load_bot_state() -> None:
             # Le flag sera levé uniquement quand un backtest validera les OOS gates
             # (execute_scheduled_trading ou backtest_and_display_results).
             # Cela évite qu'un redémarrage efface un blocage légitime.
-        logger.info("[STATE] bot_state chargé — %d paires.", len(bot_state))
+        _pair_state_count = sum(
+            1 for _key, _value in bot_state.items()
+            if isinstance(_key, str) and isinstance(_value, dict) and not _key.startswith('_')
+        )
+        logger.info(
+            "[STATE] bot_state chargé — %d entrées, %d pair_state(s) persisté(s).",
+            len(bot_state), _pair_state_count,
+        )
     else:
         logger.critical(
             "[STATE-CRITICAL C-04] load_state() a retourné None — "
@@ -624,7 +632,10 @@ _equity_last_date: str = ''
 def _refresh_starting_equity_if_new_day() -> None:
     """Recalcule starting_equity au premier cycle de chaque jour UTC.
 
-    Equity = USDC libre + Σ(coin_balance × prix courant) pour chaque position ouverte.
+    Cette valeur sert de référence journalière pour le daily loss limit et le
+    calcul du delta versus départ dans le dashboard. Pour une position déjà
+    ouverte, la valorisation de référence est ancrée sur le prix d'entrée,
+    tandis que l'equity live du dashboard reste mark-to-market au prix spot.
     Persiste dans _daily_pnl_tracker['starting_equity'] pour le daily loss limit.
     """
     global _equity_last_date
@@ -656,7 +667,8 @@ def _refresh_starting_equity_if_new_day() -> None:
         save_bot_state(force=True)
         _equity_last_date = today
         logger.info(
-            "[P2-EQUITY] Equity jour %s: %.2f USDC (libre=%.2f + positions)",
+            "[P2-EQUITY] Equity de reference jour %s: %.2f USDC "
+            "(libre=%.2f + positions valorisees au prix d'entree)",
             today, _total, _usdc,
         )
     except Exception as _err:
@@ -770,6 +782,7 @@ def _make_backtest_deps() -> _BacktestDeps:
         make_default_pair_state_fn=_make_default_pair_state,
         last_backtest_time=_runtime.last_backtest_time,
         live_best_params=_runtime.live_best_params,
+        last_scheduled_trade_time=_runtime.last_scheduled_trade_time,
         oos_alert_last_sent=_oos_alert_last_sent,
         oos_alert_lock=_oos_alert_lock,
         wf_scenarios=WF_SCENARIOS,
@@ -1501,15 +1514,16 @@ if __name__ == "__main__":
         # Les valeurs config (taker_fee/maker_fee) sont autoritatives.
         real_taker, real_maker = get_binance_trading_fees(client)
         if abs(real_taker - _runtime.taker_fee) > 1e-6 or abs(real_maker - _runtime.maker_fee) > 1e-6:
-            logger.warning(
-                "[P0-01] Frais API Binance (%.5f/%.5f) différents de config (%.5f/%.5f) — "
-                "config conservée (peut inclure remise BNB/promo)",
-                real_taker, real_maker, _runtime.taker_fee, _runtime.maker_fee,
+            logger.info(
+                "[P0-01] Frais live utilisés: taker=%.5f maker=%.5f (source: config; API Binance=%.5f/%.5f, ecart attendu avec remise BNB/promo)",
+                _runtime.taker_fee, _runtime.maker_fee,
+                real_taker, real_maker,
             )
-        logger.info(
-            "[P0-01] Frais live utilisés: taker=%.5f maker=%.5f (source: config)",
-            _runtime.taker_fee, _runtime.maker_fee,
-        )
+        else:
+            logger.info(
+                "[P0-01] Frais live utilisés: taker=%.5f maker=%.5f (source: config, alignes API Binance)",
+                _runtime.taker_fee, _runtime.maker_fee,
+            )
 
         # Chargement de l'etat du bot
         load_bot_state()
@@ -1823,10 +1837,27 @@ if __name__ == "__main__":
 
         def _graceful_shutdown(signum: int, _frame: Any) -> None:
             import signal as _signal  # pylint: disable=reimported
+            try:
+                signal_name = _signal.Signals(signum).name
+            except ValueError:
+                signal_name = "UNKNOWN"
             if signum == _signal.SIGINT:
                 _voluntary_event.set()
+                logger.info(
+                    "[SHUTDOWN] Signal %s (%s) reçu — arrêt volontaire demandé",
+                    signum, signal_name,
+                )
+            elif signum == _signal.SIGTERM:
+                logger.warning(
+                    "[SHUTDOWN] Signal %s (%s) reçu — arrêt demandé",
+                    signum, signal_name,
+                )
+            else:
+                logger.critical(
+                    "[SHUTDOWN] Signal %s (%s) reçu — arrêt demandé",
+                    signum, signal_name,
+                )
             _shutdown_event.set()  # main-loop va sortir naturellement
-            logger.critical(f"[SHUTDOWN] Signal {signum} reçu — arrêt demandé")
 
         try:
             signal.signal(signal.SIGTERM, _graceful_shutdown)
@@ -1901,7 +1932,8 @@ if __name__ == "__main__":
                     next_run = schedule.next_run()
                     if next_run:
                         delta = next_run - now
-                        minutes_left = max(0, int(delta.total_seconds() // 60))
+                        seconds_left = max(0, int(delta.total_seconds()))
+                        minutes_left = 0 if seconds_left == 0 else max(1, (seconds_left + 59) // 60)
                         console.print(f"[TIME] {now.strftime('%H:%M:%S')} - Bot actif (RUNNING) | Prochaine execution dans {minutes_left} min ({next_run.strftime('%H:%M:%S')})")
                     else:
                         console.print(f"[TIME] {now.strftime('%H:%M:%S')} - Bot actif (RUNNING) | Prochaine execution non planifiée")

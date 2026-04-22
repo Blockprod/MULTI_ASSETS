@@ -9,6 +9,10 @@ set "PROJECT_DIR=C:\Users\averr\MULTI_ASSETS"
 set "PYTHON_EXE=C:\Users\averr\MULTI_ASSETS\.venv\Scripts\python.exe"
 set "PYTHONW_EXE=C:\Users\averr\MULTI_ASSETS\.venv\Scripts\pythonw.exe"
 set "SCRIPT=C:\Users\averr\MULTI_ASSETS\code\src\MULTI_SYMBOLS.py"
+set "BOT_WAIT_SCRIPT=C:\Users\averr\MULTI_ASSETS\code\scripts\wait_for_bot_ready.py"
+set "DASHBOARD_URL=http://127.0.0.1:8082/dashboard"
+set "DASHBOARD_API_URL=http://127.0.0.1:8082/api/data"
+set "DASHBOARD_WAIT_SCRIPT=C:\Users\averr\MULTI_ASSETS\code\scripts\wait_for_dashboard_ready.py"
 
 :MENU
 cls
@@ -24,11 +28,12 @@ echo   4. Voir les dernières lignes du log
 echo   5. Suivre le log en temps réel (Ctrl+C pour sortir)
 echo   6. Lancer en mode console (même fenêtre — bloquant)
 echo   7. Lancer le bot en nouvelle fenêtre
+echo  11. Forcer le redemarrage du bot en console
 echo   8. Ouvrir le Planificateur de tâches Windows
 echo   9. Quitter
 echo  10. Ouvrir le dashboard (métriques live)
 echo.
-set /p CHOICE=Votre choix [1-10] :
+set /p CHOICE=Votre choix [1-11] :
 
 if "%CHOICE%"=="1" goto STATUS
 if "%CHOICE%"=="2" goto START
@@ -40,6 +45,7 @@ if "%CHOICE%"=="7" goto OPT_CONSOLE_WIN
 if "%CHOICE%"=="8" goto TASKSCHD
 if "%CHOICE%"=="9" goto END
 if "%CHOICE%"=="10" goto OPT_DASHBOARD
+if "%CHOICE%"=="11" goto OPT_RESTART_CONSOLE_WIN
 goto MENU
 
 :STATUS
@@ -115,9 +121,33 @@ goto MENU
 :OPT_CONSOLE_WIN
 echo.
 echo [*] Lancement du bot dans une nouvelle fenetre...
-echo     Fermez la fenetre "MULTI_ASSETS Bot" pour arreter le bot.
-start "MULTI_ASSETS Bot" cmd /k "cd /d "%PROJECT_DIR%" && "%PYTHON_EXE%" -B "%SCRIPT%""
-echo [OK] Bot demarre. Vous pouvez maintenant ouvrir le dashboard (option 10).
+echo     La fenetre affichera les panels Rich en direct.
+echo     Si un bot est deja actif, il ne sera PAS redemarre.
+start "MULTI_ASSETS Bot" powershell -NoProfile -NoExit -ExecutionPolicy Bypass -Command "& 'C:\Users\averr\MULTI_ASSETS\start_safe.ps1' -Mode console"
+echo [*] Attente du heartbeat bot...
+"%PYTHON_EXE%" "%BOT_WAIT_SCRIPT%" 120
+if %errorlevel% equ 0 (
+    echo [OK] Bot pret en mode console (Rich visible, sans redemarrage force).
+) else (
+    echo [!] Fenetre console lancee, mais le bot n'a pas signale un heartbeat pret a temps.
+    echo     Verifiez la nouvelle fenetre et le fichier code\src\states\heartbeat.json.
+)
+timeout /t 2 >nul
+goto MENU
+
+:OPT_RESTART_CONSOLE_WIN
+echo.
+echo [*] Redemarrage force du bot dans une nouvelle fenetre...
+echo     Utiliser cette option seulement si vous voulez relancer un bot deja actif.
+start "MULTI_ASSETS Bot" powershell -NoProfile -NoExit -ExecutionPolicy Bypass -Command "& 'C:\Users\averr\MULTI_ASSETS\start_safe.ps1' -Mode console -RestartIfRunning"
+echo [*] Attente du heartbeat bot apres redemarrage...
+"%PYTHON_EXE%" "%BOT_WAIT_SCRIPT%" 120
+if %errorlevel% equ 0 (
+    echo [OK] Bot pret apres redemarrage force en mode console.
+) else (
+    echo [!] Nouvelle fenetre lancee, mais le bot n'a pas signale un heartbeat pret a temps.
+    echo     Verifiez la nouvelle fenetre et le fichier code\src\states\heartbeat.json.
+)
 timeout /t 2 >nul
 goto MENU
 
@@ -128,11 +158,17 @@ for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":8082 " ^| findstr "L
     taskkill /PID %%p /F >nul 2>&1
 )
 timeout /t 1 >nul
-echo [*] Lancement du dashboard web (http://127.0.0.1:8082/dashboard)...
+echo [*] Lancement du dashboard web (%DASHBOARD_URL%)...
 wscript //nologo "C:\Users\averr\MULTI_ASSETS\code\scripts\launch_dashboard.vbs"
-timeout /t 2 >nul
-start "" "http://127.0.0.1:8082/dashboard"
-echo [OK] Dashboard ouvert dans le navigateur.
+echo [*] Attente du serveur dashboard...
+"%PYTHON_EXE%" "%DASHBOARD_WAIT_SCRIPT%" "%DASHBOARD_API_URL%" 20
+if %errorlevel% equ 0 (
+    start "" "%DASHBOARD_URL%"
+    echo [OK] Dashboard ouvert dans le navigateur.
+) else (
+    echo [!] Dashboard lance mais l'API n'a pas repondu a temps.
+    echo     Verifiez le process pythonw et le port 8082.
+)
 timeout /t 2 >nul
 goto MENU
 

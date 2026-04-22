@@ -1243,6 +1243,21 @@ class TestExecuteScheduledTrading:
         ms.execute_scheduled_trading('SOLUSDC', '1h', _make_best_params(), 'SOLUSDT', 'baseline')
         # No crash
 
+    def test_live_only_skips_right_after_scheduled_trade(self, monkeypatch):
+        cfg = _make_config()
+        monkeypatch.setattr(ms, 'config', cfg)
+        monkeypatch.setattr(ms, 'console', MagicMock())
+        monkeypatch.setattr(ms, 'bot_state', {})
+        monkeypatch.setattr(ms._runtime, 'live_best_params', {'SOLUSDT': _make_best_params()})
+        monkeypatch.setattr(ms._runtime, 'last_scheduled_trade_time', {'SOLUSDT': time.time()})
+
+        exec_calls = []
+        monkeypatch.setattr(ms, 'execute_real_trades', lambda *a, **kw: exec_calls.append((a, kw)))
+
+        ms.execute_live_trading_only('SOLUSDC', 'SOLUSDT', 'baseline')
+
+        assert exec_calls == []
+
 
 # ===================================================================
 #  SECTION 6: Additional _execute_real_trades_inner coverage

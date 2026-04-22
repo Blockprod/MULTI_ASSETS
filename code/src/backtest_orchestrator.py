@@ -21,6 +21,34 @@ from exchange_client import ExchangePort
 
 logger = logging.getLogger(__name__)
 
+_LIVE_ONLY_POST_SCHEDULED_SKIP_SECONDS = 90.0
+
+
+def _has_console_output(console_obj: Any) -> bool:
+    """Return True when Rich console has a writable output stream.
+
+    In pythonw mode on Windows, stdout/stderr can be None. Rich then raises
+    errors such as "NoneType has no attribute flush" when printing panels.
+    """
+    try:
+        out = getattr(sys, 'stdout', None)
+        if not (out and hasattr(out, 'write') and hasattr(out, 'flush')):
+            return False
+        file_obj = getattr(console_obj, 'file', None)
+        return bool(file_obj and hasattr(file_obj, 'write') and hasattr(file_obj, 'flush'))
+    except Exception:
+        return False
+
+
+def _safe_stdout_flush() -> None:
+    """Flush stdout only when a real writable stream exists."""
+    try:
+        out = getattr(sys, 'stdout', None)
+        if out and hasattr(out, 'write') and hasattr(out, 'flush'):
+            out.flush()
+    except Exception:
+        pass
+
 
 # ─── Injection de dépendances ─────────────────────────────────────────────────
 
@@ -54,6 +82,7 @@ class _BacktestDeps:
     # Mutable shared state (same objects as MULTI_SYMBOLS globals — passed by reference)
     last_backtest_time: Dict[str, float]            # _last_backtest_time
     live_best_params: Dict[str, Dict[str, Any]]     # _live_best_params
+    last_scheduled_trade_time: Dict[str, float]     # _last_scheduled_trade_time
     oos_alert_last_sent: Dict[str, float]           # _oos_alert_last_sent
     oos_alert_lock: Any                             # threading.Lock
     # Constants
@@ -175,8 +204,8 @@ def _execute_scheduled_trading(
 
         deps.display_execution_header_fn(backtest_pair, real_trading_pair, time_interval, deps.console)
 
-        # Force flush de la console
-        sys.stdout.flush()
+        # Force flush de la console (si flux disponible)
+        _safe_stdout_flush()
         logger.info("[SCHEDULED] Header affiché, debut des backtests...")
 
         # Re-faire le backtest pour obtenir les paramètres les plus à jour
@@ -274,7 +303,7 @@ def _execute_scheduled_trading(
                 best_profit = best_result['final_wallet'] - best_result['initial_wallet']
 
                 logger.info(
-                    "[SCHEDULED] Meilleur resultat (Calmar, pool OOS=%d configs): %s sur %s | Profit IS: $%s",
+                    "[SCHEDULED] Meilleur resultat IS (Calmar, pool OOS=%d configs): %s sur %s | Profit IS: $%s",
                     len(_selection_pool), best_result['scenario'], best_result['timeframe'], f"{best_profit:,.2f}",
                 )
 
@@ -282,7 +311,7 @@ def _execute_scheduled_trading(
                 try:
                     deps.display_results_fn(backtest_pair, backtest_results, wf_config=_sched_wf_best)
                     logger.info(f"[SCHEDULED] Résultats affichés pour {backtest_pair}")
-                    sys.stdout.flush()
+                    _safe_stdout_flush()
                 except Exception as display_err:
                     logger.error(f"[SCHEDULED] Erreur affichage résultats: {str(display_err)}")
 
@@ -331,6 +360,8 @@ def _execute_scheduled_trading(
         try:
             logger.info(f"[SCHEDULED] Appel execute_real_trades avec {best_params['scenario']} sur {best_params['timeframe']} + sizing_mode='{sizing_mode}'...")
             deps.execute_trades_fn(real_trading_pair, best_params['timeframe'], best_params, backtest_pair, sizing_mode=sizing_mode)
+            with deps.bot_state_lock:
+                deps.last_scheduled_trade_time[backtest_pair] = time.time()
             logger.info("[SCHEDULED] execute_real_trades complété avec succès")
         except Exception as trade_error:
             logger.error(f"[SCHEDULED] Erreur dans execute_real_trades: {str(trade_error)}")
@@ -371,9 +402,10 @@ def _execute_scheduled_trading(
         # Afficher le panel de suivi
         logger.info("[SCHEDULED] Création et affichage du panel de suivi...")
         try:
-            deps.console.print(deps.build_tracking_panel_fn(pair_state, current_run_time))
-            deps.console.print("\n")
-            sys.stdout.flush()
+            if _has_console_output(deps.console):
+                deps.console.print(deps.build_tracking_panel_fn(pair_state, current_run_time))
+                deps.console.print("\n")
+                _safe_stdout_flush()
             logger.info(f"[SCHEDULED] Exécution planifiée COMPLETEE pour {backtest_pair}")
         except Exception as tracking_err:
             logger.error(f"[SCHEDULED] Erreur affichage tracking panel: {str(tracking_err)}")
@@ -411,14 +443,25 @@ def _execute_live_trading_only(
     try:
         with deps.bot_state_lock:
             current_params = dict(deps.live_best_params.get(backtest_pair, {}))
+            last_scheduled_trade_time = deps.last_scheduled_trade_time.get(backtest_pair, 0.0)
         if not current_params or 'timeframe' not in current_params:
             logger.warning(f"[LIVE-ONLY] {backtest_pair}: paramètres non disponibles, skip.")
             return
 
+        seconds_since_scheduled = time.time() - last_scheduled_trade_time if last_scheduled_trade_time else None
+        if seconds_since_scheduled is not None and seconds_since_scheduled < _LIVE_ONLY_POST_SCHEDULED_SKIP_SECONDS:
+            logger.info(
+                "[LIVE-ONLY] %s: cycle ignoré — exécution planifiée terminée il y a %.0fs.",
+                backtest_pair,
+                seconds_since_scheduled,
+            )
+            return
+
         tf = current_params['timeframe']
         logger.info(
-            "[LIVE-ONLY] %s @ %s — %s EMA(%s/%s) %s",
+            "[LIVE-ONLY] %s -> %s @ %s — %s EMA(%s/%s) %s",
             backtest_pair,
+            real_trading_pair,
             datetime.now().strftime('%H:%M:%S'),
             current_params.get('scenario'),
             current_params.get('ema1_period'),
@@ -454,9 +497,10 @@ def _execute_live_trading_only(
         deps.save_fn()
 
         try:
-            deps.console.print(deps.build_tracking_panel_fn(pair_state, current_run_time))
-            deps.console.print("\n")
-            sys.stdout.flush()
+            if _has_console_output(deps.console):
+                deps.console.print(deps.build_tracking_panel_fn(pair_state, current_run_time))
+                deps.console.print("\n")
+                _safe_stdout_flush()
         except Exception as _panel_err:
             logger.error(f"[LIVE-ONLY] Erreur panel tracking: {_panel_err}")
 
