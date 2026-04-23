@@ -970,9 +970,10 @@ async function refreshLogs() {
     var lines = await resp.json();
     var scroll = byId("log-scroll");
     var log = byId("live-log");
-    var keepBottom = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 35;
+    var keepTop = scroll.scrollTop <= 35;
+    var newestFirst = lines.slice().reverse();
 
-    log.innerHTML = lines.map(function (line) {
+    log.innerHTML = newestFirst.map(function (line) {
       var cls = "log-line";
       if (/ERROR|CRITICAL/i.test(line)) cls += " err";
       else if (/WARNING|WARN/i.test(line)) cls += " warn";
@@ -980,7 +981,7 @@ async function refreshLogs() {
       return '<div class="' + cls + '">' + esc(line) + '</div>';
     }).join("");
 
-    if (keepBottom) scroll.scrollTop = scroll.scrollHeight;
+    if (keepTop) scroll.scrollTop = 0;
   } catch (err) {
   }
 }
