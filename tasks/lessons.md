@@ -405,6 +405,16 @@ Seul le reconciler (startup) corrigeait l'état → si le bot ne redémarre pas,
 
 ---
 
+### L-25 · Stop-loss exchange "périmé" après breakeven/trailing — ordre zombie Binance
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-04-27
+
+**Contexte** : Après un BUY, un ordre `STOP_LOSS_LIMIT` est posé sur Binance au niveau ATR (`stop_loss_at_entry`). Si le breakeven ou le trailing relève `effective_stop` au-dessus de l'ATR, l'ordre Binance n'est **pas remplacé** — il reste sur l'exchange avec l'ancien `stopPrice`. Le bot voit `sl_exchange_placed=True + statut=NEW` et diffère indéfiniment à Binance. Binance ne fill jamais car le prix n'atteint pas l'ancien niveau ATR (le nouveau stop est plus haut).
+**Symptôme** : ONDO breakeven à 0.2675, ordre ATR à 0.2518 — prix redescend à 0.261 → pas de vente.
+**Fix** : Bloc `[SL-SYNC]` dans `_check_and_execute_stop_loss` : si `effective_stop > stop_loss_at_entry + ε` et `sl_exchange_placed=True`, cancel l'ordre Binance + `_handle_manual_sl_trigger` immédiat.
+**Fix 2** : Bloc `[SL-SYNC-GUARD]` dans `_handle_manual_sl_trigger` : cancel défensif si `sl_order_id` présent avec coins libres (état inconsistant post-réconciliation).
+**Règle** : Après tout relèvement de stop (breakeven, trailing), l'ordre exchange est obsolète. Le bot NE remplace PAS proactivement l'ordre — il détecte + cancel au moment du trigger. Ne jamais supposer que Binance va fill si `effective_stop ≠ stop_loss_at_entry`.
+**Ref** : `order_manager.py` · `_check_and_execute_stop_loss` (L-1101) + `_handle_manual_sl_trigger` (L-743)
+
 ### L-24 · Export metrics — `pairs` peut contenir des dicts non hashables
 **Sévérité** : 🟡 IMPORTANT · **Date** : 2026-04-22
 

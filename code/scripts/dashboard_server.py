@@ -1378,11 +1378,15 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         $('kpi-daypnl-sub').textContent = 'realized today ' + fmtPct(d.daily_pnl_pct);
         $('kpi-daypnl-sub').className   = 'kpi-sub ' + pnlCls(dayPnl);
 
-        var vsValue = (equityDelta !== null && equityDelta !== undefined) ? equityDelta : realizedPnl;
+        // VS.REF: préférer equity_delta (mark-to-market) sauf si négligeable avec des trades aujourd'hui
+        // (starting_equity peut dériver si écrasé post-sell — fallback sur dayPnl si |delta| < 0.05 $)
+        var equityDeltaSignificant = equityDelta !== null && equityDelta !== undefined
+          && (Math.abs(equityDelta) >= 0.05 || dayPnl === 0);
+        var vsValue = equityDeltaSignificant ? equityDelta : dayPnl;
         $('kpi-vsstart').textContent = fmtPnl(vsValue);
         $('kpi-vsstart').className   = 'kpi-value ' + pnlCls(vsValue);
         var vsPct = (startEq && startEq > 0) ? (vsValue / startEq * 100) : 0;
-        $('kpi-vsstart-sub').textContent = fmtPct(vsPct) + ' total · realized ' + fmtPnl(realizedPnl);
+        $('kpi-vsstart-sub').textContent = fmtPct(vsPct) + ' vs daily ref · realized ' + fmtPnl(dayPnl);
         $('kpi-vsstart-sub').className   = 'kpi-sub ' + pnlCls(vsValue);
 
         $('kpi-positions').textContent = d.open_count;

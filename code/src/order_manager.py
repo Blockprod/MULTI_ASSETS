@@ -755,6 +755,26 @@ def _handle_manual_sl_trigger(
     """
     ps = ctx.pair_state
 
+    # [SL-SYNC-GUARD] Annuler défensivement tout ordre SL exchange résiduel avant la vente
+    # (état inconsistant possible : coins libres mais sl_order_id encore présent)
+    _guard_oid = ps.get('sl_order_id')
+    if _guard_oid and ps.get('sl_exchange_placed'):
+        try:
+            deps.client.cancel_order(symbol=ctx.real_trading_pair, orderId=_guard_oid)
+            logger.warning(
+                "[SL-SYNC-GUARD] Ordre SL exchange résiduel %s annulé avant vente manuelle "
+                "(coins libres mais ordre actif sur exchange — état inconsistant).",
+                _guard_oid,
+            )
+        except Exception as _guard_err:
+            logger.debug(
+                "[SL-SYNC-GUARD] Cancel ordre résiduel %s: %s (probablement déjà inactif).",
+                _guard_oid, _guard_err,
+            )
+        finally:
+            ps['sl_order_id'] = None
+            ps['sl_exchange_placed'] = False
+
     # Calculer la quantité à vendre (coins disponibles)
     quantity_decimal = Decimal(str(ctx.coin_balance_free))
     quantity_rounded = (quantity_decimal // ctx.step_size_dec) * ctx.step_size_dec
@@ -1098,7 +1118,42 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool
 
     # === Prix <= effective_stop — déléguer au handler approprié ===
     if ctx.coin_balance_free < ctx.min_qty:
-        # Coins verrouillés dans un ordre SL exchange (STOP_LOSS_LIMIT pending)
+        # C-15-SL-SYNC: Si le stop effectif a été relevé (breakeven/trailing) au-dessus de
+        # l'ordre exchange originel (stop_loss_at_entry), l'ordre Binance est "périmé" :
+        # son stopPrice est sous le stop effectif actuel, il ne se déclenchera pas tant que
+        # le prix n'atteint pas l'ancien niveau ATR — même si le prix a déjà franchi le
+        # nouveau stop. Le bot déférerait indéfiniment à Binance sans vendre.
+        # → Annuler l'ordre obsolète et forcer une vente manuelle immédiate.
+        _atr_stop = ps.get('stop_loss_at_entry') or 0.0
+        _sl_is_stale = (
+            effective_stop > (_atr_stop + 1e-9)
+            and ps.get('sl_exchange_placed')
+            and ps.get('sl_order_id')
+        )
+        if _sl_is_stale:
+            _stale_oid = ps['sl_order_id']
+            try:
+                deps.client.cancel_order(symbol=ctx.real_trading_pair, orderId=_stale_oid)
+                ps['sl_order_id'] = None
+                ps['sl_exchange_placed'] = False
+                deps.save_fn()
+                logger.warning(
+                    "[SL-SYNC] Ordre SL exchange %s annulé (stop relevé %.4f > ATR %.4f, "
+                    "prix=%.4f). Vente manuelle forcée.",
+                    _stale_oid, effective_stop, _atr_stop, ctx.current_price,
+                )
+                # Après annulation, tous les coins sont libres → actualiser coin_balance_free
+                ctx.coin_balance_free = ctx.coin_balance
+                return _handle_manual_sl_trigger(
+                    ctx, deps, effective_stop, is_trailing_stop, stop_loss_fixed, trailing_stop,
+                )
+            except Exception as _sync_err:
+                logger.error(
+                    "[SL-SYNC] Impossible d'annuler l'ordre SL exchange %s: %s — "
+                    "délégation à Binance maintenue.",
+                    _stale_oid, _sync_err,
+                )
+        # Coins verrouillés dans un ordre SL exchange valide (stopPrice = niveau ATR actif)
         return _handle_exchange_sl_fill(ctx, deps, is_trailing_stop, stop_loss_fixed, trailing_stop)
 
     # Coins libres — exécuter le market-sell immédiatement
