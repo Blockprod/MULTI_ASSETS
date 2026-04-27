@@ -405,6 +405,14 @@ Seul le reconciler (startup) corrigeait l'état → si le bot ne redémarre pas,
 
 ---
 
+### L-26 · Pyright `reportOperatorIssue` — pandas `.iloc[i]` infère `float | Any | None`
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-04-27
+
+**Contexte** : Dans une boucle backtest, `df_work['col'].iloc[i]` retourne un type `float | Any | None` selon Pyright (inférence pandas conservatrice). Les multiplications/comparaisons sur ce type déclenchent `reportOperatorIssue` (operator "*" not supported for `None`).
+**Fix** : Caster explicitement en `float()` au moment de l'extraction : `row_val = float(df_work['col'].iloc[i])`. Résout toutes les erreurs en cascade sur les usages suivants de la variable.
+**Règle** : Toute extraction pandas `df['col'].iloc[i]` dans une boucle perf-critique → toujours caster en `float()` ou `int()` immédiatement. Ne jamais utiliser `# type: ignore`.
+**Ref** : `backtest_runner.py` · lignes 501-502
+
 ### L-25 · Stop-loss exchange "périmé" après breakeven/trailing — ordre zombie Binance
 **Sévérité** : 🔴 CRITIQUE · **Date** : 2026-04-27
 

@@ -498,8 +498,8 @@ def backtest_from_dataframe(
 
         for i in range(len(df_work)):
             idx_signal = i
-            row_close = df_work['close'].iloc[i]
-            row_atr = df_work['atr'].iloc[i]
+            row_close = float(df_work['close'].iloc[i])
+            row_atr = float(df_work['atr'].iloc[i])
             index = df_work.index[i]
 
             # === EQUITY TRACKING — tous les bars (en ET hors position) ===
