@@ -1031,7 +1031,7 @@ async function refreshData() {
     // recalculer la vraie référence journalière : equity - dayPnl
     var trueStart = (start && Math.abs(equity - start) < 0.05 && dayPnl !== 0)
       ? (equity - dayPnl) : start;
-    setKpiSub("kpi-equity-sub", trueStart ? "daily ref: " + formatMoney(trueStart, 2) + " $" : "total portfolio", "");
+    setKpiSub("kpi-equity-sub", trueStart ? "daily ref: " + formatMoney(trueStart, 2) : "total portfolio", "");
 
     setKpi("kpi-cash", formatMoney(cash, 2), "");
     setKpiSub("kpi-cash-sub", "free USDC balance", "");
