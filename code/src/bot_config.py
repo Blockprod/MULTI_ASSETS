@@ -85,7 +85,7 @@ class Config:
     risk_free_rate: float = 0.04     # P2-03: taux sans risque annuel (US T-bills)
     email_cooldown_seconds: int = 300  # P2-07: cooldown entre emails d'alerte
     stoch_rsi_buy_max: float = 0.8    # P2-08: seuil haut StochRSI pour achat
-    stoch_rsi_buy_min: float = 0.05   # P2-08: seuil bas StochRSI pour achat
+    stoch_rsi_buy_min: float = 0.05   # P2-08: seuil bas StochRSI pour achat (0.05 optimal sur PEPE — V-recoveries depuis oversold)
     stoch_rsi_sell_exit: float = 0.4  # C-1: optimisé 0.2→0.4 (bench +2% PnL, -1pp DD)
     adx_threshold: float = 25.0      # P2-08: seuil ADX minimum
     volume_filter_enabled: bool = False  # A-1: filtre volume (désactivé: bench négatif)
@@ -346,6 +346,17 @@ class Config:
 
         # P0-01: gel de la config après validation — toute mutation ultérieure lève AttributeError
         object.__setattr__(self, '_frozen', True)
+
+    def update_stoch_thresholds(self, buy_min: float, buy_max: float, sell_exit: float) -> None:
+        """Met à jour les seuils StochRSI après optimisation runtime (STOCH-OPT).
+
+        Bypass explicite du gel de config via object.__setattr__ — intentionnel.
+        Les seuils StochRSI sont des paramètres adaptatifs optimisés au runtime,
+        contrairement aux credentials et fees qui sont immuables.
+        """
+        object.__setattr__(self, 'stoch_rsi_buy_min', buy_min)
+        object.__setattr__(self, 'stoch_rsi_buy_max', buy_max)
+        object.__setattr__(self, 'stoch_rsi_sell_exit', sell_exit)
 
 
 # Singleton de configuration — créé à l'import

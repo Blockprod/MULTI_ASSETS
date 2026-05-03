@@ -76,15 +76,19 @@ def display_buy_signal_panel(
     cond_grid.add_column("detail", style="dim")
 
     cond_grid.add_row("Stratégie active", "", f"[bold cyan]{_strategy_label}[/bold cyan]")
-    cond_grid.add_row("EMA1 > EMA2", _ok(row['ema1'] > row['ema2']), f"EMA1={row['ema1']:.6f}  EMA2={row['ema2']:.6f}")
-    cond_grid.add_row("StochRSI < 80%", _ok(row['stoch_rsi'] < 0.8), f"{row['stoch_rsi']*100:.1f}%")
+    cond_grid.add_row(f"Solde {quote_currency} > 0", _ok(usdc_balance > 0), f"{usdc_balance:.2f} {quote_currency}")
+    cond_grid.add_row("EMA1 > EMA2", _ok(row['ema1'] > row['ema2']), f"EMA{_ema1_p}={row['ema1']:.8f}  EMA{_ema2_p}={row['ema2']:.8f}")
+    _buy_max = getattr(config, 'stoch_rsi_buy_max', 0.8)
+    _srsi_val = row['stoch_rsi'] * 100
+    _srsi_display = f"{_srsi_val:.2f}"
+    _srsi_color = "bold green" if _srsi_val < _buy_max * 100 else "bold red"
+    cond_grid.add_row(f"StochRSI < {_buy_max*100:.0f}%", _ok(row['stoch_rsi'] < _buy_max), "")
     _buy_min = getattr(config, 'stoch_rsi_buy_min', 0.05)
     cond_grid.add_row(
         f"StochRSI > {_buy_min*100:.0f}%",
         _ok(row['stoch_rsi'] > _buy_min),
-        f"{row['stoch_rsi']*100:.1f}%",
+        "",
     )
-    cond_grid.add_row(f"Solde {quote_currency} > 0", _ok(usdc_balance > 0), f"{usdc_balance:.2f} {quote_currency}")
 
     # Scenario-specific conditions
     if scenario == 'StochRSI_ADX':
@@ -94,13 +98,15 @@ def display_buy_signal_panel(
         cond_grid.add_row(f"ADX > {adx_threshold}", _ok(adx_val is not None and adx_val > adx_threshold), f"ADX={adx_display}")
     if scenario == 'StochRSI_SMA':
         sma_long_val = best_params.get('sma_long', 200)
-        cond_grid.add_row(f"Prix > SMA{sma_long_val}", _ok(row.get('close', 0) > row.get('sma_long', float('nan'))), f"Prix={row.get('close', 0):.2f}  SMA={row.get('sma_long', 0):.2f}")
+        cond_grid.add_row(f"Prix > SMA{sma_long_val}", _ok(row.get('close', 0) > row.get('sma_long', float('nan'))), f"Prix={row.get('close', 0):.8g}  SMA={row.get('sma_long', 0):.8g}")
     if scenario == 'StochRSI_TRIX':
         cond_grid.add_row("TRIX_HISTO > 0", _ok(row.get('TRIX_HISTO', -999) > 0), f"TRIX={row.get('TRIX_HISTO', 0):.4f}")
 
+    cond_grid.add_row("StochRSI actuel", "", f"[{_srsi_color}]{_srsi_display}[/{_srsi_color}]")
+
     if buy_reason:
         cond_grid.add_row("", "", "")
-        cond_grid.add_row(f"[dim italic]{buy_reason}[/dim italic]", "", "")
+        cond_grid.add_row("", "", f"[dim italic]{buy_reason}[/dim italic]")
 
     # A-3 cooldown display
     import time as _time_mod
@@ -501,7 +507,7 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict], console: O
             f"{result['ema_periods'][0]}/{result['ema_periods'][1]}",
             result['scenario'],
             f"[{profit_color}]{profit:,.2f}[/{profit_color}]",
-            str(len(result['trades'])),
+            f"[bold yellow]⚠[/bold yellow] {len(result['trades'])}" if len(result['trades']) < 10 else str(len(result['trades'])),
             f"[red]{result['max_drawdown']*100:.2f}%[/red]",
             f"[cyan]{result['win_rate']:.2f}%[/cyan]",
             style=row_style,
@@ -584,7 +590,7 @@ def display_backtest_table(
             f"${result['initial_wallet']:,.2f}",
             f"[{final_wallet_color}]${result['final_wallet']:,.2f}[/{final_wallet_color}]",
             f"[{profit_color}]${profit:,.2f}[/{profit_color}]",
-            str(len(result['trades'])),
+            f"[bold yellow]⚠[/bold yellow] {len(result['trades'])}" if len(result['trades']) < 10 else str(len(result['trades'])),
             f"[red]{result['max_drawdown']*100:.2f}%[/red]",
             f"[cyan]{result['win_rate']:.2f}%[/cyan]",
             style=row_style,

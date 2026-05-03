@@ -98,9 +98,10 @@ def compute_stochrsi(rsi_series: pd.Series, period: int = 14) -> pd.Series:
     max_rsi = pd.Series(rsi_np).rolling(window=period, min_periods=period).max().to_numpy()
     denom = max_rsi - min_rsi
     with np.errstate(divide='ignore', invalid='ignore'):
-        stochrsi = np.where(denom != 0, (rsi_np - min_rsi) / denom, 0.5)
-    stochrsi = np.clip(stochrsi, 0, 1)
-    # P3-DUP: NaN pre-period reste NaN (rolling min_periods=period produit NaN)
+        stochrsi = np.where(np.isnan(denom), np.nan,
+                   np.where(denom > 0, (rsi_np - min_rsi) / denom, 0.5))
+    stochrsi = np.where(np.isnan(stochrsi), np.nan, np.clip(stochrsi, 0, 1))
+    # P3-DUP: NaN pre-period reste NaN — np.isnan(denom) propage NaN explicitement
     return pd.Series(stochrsi, index=rsi_series.index)
 
 

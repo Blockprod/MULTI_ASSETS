@@ -155,8 +155,11 @@ def init_timestamp_solution(client: Any) -> bool:
 
         if abs(diff) < 1000:
             logger.info("SYNCHRONISATION PARFAITE - Prêt pour le trading")
-        else:
+        elif abs(diff) < 2000:
             logger.info(f"SYNCHRONISATION STABLE: {diff}ms")
+        else:
+            logger.warning(f"OFFSET ÉLEVÉ: {diff}ms — resync Windows supplémentaire (seuil 2000ms)")
+            sync_windows_silently()
 
         return True
 

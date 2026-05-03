@@ -330,6 +330,23 @@ def split_walk_forward_folds(
     list of (train_df, test_df) tuples
     """
     n = len(df)
+
+    # Per-timeframe overrides: charts journaliers accumulent lentement des barres.
+    # Réduire min_train et plafonner initial_train_pct permet d'obtenir ≥ 2 folds
+    # même avec ~775 barres (PEPEUSDC 1d depuis mars 2024).
+    # Exemple : 775 barres, min_train=350, train_pct≤0.45
+    #   → initial_train_end = max(348, 350) = 350
+    #   → fold1[350:550] + fold2[550:750] — 2 folds × 200 barres OOS ✓
+    _TF_OVERRIDES: Dict[str, Dict[str, Any]] = {
+        "1d": {"min_train_bars": 350, "max_train_pct": 0.45},
+    }
+    if timeframe is not None and timeframe in _TF_OVERRIDES:
+        _ov = _TF_OVERRIDES[timeframe]
+        if "min_train_bars" in _ov:
+            min_train_bars = min(min_train_bars, _ov["min_train_bars"])
+        if "max_train_pct" in _ov:
+            initial_train_pct = min(initial_train_pct, _ov["max_train_pct"])
+
     required_bars = min_train_bars + min_test_bars
     expected_shortage = _is_expected_wf_data_shortage(timeframe, n, required_bars)
     timeframe_suffix = f" for {timeframe}" if timeframe else ""
@@ -412,7 +429,7 @@ def run_walk_forward_validation(
     backtest_fn: Callable,
     initial_capital: float = 10000.0,
     sizing_mode: str = 'risk',
-    top_n: int = 5,
+    top_n: int = 15,
     n_folds: int = 4,
     initial_train_pct: float = 0.40,
 ) -> Dict[str, Any]:
@@ -538,6 +555,16 @@ def run_walk_forward_validation(
                 logger.info("%s - expected until more history accumulates", log_message)
             else:
                 logger.warning(log_message)
+            continue
+
+        # P0-WF-MINFOLDS: 1 seul fold = statistiquement invalide (1 trade → WR=100%, Sharpe=0)
+        # Minimum 2 folds requis pour une validation WF significative.
+        if len(folds) < 2:
+            logger.info(
+                "[WF-SKIP] %s EMA(%s,%s) %s: 1 seul fold produit (%d barres) "
+                "— insuffisant pour validation WF (min 2 folds requis)",
+                scenario_name, ema1, ema2, tf, len(full_df),
+            )
             continue
 
         s_params = scenario_params_map.get(scenario_name, {})

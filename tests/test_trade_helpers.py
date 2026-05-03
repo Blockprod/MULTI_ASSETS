@@ -774,7 +774,7 @@ class TestCheckPartialExitsFromHistory:
     def test_no_trades_returns_false_false(self):
         client = MagicMock()
         client.get_my_trades.return_value = []
-        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 1.00, client)
+        p1, p2 = check_partial_exits_from_history('PEPEUSDC', 1.00, client)
         assert (p1, p2) == (False, False)
 
     def test_no_sells_after_buy(self):
@@ -782,7 +782,7 @@ class TestCheckPartialExitsFromHistory:
         client.get_my_trades.return_value = [
             _make_trade(is_buyer=True, qty=100.0, price=1.00, time=1000, order_id=1),
         ]
-        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 1.00, client)
+        p1, p2 = check_partial_exits_from_history('PEPEUSDC', 1.00, client)
         assert (p1, p2) == (False, False)
 
     def test_single_fill_partial_1_detected(self):
@@ -792,7 +792,7 @@ class TestCheckPartialExitsFromHistory:
             _make_trade(is_buyer=True, qty=100.0, price=1.00, time=1000, order_id=1),
             _make_trade(is_buyer=False, qty=50.0, price=1.03, time=2000, order_id=2),
         ]
-        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 1.00, client)
+        p1, p2 = check_partial_exits_from_history('PEPEUSDC', 1.00, client)
         assert p1 is True
         assert p2 is False
 
@@ -807,7 +807,7 @@ class TestCheckPartialExitsFromHistory:
             _make_trade(is_buyer=False, qty=130.0, price=0.274, time=2001, order_id=20),
             _make_trade(is_buyer=False, qty=124.6, price=0.276, time=2002, order_id=20),
         ]
-        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 0.265, client)
+        p1, p2 = check_partial_exits_from_history('PEPEUSDC', 0.265, client)
         # total sell = 404.6 / 800 = 0.50575 → in [0.45, 0.55]
         # avg price ~0.275 >= 0.265 * 1.02 * 0.99 (tolerant threshold)
         assert p1 is True
@@ -821,7 +821,7 @@ class TestCheckPartialExitsFromHistory:
             _make_trade(is_buyer=False, qty=500.0, price=1.03, time=2000, order_id=2),
             _make_trade(is_buyer=False, qty=300.0, price=1.05, time=3000, order_id=3),
         ]
-        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 1.00, client)
+        p1, p2 = check_partial_exits_from_history('PEPEUSDC', 1.00, client)
         assert p1 is True
         assert p2 is True
 
@@ -830,13 +830,13 @@ class TestCheckPartialExitsFromHistory:
         client.get_my_trades.return_value = [
             _make_trade(is_buyer=True, qty=100.0, price=1.00, time=1000),
         ]
-        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 0.0, client)
+        p1, p2 = check_partial_exits_from_history('PEPEUSDC', 0.0, client)
         assert (p1, p2) == (False, False)
 
     def test_exception_returns_false_false(self):
         client = MagicMock()
         client.get_my_trades.side_effect = Exception("API error")
-        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 1.00, client)
+        p1, p2 = check_partial_exits_from_history('PEPEUSDC', 1.00, client)
         assert (p1, p2) == (False, False)
 
     def test_multi_fill_buy_accumulated(self):
@@ -847,7 +847,7 @@ class TestCheckPartialExitsFromHistory:
             _make_trade(is_buyer=True, qty=400.0, price=1.00, time=1001, order_id=1),
             _make_trade(is_buyer=False, qty=400.0, price=1.03, time=2000, order_id=2),
         ]
-        p1, p2 = check_partial_exits_from_history('ONDOUSDC', 1.00, client)
+        p1, p2 = check_partial_exits_from_history('PEPEUSDC', 1.00, client)
         # sell 400 / buy 800 = 0.50 → P1 detected
         assert p1 is True
         assert p2 is False

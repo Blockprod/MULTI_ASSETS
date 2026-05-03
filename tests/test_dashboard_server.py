@@ -63,7 +63,7 @@ def test_collect_data_exposes_equity_delta(monkeypatch):
         },
         ds.BOT_STATE: {
             '_daily_pnl_tracker': {'starting_equity': 255.58, '2026-04-22': {'total_pnl': 0.0, 'trade_count': 0}},
-            'ONDOUSDT': {
+            'PEPEUSDC': {
                 'last_order_side': 'BUY',
                 'entry_price': 0.2675,
                 'entry_scenario': 'StochRSI',
@@ -77,9 +77,9 @@ def test_collect_data_exposes_equity_delta(monkeypatch):
         },
         ds.METRICS_FILE: {'pairs': {}},
     }.get(path, {}))
-    monkeypatch.setattr(ds, '_parse_crypto_pairs', lambda: [{'backtest_pair': 'ONDOUSDT', 'real_pair': 'ONDOUSDC'}])
+    monkeypatch.setattr(ds, '_parse_crypto_pairs', lambda: [{'backtest_pair': 'PEPEUSDC', 'real_pair': 'PEPEUSDC'}])
     monkeypatch.setattr(ds, '_age_seconds', lambda ts: 0)
-    monkeypatch.setattr(ds, '_fetch_account_balances', lambda: {'USDC': 81.76, 'ONDO': 649.7})
+    monkeypatch.setattr(ds, '_fetch_account_balances', lambda: {'USDC': 81.76, 'PEPE': 649.7})
     monkeypatch.setattr(ds, '_fetch_usdc_balance', lambda: 81.76)
     monkeypatch.setattr(ds, '_get_daily_pnl', lambda tracker: (0.0, 0.0))
     monkeypatch.setattr(ds, '_get_starting_equity', lambda tracker: 255.58)
@@ -97,10 +97,10 @@ def test_collect_data_exposes_equity_delta(monkeypatch):
     assert data['equity_delta'] == pytest.approx(expected_equity - 255.58)
     assert len(data['equity_curve']) == 3
     assert data['cumul_pnl'] == pytest.approx(7.13)
-    assert data['pairs']['ONDOUSDT']['scenario'] == 'StochRSI'
-    assert data['pairs']['ONDOUSDT']['timeframe'] == '4h'
-    assert data['pairs']['ONDOUSDT']['entry_ema1'] == 30
-    assert data['pairs']['ONDOUSDT']['entry_ema2'] == 60
+    assert data['pairs']['PEPEUSDC']['scenario'] == 'StochRSI'
+    assert data['pairs']['PEPEUSDC']['timeframe'] == '4h'
+    assert data['pairs']['PEPEUSDC']['entry_ema1'] == 30
+    assert data['pairs']['PEPEUSDC']['entry_ema2'] == 60
 
 
 def test_collect_data_prefers_live_coin_balance_for_open_position_qty(monkeypatch):
@@ -115,7 +115,7 @@ def test_collect_data_prefers_live_coin_balance_for_open_position_qty(monkeypatc
         },
         ds.BOT_STATE: {
             '_daily_pnl_tracker': {'starting_equity': 255.58, '2026-04-22': {'total_pnl': 0.0, 'trade_count': 0}},
-            'ONDOUSDT': {
+            'PEPEUSDC': {
                 'last_order_side': 'BUY',
                 'entry_price': 0.2675,
                 'ticker_spot_price': 0.2664,
@@ -125,9 +125,9 @@ def test_collect_data_prefers_live_coin_balance_for_open_position_qty(monkeypatc
         },
         ds.METRICS_FILE: {'pairs': {}},
     }.get(path, {}))
-    monkeypatch.setattr(ds, '_parse_crypto_pairs', lambda: [{'backtest_pair': 'ONDOUSDT', 'real_pair': 'ONDOUSDC'}])
+    monkeypatch.setattr(ds, '_parse_crypto_pairs', lambda: [{'backtest_pair': 'PEPEUSDC', 'real_pair': 'PEPEUSDC'}])
     monkeypatch.setattr(ds, '_age_seconds', lambda ts: 0)
-    monkeypatch.setattr(ds, '_fetch_account_balances', lambda: {'USDC': 81.76, 'ONDO': 600.0})
+    monkeypatch.setattr(ds, '_fetch_account_balances', lambda: {'USDC': 81.76, 'PEPE': 600.0})
     monkeypatch.setattr(ds, '_fetch_usdc_balance', lambda: 81.76)
     monkeypatch.setattr(ds, '_get_daily_pnl', lambda tracker: (0.0, 0.0))
     monkeypatch.setattr(ds, '_get_starting_equity', lambda tracker: 255.58)
@@ -140,8 +140,8 @@ def test_collect_data_prefers_live_coin_balance_for_open_position_qty(monkeypatc
 
     data = ds.collect_data()
 
-    assert data['pairs']['ONDOUSDT']['qty'] == pytest.approx(600.0)
-    assert data['pairs']['ONDOUSDT']['unrealized_pnl'] == pytest.approx((0.2664 - 0.2675) * 600.0)
+    assert data['pairs']['PEPEUSDC']['qty'] == pytest.approx(600.0)
+    assert data['pairs']['PEPEUSDC']['unrealized_pnl'] == pytest.approx((0.2664 - 0.2675) * 600.0)
     assert data['total_equity'] == pytest.approx(81.76 + (600.0 * 0.2664))
 
 

@@ -1434,7 +1434,7 @@ if __name__ == "__main__":
     logger.info("Bot crypto H24/7 - Mode ultra-robuste avec privileges admin")
 
     crypto_pairs = [
-        {"backtest_pair": "ONDOUSDT", "real_pair": "ONDOUSDC"},
+        {"backtest_pair": "PEPEUSDC", "real_pair": "PEPEUSDC"},
     ]
     _voluntary_event   = threading.Event()
     _shutdown_verified = threading.Event()
@@ -1527,6 +1527,23 @@ if __name__ == "__main__":
 
         # Chargement de l'etat du bot
         load_bot_state()
+
+        # STOCH-OPT: ré-appliquer les seuils optimisés persistés si disponibles
+        with _bot_state_lock:
+            _saved_stoch = bot_state.get('stoch_params')
+        if isinstance(_saved_stoch, dict):
+            try:
+                config.update_stoch_thresholds(
+                    float(_saved_stoch['buy_min']),
+                    float(_saved_stoch['buy_max']),
+                    float(_saved_stoch['sell_exit']),
+                )
+                logger.info(
+                    "[STOCH-OPT] Seuils restaurés depuis bot_state: buy_min=%.2f buy_max=%.2f sell_exit=%.2f",
+                    config.stoch_rsi_buy_min, config.stoch_rsi_buy_max, config.stoch_rsi_sell_exit,
+                )
+            except Exception as _stoch_load_err:
+                logger.warning("[STOCH-OPT] Impossible de restaurer stoch_params: %s", _stoch_load_err)
 
         # D-06: persister starting_equity pour le dashboard (daily loss limit)
         # Placeholder — recalculée après réconciliation avec l'equity réelle
@@ -1652,21 +1669,70 @@ if __name__ == "__main__":
             # === F-BUG2: Walk-Forward validation at startup (like scheduled/main) ===
             _startup_wf_best = None
             try:
-                from walk_forward import run_walk_forward_validation as _run_wf_startup
+                from walk_forward import (
+                    run_walk_forward_validation as _run_wf_startup,
+                    run_walk_forward_optuna as _run_wf_optuna_startup,
+                )
                 _wf_dfs_startup = {}
                 _startup_start = _fresh_start_date()
                 for _tf_s in timeframes:
                     _df_s = prepare_base_dataframe(backtest_pair, _tf_s, _startup_start, 14)
                     _wf_dfs_startup[_tf_s] = _df_s if _df_s is not None and not _df_s.empty else pd.DataFrame()
 
-                _wf_res_startup = _run_wf_startup(
+                # === STOCH THRESHOLD GRID SEARCH (IS-only) ===
+                # Optimise buy_min × buy_max × sell_exit avant le WF pour que la
+                # validation OOS porte sur les seuils optimisés (même pattern que orchestrateur).
+                try:
+                    from backtest_orchestrator import run_stoch_threshold_grid_search as _run_stoch_opt_s
+                    _stoch_opt_startup = _run_stoch_opt_s(
+                        is_results=data['results'],
+                        base_dataframes=_wf_dfs_startup,
+                        backtest_fn=backtest_from_dataframe,
+                        scenario_default_params=SCENARIO_DEFAULT_PARAMS,
+                        sizing_mode=args.sizing_mode,
+                    )
+                    if _stoch_opt_startup:
+                        config.update_stoch_thresholds(
+                            _stoch_opt_startup['buy_min'],
+                            _stoch_opt_startup['buy_max'],
+                            _stoch_opt_startup['sell_exit'],
+                        )
+                        with _bot_state_lock:
+                            bot_state['stoch_params'] = {
+                                'buy_min':   _stoch_opt_startup['buy_min'],
+                                'buy_max':   _stoch_opt_startup['buy_max'],
+                                'sell_exit': _stoch_opt_startup['sell_exit'],
+                            }
+                        save_bot_state()
+                        logger.info(
+                            "[STARTUP STOCH-OPT] Seuils optimisés: buy_min=%.2f buy_max=%.2f "
+                            "sell_exit=%.2f (Calmar=%.3f)",
+                            _stoch_opt_startup['buy_min'], _stoch_opt_startup['buy_max'],
+                            _stoch_opt_startup['sell_exit'], _stoch_opt_startup['avg_calmar'],
+                        )
+                except Exception as _stoch_startup_err:
+                    logger.warning("[STARTUP STOCH-OPT] Grid search skipped: %s", _stoch_startup_err)
+
+                # ML-07: Optuna en priorité (espace EMA + scenario continu)
+                _wf_res_startup = _run_wf_optuna_startup(
                     base_dataframes=_wf_dfs_startup,
-                    full_sample_results=data['results'],
                     scenarios=WF_SCENARIOS,
                     backtest_fn=backtest_from_dataframe,
                     initial_capital=config.initial_wallet,
                     sizing_mode=args.sizing_mode,
+                    n_trials=100,
                 )
+                # Fallback grid WF si Optuna ne passe pas les OOS gates
+                if not _wf_res_startup.get('any_passed'):
+                    logger.info("[STARTUP ML-07] Optuna WF: aucune config valide — fallback grid WF")
+                    _wf_res_startup = _run_wf_startup(
+                        base_dataframes=_wf_dfs_startup,
+                        full_sample_results=data['results'],
+                        scenarios=WF_SCENARIOS,
+                        backtest_fn=backtest_from_dataframe,
+                        initial_capital=config.initial_wallet,
+                        sizing_mode=args.sizing_mode,
+                    )
 
                 if _wf_res_startup.get('any_passed'):
                     _startup_wf_best = _wf_res_startup['best_wf_config']
@@ -1679,7 +1745,7 @@ if __name__ == "__main__":
                         _startup_wf_best.get('avg_oos_sharpe', 0.0),
                     )
                 else:
-                    logger.warning("[STARTUP F-BUG2] WF: aucune config OOS validée — fallback conservatif.")
+                    logger.warning("[STARTUP F-BUG2] WF: aucune config OOS validée — fallback best IS Calmar.")
             except Exception as _wf_startup_err:
                 logger.warning("[STARTUP F-BUG2] WF validation skipped: %s", _wf_startup_err)
 
@@ -1700,15 +1766,18 @@ if __name__ == "__main__":
                 best_params.update(SCENARIO_DEFAULT_PARAMS.get(_startup_wf_best['scenario'], {}))
             else:
                 best_params = {
-                    'timeframe': '1d',
-                    'ema1_period': 26,
-                    'ema2_period': 50,
-                    'scenario': 'StochRSI',
+                    'timeframe': best_result.get('timeframe', '1d'),
+                    'ema1_period': best_result.get('ema_periods', [26, 50])[0],
+                    'ema2_period': best_result.get('ema_periods', [26, 50])[1],
+                    'scenario': best_result.get('scenario', 'StochRSI'),
                 }
-                best_params.update(SCENARIO_DEFAULT_PARAMS.get('StochRSI', {}))
+                best_params.update(SCENARIO_DEFAULT_PARAMS.get(best_params['scenario'], {}))
                 logger.warning(
-                    "[STARTUP F-BUG2] Aucun WF valide — paramètres CONSERVATIFS par défaut "
-                    "(EMA 26/50, StochRSI, 1d). Achats bloqués par P0-03/oos_blocked."
+                    "[STARTUP F-BUG2] Aucun WF valide — fallback best IS Calmar: %s EMA(%s/%s) %s.",
+                    best_params['scenario'],
+                    best_params['ema1_period'],
+                    best_params['ema2_period'],
+                    best_params['timeframe'],
                 )
 
             # Initialiser l'état du bot pour cette paire

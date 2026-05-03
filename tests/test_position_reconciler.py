@@ -30,29 +30,29 @@ from position_reconciler import (
 # ---------------------------------------------------------------------------
 # Constantes de test
 # ---------------------------------------------------------------------------
-BACKTEST_PAIR = 'ONDOUSDT'
-REAL_PAIR = 'ONDOUSDC'
-COIN_SYMBOL = 'ONDO'
-PRICE = 0.10        # prix unitaire ONDO en USDC
-ONDO_QTY = 100.0   # solde suffisant pour dépasser MIN_NOTIONAL (100 × 0.10 = 10 USDC > 5 USDC)
+BACKTEST_PAIR = 'PEPEUSDC'
+REAL_PAIR = 'PEPEUSDC'
+COIN_SYMBOL = 'PEPE'
+PRICE = 0.000010    # prix unitaire PEPE en USDC
+PEPE_QTY = 1_000_000.0  # solde suffisant pour dépasser MIN_NOTIONAL (1M × 0.000010 = 10 USDC > 5 USDC)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_account(ondo_total: float = ONDO_QTY) -> dict:
-    """Mock d'account_info Binance avec le solde ONDO spécifié."""
+def _make_account(pepe_total: float = PEPE_QTY) -> dict:
+    """Mock d'account_info Binance avec le solde PEPE spécifié."""
     return {
         'balances': [
             {'asset': 'USDC', 'free': '1000.0', 'locked': '0.0'},
-            {'asset': 'ONDO', 'free': str(ondo_total), 'locked': '0.0'},
+            {'asset': 'PEPE', 'free': str(pepe_total), 'locked': '0.0'},
         ]
     }
 
 
 def _make_exchange_info(min_qty: str = '1.0') -> dict:
-    """Exchange info avec LOT_SIZE pour ONDO (pas de filtre NOTIONAL → fallback 5.0)."""
+    """Exchange info avec LOT_SIZE pour PEPE (pas de filtre NOTIONAL → fallback 5.0)."""
     return {
         'symbols': [{
             'symbol': REAL_PAIR,
@@ -70,7 +70,7 @@ def _make_exchange_info(min_qty: str = '1.0') -> dict:
 
 def _make_deps(
     bot_state: dict | None = None,
-    ondo_total: float = ONDO_QTY,
+    pepe_total: float = PEPE_QTY,
     price: float = PRICE,
     alert_fn=None,
     save_fn=None,
@@ -78,7 +78,7 @@ def _make_deps(
     """Crée un _ReconcileDeps complet avec mocks injectés (aucun import circulaire)."""
     from unittest.mock import MagicMock
     mock_client = MagicMock()
-    mock_client.get_account.return_value = _make_account(ondo_total=ondo_total)
+    mock_client.get_account.return_value = _make_account(pepe_total=pepe_total)
     mock_client.get_symbol_ticker.return_value = {'price': str(price)}
     mock_client.get_all_orders.return_value = []    # pas d'historique par défaut
     mock_client.get_order.return_value = {'status': 'NEW'}  # SL non filled
@@ -106,7 +106,7 @@ def _make_status(
 ) -> _PairStatus:
     """Crée un _PairStatus directement (bypass _check_pair_vs_exchange)."""
     if coin_balance is None:
-        coin_balance = ONDO_QTY if has_real_balance else 0.0
+        coin_balance = PEPE_QTY if has_real_balance else 0.0
     return _PairStatus(
         backtest_pair=BACKTEST_PAIR,
         real_pair=REAL_PAIR,
@@ -128,7 +128,7 @@ class TestCheckPairVsExchange:
     def test_orphan_position_detected(self):
         """Coins sur Binance + bot_state sans BUY → has_real_balance=True, local_in_position=False."""
         bot_state = {BACKTEST_PAIR: {}}
-        deps = _make_deps(bot_state=bot_state, ondo_total=ONDO_QTY)
+        deps = _make_deps(bot_state=bot_state, pepe_total=PEPE_QTY)
 
         status = _check_pair_vs_exchange(_make_pair_info(), deps)
 
@@ -139,7 +139,7 @@ class TestCheckPairVsExchange:
     def test_ghost_position_detected(self):
         """Bot_state indique BUY, Binance solde=0 → has_real_balance=False, local_in_position=True."""
         bot_state = {BACKTEST_PAIR: {'last_order_side': 'BUY'}}
-        deps = _make_deps(bot_state=bot_state, ondo_total=0.0)
+        deps = _make_deps(bot_state=bot_state, pepe_total=0.0)
 
         status = _check_pair_vs_exchange(_make_pair_info(), deps)
 
@@ -150,7 +150,7 @@ class TestCheckPairVsExchange:
     def test_coherent_position_with_coins(self):
         """Bot_state BUY + solde Binance > 0 → has_real_balance=True, local_in_position=True."""
         bot_state = {BACKTEST_PAIR: {'last_order_side': 'BUY'}}
-        deps = _make_deps(bot_state=bot_state, ondo_total=ONDO_QTY)
+        deps = _make_deps(bot_state=bot_state, pepe_total=PEPE_QTY)
 
         status = _check_pair_vs_exchange(_make_pair_info(), deps)
 
@@ -161,7 +161,7 @@ class TestCheckPairVsExchange:
     def test_no_position_no_coins(self):
         """Pas de BUY dans bot_state, solde=0 → has_real_balance=False, local_in_position=False."""
         bot_state = {BACKTEST_PAIR: {}}
-        deps = _make_deps(bot_state=bot_state, ondo_total=0.0)
+        deps = _make_deps(bot_state=bot_state, pepe_total=0.0)
 
         status = _check_pair_vs_exchange(_make_pair_info(), deps)
 
@@ -221,7 +221,7 @@ class TestHandlePairDiscrepancy:
         save_calls = []
         deps = _make_deps(
             bot_state=bot_state,
-            ondo_total=0.0,
+            pepe_total=0.0,
             save_fn=lambda force=False: save_calls.append(force),
         )
 
@@ -246,7 +246,7 @@ class TestHandlePairDiscrepancy:
         save_calls = []
         deps = _make_deps(
             bot_state=bot_state,
-            ondo_total=ONDO_QTY,
+            pepe_total=PEPE_QTY,
             alert_fn=lambda **kw: alert_calls.append(kw),
             save_fn=lambda force=False: save_calls.append(force),
         )
@@ -269,7 +269,7 @@ class TestHandlePairDiscrepancy:
         save_calls = []
         deps = _make_deps(
             bot_state=bot_state,
-            ondo_total=0.0,
+            pepe_total=0.0,
             alert_fn=lambda **kw: alert_calls.append(kw),
             save_fn=lambda force=False: save_calls.append(force),
         )

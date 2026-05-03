@@ -13,7 +13,7 @@ import time
 import traceback
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 from rich.console import Console
 from rich.panel import Panel
@@ -91,6 +91,126 @@ class _BacktestDeps:
 
 
 # ─── Fonctions extraites ──────────────────────────────────────────────────────
+
+def run_stoch_threshold_grid_search(
+    is_results: List[Dict[str, Any]],
+    base_dataframes: Dict[str, Any],
+    backtest_fn: Callable,
+    scenario_default_params: Dict[str, Dict[str, Any]],
+    sizing_mode: str = 'risk',
+    *,
+    n_top: int = 5,
+) -> "Optional[Dict[str, Any]]":
+    """Grid search sur buy_min × buy_max × sell_exit avec les n_top meilleurs configs IS.
+
+    Utilise les résultats IS (full-sample) comme proxy pour trouver les seuils
+    StochRSI optimaux, indépendamment des EMAs sélectionnées.
+
+    Parameters
+    ----------
+    is_results : list[dict]
+        Résultats IS complets (sortie de run_all_backtests).
+    base_dataframes : dict[str, DataFrame]
+        DataFrames par timeframe, déjà préparés (colonnes indicateurs incluses).
+    backtest_fn : callable
+        ``backtest_from_dataframe`` avec support des overrides stoch.
+    scenario_default_params : dict
+        Mapping nom_scénario → params (ex. {'StochRSI_ADX': {'adx_period': 14}}).
+    sizing_mode : str
+        Mode de position sizing à utiliser.
+    n_top : int
+        Nombre de configs IS à utiliser comme proxy (défaut 5).
+
+    Returns
+    -------
+    dict or None
+        ``{'buy_min', 'buy_max', 'sell_exit', 'avg_calmar', 'n_valid'}``
+        ou None si aucun résultat valide.
+    """
+    import numpy as _np  # local import — évite shadowing au module level
+
+    BUY_MIN_GRID   = [0.02, 0.05, 0.08, 0.10, 0.15]
+    BUY_MAX_GRID   = [0.70, 0.75, 0.80, 0.85]
+    SELL_EXIT_GRID = [0.30, 0.40, 0.50]
+
+    # Top N configs triées par calmar_ratio décroissant
+    sorted_results = sorted(is_results, key=lambda r: r.get('calmar_ratio', 0.0), reverse=True)
+    top_configs = sorted_results[:n_top]
+
+    if not top_configs:
+        logger.warning("[STOCH-OPT] Aucun résultat IS disponible pour le grid search.")
+        return None
+
+    best_score = -_np.inf
+    best_combo: "Optional[Dict[str, Any]]" = None
+    total_combos = sum(
+        1 for bmin in BUY_MIN_GRID for bmax in BUY_MAX_GRID if bmin < bmax
+    ) * len(SELL_EXIT_GRID)
+    logger.info(
+        "[STOCH-OPT] Grid search: %d combos × top-%d configs IS = %d backtests",
+        total_combos, len(top_configs), total_combos * len(top_configs),
+    )
+
+    for buy_min in BUY_MIN_GRID:
+        for buy_max in BUY_MAX_GRID:
+            if buy_min >= buy_max:
+                continue
+            for sell_exit in SELL_EXIT_GRID:
+                total_calmar = 0.0
+                valid_runs = 0
+
+                for cfg in top_configs:
+                    tf = cfg.get('timeframe', '')
+                    ema_periods = cfg.get('ema_periods', (26, 50))
+                    ema1, ema2 = ema_periods[0], ema_periods[1]
+                    scenario_name = cfg.get('scenario', 'StochRSI')
+                    sc_params = scenario_default_params.get(scenario_name, {})
+
+                    df = base_dataframes.get(tf)
+                    if df is None or (hasattr(df, 'empty') and df.empty):
+                        continue
+
+                    try:
+                        result = backtest_fn(
+                            df=df,
+                            ema1_period=ema1,
+                            ema2_period=ema2,
+                            sma_long=sc_params.get('sma_long'),
+                            adx_period=sc_params.get('adx_period'),
+                            trix_length=sc_params.get('trix_length'),
+                            trix_signal=sc_params.get('trix_signal'),
+                            sizing_mode=sizing_mode,
+                            stoch_buy_min_override=buy_min,
+                            stoch_buy_max_override=buy_max,
+                            stoch_sell_exit_override=sell_exit,
+                        )
+                        calmar = result.get('calmar_ratio', 0.0)
+                        if calmar > 0:
+                            total_calmar += calmar
+                            valid_runs += 1
+                    except Exception as _e:
+                        logger.debug("[STOCH-OPT] Backtest erreur (buy_min=%.2f buy_max=%.2f sell=%.2f): %s", buy_min, buy_max, sell_exit, _e)
+
+                score = total_calmar / valid_runs if valid_runs > 0 else 0.0
+                if score > best_score:
+                    best_score = score
+                    best_combo = {
+                        'buy_min': buy_min,
+                        'buy_max': buy_max,
+                        'sell_exit': sell_exit,
+                        'avg_calmar': score,
+                        'n_valid': valid_runs,
+                    }
+
+    if best_combo is not None:
+        logger.info(
+            "[STOCH-OPT] Meilleurs seuils: buy_min=%.2f buy_max=%.2f sell_exit=%.2f "
+            "— Calmar moyen=%.3f (%d configs valides)",
+            best_combo['buy_min'], best_combo['buy_max'], best_combo['sell_exit'],
+            best_combo['avg_calmar'], best_combo['n_valid'],
+        )
+    return best_combo
+
 
 def _apply_oos_quality_gate(
     results: List[Dict[str, Any]],
@@ -262,6 +382,38 @@ def _execute_scheduled_trading(
                     for _tf_s in deps.timeframes:
                         _df_s = deps.prepare_base_dataframe_fn(backtest_pair, _tf_s, dynamic_start_date, 14)
                         _wf_dfs_sched[_tf_s] = _df_s if _df_s is not None and not _df_s.empty else __import__('pandas').DataFrame()
+
+                    # === STOCH THRESHOLD GRID SEARCH (SCHEDULED) ===
+                    try:
+                        _stoch_opt_s = run_stoch_threshold_grid_search(
+                            is_results=backtest_results,
+                            base_dataframes=_wf_dfs_sched,
+                            backtest_fn=deps.backtest_from_dataframe_fn,
+                            scenario_default_params=deps.scenario_default_params,
+                            sizing_mode=sizing_mode,
+                        )
+                        if _stoch_opt_s:
+                            from bot_config import config as _cfg_s2
+                            _cfg_s2.update_stoch_thresholds(
+                                _stoch_opt_s['buy_min'],
+                                _stoch_opt_s['buy_max'],
+                                _stoch_opt_s['sell_exit'],
+                            )
+                            with deps.bot_state_lock:
+                                deps.bot_state['stoch_params'] = {
+                                    'buy_min':   _stoch_opt_s['buy_min'],
+                                    'buy_max':   _stoch_opt_s['buy_max'],
+                                    'sell_exit': _stoch_opt_s['sell_exit'],
+                                }
+                            deps.save_fn()
+                            logger.info(
+                                "[SCHEDULED STOCH-OPT] Seuils: buy_min=%.2f buy_max=%.2f sell_exit=%.2f (Calmar=%.3f)",
+                                _stoch_opt_s['buy_min'], _stoch_opt_s['buy_max'],
+                                _stoch_opt_s['sell_exit'], _stoch_opt_s['avg_calmar'],
+                            )
+                    except Exception as _stoch_sched_err:
+                        logger.warning("[SCHEDULED STOCH-OPT] Grid search skipped: %s", _stoch_sched_err)
+
                     # ML-07: Try Optuna first (wider EMA search space)
                     _wf_res_sched = _run_wf_optuna(
                         base_dataframes=_wf_dfs_sched,
@@ -581,6 +733,42 @@ def _backtest_and_display_results(
         for tf in deps.timeframes:
             df_wf = deps.prepare_base_dataframe_fn(backtest_pair, tf, dynamic_start_date, 14)
             wf_base_dataframes[tf] = df_wf if df_wf is not None and not df_wf.empty else __import__('pandas').DataFrame()
+
+        # === STOCH THRESHOLD GRID SEARCH (IS-only) ===
+        # Optimise buy_min × buy_max × sell_exit sur les top configs IS.
+        # Résultat appliqué à config AVANT le WF pour que la validation OOS
+        # porte sur les seuils optimisés.
+        try:
+            _stoch_opt = run_stoch_threshold_grid_search(
+                is_results=results,
+                base_dataframes=wf_base_dataframes,
+                backtest_fn=deps.backtest_from_dataframe_fn,
+                scenario_default_params=deps.scenario_default_params,
+                sizing_mode=sizing_mode,
+            )
+            if _stoch_opt:
+                from bot_config import config as _cfg_s
+                _cfg_s.update_stoch_thresholds(
+                    _stoch_opt['buy_min'],
+                    _stoch_opt['buy_max'],
+                    _stoch_opt['sell_exit'],
+                )
+                with deps.bot_state_lock:
+                    deps.bot_state['stoch_params'] = {
+                        'buy_min':   _stoch_opt['buy_min'],
+                        'buy_max':   _stoch_opt['buy_max'],
+                        'sell_exit': _stoch_opt['sell_exit'],
+                    }
+                deps.save_fn()
+                console.print(
+                    f"[bold green][STOCH-OPT] Seuils optimisés: "
+                    f"buy_min={_stoch_opt['buy_min']:.2f} "
+                    f"buy_max={_stoch_opt['buy_max']:.2f} "
+                    f"sell_exit={_stoch_opt['sell_exit']:.2f} "
+                    f"(Calmar={_stoch_opt['avg_calmar']:.3f})[/bold green]"
+                )
+        except Exception as _stoch_err:
+            logger.warning("[STOCH-OPT] Grid search skipped: %s", _stoch_err)
 
         # ML-07: Optuna en priorité (espace EMA + scenario continu)
         wf_result = run_walk_forward_optuna(

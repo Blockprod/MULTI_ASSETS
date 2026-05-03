@@ -283,6 +283,64 @@ Si aucun résultat → archiver dans `code/legacy/` et retirer de `config/setup.
 
 ---
 
+### L-23 · `np.where(denom != 0, ...)` ne propage pas NaN — retourne la branche else
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-05-03
+
+**Contexte** : `compute_stochrsi()` dans `indicators_engine.py` utilisait `np.where(denom != 0, ...)` pour gérer les cas marché plat (denom=0) et le warm-up (denom=NaN).  
+**Erreur** : En NumPy, `NaN != 0` évalue à `False` → la branche else (`0.5`) est retournée pour les NaN, non pas NaN. Les 13 premières lignes post-warm-up (indices 13..25) obtenaient `stoch_rsi=0.5` et survivaient à `dropna()`, introduisant de faux signaux neutres en backtest.  
+**Règle** : Pour propager NaN dans `np.where`, détecter explicitement avec `np.isnan()` :
+```python
+np.where(np.isnan(denom), np.nan, np.where(denom > 0, (rsi - min_r) / denom, 0.5))
+```
+Ne jamais compter sur `denom != 0` pour filtrer les NaN — NumPy compare NaN comme False.  
+**Ref** : `code/src/indicators_engine.py` — `compute_stochrsi()`, commit session 2026-05-03
+
+---
+
+### L-24 · Seuils hardcodés dans l'affichage désynchronisés de la config
+**Sévérité** : 🔵 INFO · **Date** : 2026-05-03
+
+**Contexte** : `display_ui.py` hardcodait `0.8` (seuil haut StochRSI) alors que `signal_generator.py` lisait `config.stoch_rsi_buy_max`.  
+**Erreur** : Si l'opérateur change `STOCH_RSI_BUY_MAX` dans l'env, le panneau "SIGNAL D'ACHAT" affiche la mauvaise condition — la condition affichée est NOK mais l'engine interne utilise le bon seuil. Confusion de diagnostic.  
+**Règle** : Tout seuil affiché dans l'UI doit toujours être lu depuis la même source que l'engine : `getattr(config, 'param', default)`. Ne jamais dupliquer une constante numérique depuis un paramètre de config.  
+**Ref** : `code/src/display_ui.py` — panneau BUY signal
+
+---
+
+### L-25 · Code path `__main__` divergeant de l'orchestrateur → fonctionnalités absentes au démarrage
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-05-03
+
+**Contexte** : Le bloc F-BUG2 dans `MULTI_SYMBOLS.py __main__` était une copie manuelle de la logique de `backtest_orchestrator._backtest_and_display_results`. Lors de l'ajout de Optuna WF (ML-07) et du STOCH-OPT grid search, seul l'orchestrateur a été mis à jour.  
+**Erreur** : Au démarrage à froid, ni `run_walk_forward_optuna` ni `run_stoch_threshold_grid_search` ne s'exécutaient. Le fallback WF utilisait `{1d, EMA(26/50), StochRSI}` hardcodé (config #15 IS, ~$558) au lieu du meilleur IS Calmar. Un warning mentionnait `"oos_blocked"` alors que le flag était à `False`.  
+**Règle** : Quand deux code paths exécutent la même logique de trading (orchestrateur planifié **et** bloc `__main__`), tout ajout de fonctionnalité doit être appliqué aux **deux** simultanément. Vérifier les deux après chaque PR modifiant l'orchestrateur.  
+**Vérification systématique après chaque ajout dans `_backtest_and_display_results` ou `_execute_scheduled_trading`** :
+```powershell
+grep -n "run_walk_forward_optuna\|run_stoch_threshold_grid_search\|_select_best_by_calmar" code/src/MULTI_SYMBOLS.py
+# Résultat attendu : au moins 1 occurrence dans le bloc __main__ (F-BUG2)
+```
+**Ref** : `MULTI_SYMBOLS.py` bloc F-BUG2 L1667 — fix commit session 2026-05-03 · `PLAN_ACTION_fix_fbug2_startup_2026-05-03.md`
+
+---
+
+### L-26 · `Config._frozen=True` après `_validate()` — mutations runtime impossibles via attribut direct
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-05-03
+
+**Contexte** : `Config._validate()` appelle `object.__setattr__(self, '_frozen', True)` à la fin de `from_env()`. Toute assignation `config.stoch_rsi_X = value` lève `AttributeError: Config is frozen` après l'initialisation.  
+**Erreur** : Le STOCH-OPT grid search calculait les seuils optimaux mais ne pouvait pas les écrire dans `config` → les seuils par défaut étaient utilisés pour le WF et le live. Silencieux en tests (le config mock n'a pas `_frozen`).  
+**Règle** : Pour tout paramètre adaptatif (optimisé au runtime), **NE JAMAIS** écrire directement `config.attr = value`. Utiliser `config.update_stoch_thresholds(buy_min, buy_max, sell_exit)` ou ajouter une méthode dédiée qui utilise `object.__setattr__` explicitement.  
+**Règle complémentaire** : Quand on ajoute une mutation runtime de `config`, vérifier immédiatement si `_frozen` bloque. Les tests passent même avec cette erreur car `conftest.py` crée un mock Config sans `_frozen`.  
+**Pattern correct** :
+```python
+# ✗ JAMAIS :
+config.stoch_rsi_buy_min = optimized_value  # lève AttributeError si _frozen=True
+
+# ✓ TOUJOURS :
+config.update_stoch_thresholds(buy_min, buy_max, sell_exit)
+```
+**Ref** : `bot_config.py` `update_stoch_thresholds()` · `backtest_orchestrator.py` L397,L749 · `MULTI_SYMBOLS.py` L1536,L1693 — fix session 2026-05-03
+
+---
+
 ## Référence — Patterns P0 appliqués (historique)
 
 > Ces patterns sont actifs dans le code. Mettre à jour si une correction change le comportement.

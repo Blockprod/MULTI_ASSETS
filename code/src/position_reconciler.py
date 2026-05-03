@@ -324,7 +324,7 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
         logger.info("[RECONCILE] État réinitialisé pour %s — prêt pour nouvel achat", backtest_pair)
     else:
         logger.info(
-            f"[RECONCILE] {backtest_pair}: cohérent "
+            f"[RECONCILE] {real_pair}: cohérent "
             f"(balance={coin_balance:.6f} {coin_symbol}, in_position={local_in_position})"
         )
         # ── Re-validate stale A-3 cooldown using actual Binance fill time ──

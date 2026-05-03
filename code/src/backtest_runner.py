@@ -161,6 +161,9 @@ def backtest_from_dataframe(
     partial_enabled: bool = True,  # P2-01: toggle simulation des partiels
     slippage_model: Optional[BasicSlippageModel] = None,  # P2-02: slippage stochastique OOS
     periods_per_year: int = 8766,
+    stoch_buy_min_override: Optional[float] = None,   # grid search — override config
+    stoch_buy_max_override: Optional[float] = None,   # grid search — override config
+    stoch_sell_exit_override: Optional[float] = None, # grid search — override config
     **_kwargs: Any,
 ) -> Dict[str, Any]:
     """Exécute un backtest à partir d'un DataFrame préparé.
@@ -275,6 +278,11 @@ def backtest_from_dataframe(
                         logger.warning("A-2 MTF computation failed: %s — filter disabled", _mtf_err)
                         _use_mtf = False
 
+                # Threshold overrides for grid search (None = use config default)
+                _cy_stoch_buy_max   = stoch_buy_max_override   if stoch_buy_max_override   is not None else config.stoch_rsi_buy_max
+                _cy_stoch_buy_min   = stoch_buy_min_override   if stoch_buy_min_override   is not None else config.stoch_rsi_buy_min
+                _cy_stoch_sell_exit = stoch_sell_exit_override if stoch_sell_exit_override is not None else config.stoch_rsi_sell_exit
+
                 result = backtest_engine.backtest_from_dataframe_fast(
                     df_work['close'].to_numpy(dtype=np.float64),
                     df_work['high'].to_numpy(dtype=np.float64),
@@ -325,8 +333,8 @@ def backtest_from_dataframe(
                     config.slippage_sell,
                     atr_multiplier=config.atr_multiplier,
                     atr_stop_multiplier=config.atr_stop_multiplier,
-                    stoch_threshold_buy=config.stoch_rsi_buy_max,
-                    stoch_threshold_sell=config.stoch_rsi_sell_exit,
+                    stoch_threshold_buy=_cy_stoch_buy_max,
+                    stoch_threshold_sell=_cy_stoch_sell_exit,
                     adx_threshold=config.adx_threshold,
                     sizing_mode=sizing_mode,
                     risk_per_trade=config.risk_per_trade,
@@ -336,7 +344,7 @@ def backtest_from_dataframe(
                     partial_pct_1=config.partial_pct_1,
                     partial_pct_2=config.partial_pct_2,
                     min_notional=getattr(config, 'backtest_min_notional', 5.0),
-                    stoch_threshold_buy_min=config.stoch_rsi_buy_min,
+                    stoch_threshold_buy_min=_cy_stoch_buy_min,
                     breakeven_enabled=getattr(config, 'breakeven_enabled', True),
                     breakeven_trigger_pct=getattr(config, 'breakeven_trigger_pct', 0.015),
                     cooldown_candles=getattr(config, 'stop_loss_cooldown_candles', 0),
@@ -471,6 +479,10 @@ def backtest_from_dataframe(
 
         # --- Python backtest loop ---
         usd = config.initial_wallet
+        # Threshold overrides for grid search (None = use config default)
+        _stoch_buy_max   = stoch_buy_max_override   if stoch_buy_max_override   is not None else config.stoch_rsi_buy_max
+        _stoch_buy_min   = stoch_buy_min_override   if stoch_buy_min_override   is not None else config.stoch_rsi_buy_min
+        _stoch_sell_exit = stoch_sell_exit_override if stoch_sell_exit_override is not None else config.stoch_rsi_sell_exit
         coin = 0.0
         trades_history: List[Any] = []
         in_position = False
@@ -604,7 +616,7 @@ def backtest_from_dataframe(
                     motif_sortie = 'TRAILING_STOP'
                 elif (
                     df_work['ema2'].iloc[i] > df_work['ema1'].iloc[i]
-                    and df_work['stoch_rsi'].iloc[i] > config.stoch_rsi_sell_exit  # P2-08
+                    and df_work['stoch_rsi'].iloc[i] > _stoch_sell_exit  # P2-08
                 ):
                     exit_trade = True
                     motif_sortie = 'SIGNAL'
@@ -666,8 +678,8 @@ def backtest_from_dataframe(
             # Buy condition
             buy_condition = (
                 df_work['ema1'].iloc[idx_signal] > df_work['ema2'].iloc[idx_signal]
-                and df_work['stoch_rsi'].iloc[idx_signal] < config.stoch_rsi_buy_max  # P2-08
-                and df_work['stoch_rsi'].iloc[idx_signal] > config.stoch_rsi_buy_min  # P2-08
+                and df_work['stoch_rsi'].iloc[idx_signal] < _stoch_buy_max  # P2-08
+                and df_work['stoch_rsi'].iloc[idx_signal] > _stoch_buy_min  # P2-08
                 and usd > 0
             )
             # A-3: block buy during cooldown after stop-loss/breakeven exit

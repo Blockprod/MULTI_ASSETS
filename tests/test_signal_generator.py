@@ -126,9 +126,9 @@ class TestBuySignalBaseScenario:
     def test_stoch_rsi_below_min_returns_false(self):
         """StochRSI < 0.05 → refus."""
         checker = self._checker()
-        row = _buy_row(stoch_rsi=0.01)
-        ok, reason = checker(row, 500.0)
-        assert ok is False
+        for val in [0.01, 0.03, 0.04]:
+            ok, reason = checker(_buy_row(stoch_rsi=val), 500.0)
+            assert ok is False, f"stoch_rsi={val} aurait dû être refusé (< 0.05)"
 
     def test_stoch_rsi_in_valid_range_returns_true(self):
         """StochRSI strictement compris entre 0.05 et 0.8 → OK."""

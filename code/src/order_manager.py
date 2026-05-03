@@ -1189,7 +1189,7 @@ def _handle_dust_cleanup(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
         # IMPORTANT: Vérifier si la valeur totale du résidu respecte MIN_NOTIONAL
         dust_notional_value = ctx.coin_balance * ctx.current_price
         if dust_notional_value < ctx.min_notional:
-            logger.warning(f"[DUST] Valeur du résidu ({dust_notional_value:.2f} USDC) < MIN_NOTIONAL ({ctx.min_notional:.2f} USDC)")
+            logger.warning(f"[DUST] Valeur du résidu ({dust_notional_value:.8g} USDC) < MIN_NOTIONAL ({ctx.min_notional:.2f} USDC)")
             logger.warning(f"[DUST] Impossible de vendre le résidu - Binance refuse les ordres < {ctx.min_notional:.2f} USDC")
             logger.info("[DUST] Résidu ignoré (position considérée comme fermée)")
             # Reset état : nettoyer les champs d'entrée stales (quel que soit last_order_side)

@@ -90,6 +90,7 @@ _KNOWN_GLOBAL_KEYS: Set[str] = {
     'emergency_halt', 'emergency_halt_reason',
     '_daily_pnl_tracker', '_state_version',
     'reconcile_failed',                        # TS-P2-02
+    'stoch_params',                            # STOCH-OPT seuils optimisés
 }
 
 
