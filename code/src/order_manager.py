@@ -254,7 +254,7 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
     if max_price is not None and ctx.current_price is not None and ctx.current_price > max_price:
         max_price = ctx.current_price
 
-    # === ACTIVATION DU TRAILING (quand prix >= entry + 5×ATR) ===
+    # === ACTIVATION DU TRAILING (quand prix >= entry + 8×ATR, cf. atr_multiplier E-1) ===
     if not trailing_activated and trailing_activation_price:
         if trailing_activation_price is not None and ctx.current_price is not None and ctx.current_price >= trailing_activation_price:
             trailing_activated = True
@@ -365,6 +365,35 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                         _be_new_stop, _be_profit * 100,
                         getattr(config, 'breakeven_trigger_pct', 0.02) * 100,
                     )
+                    # C-15-BREAKEVEN-SL: Déplacer le SL exchange au niveau breakeven
+                    if (ps.get('sl_exchange_placed') and ps.get('sl_order_id')
+                            and ctx.coin_balance > ctx.min_qty):
+                        _be_old_oid = ps['sl_order_id']
+                        try:
+                            deps.client.cancel_order(symbol=ctx.real_trading_pair, orderId=_be_old_oid)
+                            ps['sl_order_id'] = None
+                            ps['sl_exchange_placed'] = False
+                            _be_qty_dec = (Decimal(str(ctx.coin_balance)) // ctx.step_size_dec) * ctx.step_size_dec
+                            if _be_qty_dec < ctx.min_qty_dec:
+                                _be_qty_dec = ctx.min_qty_dec
+                            _be_qty_str = f"{_be_qty_dec:.{ctx.step_decimals}f}"
+                            _be_sl_result = deps.place_sl_fn(
+                                symbol=ctx.real_trading_pair,
+                                quantity=_be_qty_str,
+                                stop_price=float(_be_new_stop),
+                            )
+                            ps['sl_order_id'] = _be_sl_result.get('orderId')
+                            ps['sl_exchange_placed'] = True
+                            logger.info(
+                                "[BREAKEVEN-SL] SL exchange déplacé au breakeven : %.8g "
+                                "(qty=%s, orderId=%s)",
+                                _be_new_stop, _be_qty_str, ps['sl_order_id'],
+                            )
+                        except Exception as _be_sl_err:
+                            logger.error(
+                                "[BREAKEVEN-SL] Échec déplacement SL exchange au breakeven (%.8g): %s",
+                                _be_new_stop, _be_sl_err,
+                            )
                 ps['breakeven_triggered'] = True
                 # EM-P2-03: email activation breakeven (1 fois, throttle naturel via breakeven_triggered)
                 try:
