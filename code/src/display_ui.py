@@ -293,10 +293,11 @@ def display_sell_signal_panel(
         sell_grid.add_row("[bold cyan]Trailing stop[/bold cyan]", "[bold cyan]ACTIF[/bold cyan]", f"[dim]Prix: {current_price:.8g} {qc}[/dim]")
         sell_grid.add_row("", "", "[dim]SL dynamique a chaque planification[/dim]")
 
+    _pair_label = f" [{coin_symbol}] " if coin_symbol and coin_symbol != 'COIN' else " "
     panel_title = (
-        "[bold red]SIGNAL DE VENTE - CONDITIONS REMPLIES[/bold red]"
+        f"[bold red]SIGNAL DE VENTE{_pair_label}- CONDITIONS REMPLIES[/bold red]"
         if sell_triggered else
-        "[bold yellow]SIGNAL DE VENTE - CONDITIONS NON REMPLIES[/bold yellow]"
+        f"[bold yellow]SIGNAL DE VENTE{_pair_label}- CONDITIONS NON REMPLIES[/bold yellow]"
     )
     try:
         console.print(Panel(
