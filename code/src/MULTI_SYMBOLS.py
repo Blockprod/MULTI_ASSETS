@@ -1553,6 +1553,21 @@ if __name__ == "__main__":
             if 'starting_equity' not in _tracker:
                 _tracker['starting_equity'] = config.initial_wallet
 
+        # STATE-PURGE: supprimer les pair_states stale (paires retirées de la config)
+        _active_pairs_set = {p['backtest_pair'] for p in crypto_pairs}
+        _known_global = {'emergency_halt', 'emergency_halt_reason', '_daily_pnl_tracker',
+                         '_state_version', 'reconcile_failed', 'stoch_params'}
+        with _bot_state_lock:
+            _stale_keys = [
+                k for k, v in list(bot_state.items())
+                if isinstance(v, dict) and k not in _known_global and k not in _active_pairs_set
+            ]
+            for _stale_key in _stale_keys:
+                del bot_state[_stale_key]
+                logger.info("[STATE-PURGE] Pair_state stale supprimé: %s (paire non configurée)", _stale_key)
+        if _stale_keys:
+            save_bot_state(force=True)
+
         # B-05: WAL replay — détecter les intents BUY sans confirmation avant réconciliation
         try:
             _wal_unconfirmed = wal_replay()
