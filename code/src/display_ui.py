@@ -283,8 +283,8 @@ def display_sell_signal_panel(
             trailing_active = True
 
     sell_grid.add_row("", "", "")
-    sell_grid.add_row("Stop-Loss", stop_loss_display, stop_loss_nature)
-    sell_grid.add_row("Activation trailing", trailing_activation_val, "")
+    sell_grid.add_row("Stop-Loss", "", f"{stop_loss_display}  {stop_loss_nature}")
+    sell_grid.add_row("Activation trailing", "", trailing_activation_val)
     if pnl_value is not None:
         pnl_color = "bold bright_green" if pnl_value >= 0 else "bold red"
         sell_grid.add_row("PnL en cours", f"[{pnl_color}]{pnl_value:,.2f} {qc}[/{pnl_color}]", "")

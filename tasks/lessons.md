@@ -527,3 +527,24 @@ f"{price:.4f} USDC"  # → '0.0000 USDC' pour PEPE
 f"{price:.8g} USDC"  # → '3.72e-06 USDC' pour PEPE, '45123.4 USDC' pour BTC
 ```
 **Ref** : `trade_helpers.py` L350, L361 + `order_manager.py` L99, L516 — fix commit session 2026-05-04
+
+---
+
+### L-29 · Rich Table `width=N, no_wrap=True` tronque les valeurs longues
+**Sévérité** : 🔵 INFO · **Date** : 2026-05-04
+
+**Contexte** : Le panel de vente affichait `Stop-Loss 3.3888378e-… fixe a l'entree` — la valeur était tronquée à 12 chars avec `…`.  
+**Erreur** : `sell_grid.add_column("result", width=12, no_wrap=True)` → toute valeur > 12 chars est tronquée. Les valeurs numériques longues (ex : `3.3888378e-06 USDC` = 18 chars) doivent aller dans la colonne `detail` (pas de `width` fixe).  
+**Règle** : Ne jamais mettre une valeur numérique variable dans une colonne Rich avec `width` fixe + `no_wrap=True`. Utiliser la colonne "detail" (width flexible) pour les valeurs potentiellement longues.  
+**Pattern correct** :
+```python
+# ✗ tronque :
+sell_grid.add_row("Stop-Loss", f"{sl:.8g} USDC", "fixe a l'entree")
+# col2 width=12 → "3.3888378e-…"
+
+# ✓ flexible :
+sell_grid.add_row("Stop-Loss", "", f"{sl:.8g} USDC  fixe a l'entree")
+# col3 sans width fixe → valeur complète affichée
+```
+**Ref** : `display_ui.py` L285-286 — fix commit session 2026-05-04
+

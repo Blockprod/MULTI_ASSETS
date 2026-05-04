@@ -180,7 +180,7 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
         logger.warning(
             f"[RECONCILE] bot_state indique position ouverte pour {backtest_pair} "
             f"mais solde {coin_symbol} est ~0 (balance={coin_balance:.8f}, "
-            f"valeur={coin_balance * _current_price:.2f} USDC) — réconciliation complète."
+            f"valeur={coin_balance * _current_price:.8g} USDC) — réconciliation complète."
         )
 
         # Vérifier si le SL exchange a été FILLED (cause la plus probable)
