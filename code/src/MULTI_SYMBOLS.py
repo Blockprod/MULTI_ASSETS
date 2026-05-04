@@ -1435,6 +1435,7 @@ if __name__ == "__main__":
 
     crypto_pairs = [
         {"backtest_pair": "PEPEUSDC", "real_pair": "PEPEUSDC"},
+        {"backtest_pair": "SOLUSDC",  "real_pair": "SOLUSDC"},
     ]
     _voluntary_event   = threading.Event()
     _shutdown_verified = threading.Event()
