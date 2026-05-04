@@ -96,7 +96,7 @@ def _restore_exchange_sl(ctx: '_TradeCtx', deps: '_TradingDeps', label: str) -> 
         ps['sl_exchange_placed'] = True
         deps.save_fn()
         logger.info(
-            "[%s] SL exchange RESTAURÉ après échec vente (qty=%s, stop=%.4f, orderId=%s)",
+            "[%s] SL exchange RESTAURÉ après échec vente (qty=%s, stop=%.8g, orderId=%s)",
             label, _remaining_str, _sl_price, ps['sl_order_id'],
         )
     except Exception as _sl_err:
@@ -513,7 +513,7 @@ def _execute_one_partial(ctx: '_TradeCtx', deps: '_TradingDeps', *, partial_numb
                     ps['sl_exchange_placed'] = True
                     deps.save_fn()
                     logger.info(
-                        "[%s] SL exchange replacé (qty=%s, stop=%.4f, orderId=%s)",
+                        "[%s] SL exchange replacé (qty=%s, stop=%.8g, orderId=%s)",
                         label, _remaining_str, _sl_price, ps['sl_order_id'],
                     )
                 except Exception as _sl_err:

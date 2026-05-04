@@ -488,3 +488,42 @@ Seul le reconciler (startup) corrigeait l'état → si le bot ne redémarre pas,
 **Erreur** : `bot_state.get(pair)` reçoit un dict comme clé → `TypeError: unhashable type: 'dict'` et warning récurrent `[METRICS] Échec écriture metrics.json`.
 **Règle** : Toute API utilitaire qui accepte une collection de paires doit normaliser les entrées en `str` et ignorer les éléments non résolvables. Supporter explicitement les clés `backtest_pair`, `real_pair`, `pair`, `symbol`.
 **Ref** : `metrics.py` · `_normalize_pairs()` + test `test_write_accepts_pairs_as_dict_entries`
+
+---
+
+### L-27 · `%%` dans les f-strings affiche `%%` au lieu de `%`
+**Sévérité** : 🔵 INFO · **Date** : 2026-05-04
+
+**Contexte** : Logs PARTIAL-CHECK affichaient `~50%%` et `~30%%` au lieu de `~50%` / `~30%`.  
+**Erreur** : `%%` est l'échappement pour `%` dans les **% format strings** (`logger.info("x=%.2f%%", val)`) et `str.format()`. Dans les **f-strings** (`f"~{pct}%%"`), `%%` est littéral → affiche `%%` en sortie.  
+**Règle** : Dans une f-string, `%` n'a pas besoin d'être échappé. Utiliser `%` seul. Seul le format `"text %%" % args` ou `logger.info("%.2f%%", x)` nécessite `%%`.  
+**Pattern correct** :
+```python
+# ✗ f-string : affiche '50%%'
+f"~50%%"
+
+# ✓ f-string : affiche '50%'
+f"~50%"
+
+# ✓ %-format (logger.info) : affiche '50%'
+logger.info("~50%%")
+```
+**Ref** : `code/src/trade_helpers.py` L350, L361, L92 — fix commit session 2026-05-04
+
+---
+
+### L-28 · Format `:.4f` ou `:.2f` tronque les micro-prix (PEPE, SHIB, etc.)
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-05-04
+
+**Contexte** : Logs PARTIAL-CHECK affichaient `0.0000 USDC` pour PEPE (~0.000004 USDC). SL logs affichaient `stop=0.0000`.  
+**Erreur** : `:.4f` affiche 4 décimales maximum → `0.000004` devient `0.0000`. Idem `:.2f` et `:.6f` pour les plus micro.  
+**Règle** : Pour tout prix ou montant USDC de micro-actifs, utiliser `:.8g` (notation scientifique automatique pour les petites valeurs, lisible pour les grandes). Pour les comparaisons de prix dans les logs de diagnostic, `:.8f` (8 décimales fixes).  
+**Pattern correct** :
+```python
+# ✗ tronque les micro-prix :
+f"{price:.4f} USDC"  # → '0.0000 USDC' pour PEPE
+
+# ✓ auto-adapte :
+f"{price:.8g} USDC"  # → '3.72e-06 USDC' pour PEPE, '45123.4 USDC' pour BTC
+```
+**Ref** : `trade_helpers.py` L350, L361 + `order_manager.py` L99, L516 — fix commit session 2026-05-04

@@ -89,7 +89,7 @@ def get_sniper_entry_price(
         if best_price < signal_price:
             improvement = (signal_price - best_price) / signal_price * 100
             logger.debug(
-                f"Optimisation sniper: amelioration de {improvement:.2f}%% "
+                f"Optimisation sniper: amelioration de {improvement:.2f}% "
                 f"(prix: {best_price:.8f})"
             )
 
@@ -347,7 +347,7 @@ def check_partial_exits_from_history(
                 partial_1_detected = True
                 logger.info(
                     f"[PARTIAL-CHECK] PARTIAL-1 detecte : {sell_qty:.8f} "
-                    f"{coin_symbol} a {sell_price:.4f} USDC (~50%%)"
+                    f"{coin_symbol} a {sell_price:.8g} USDC (~50%)"
                 )
             elif (
                 not partial_2_detected
@@ -358,7 +358,7 @@ def check_partial_exits_from_history(
                 partial_2_detected = True
                 logger.info(
                     f"[PARTIAL-CHECK] PARTIAL-2 detecte : {sell_qty:.8f} "
-                    f"{coin_symbol} a {sell_price:.4f} USDC (~30%%)"
+                    f"{coin_symbol} a {sell_price:.8g} USDC (~30%)"
                 )
 
         logger.info(
