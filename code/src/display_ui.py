@@ -39,6 +39,7 @@ def _ok(condition: bool) -> str:
 def display_buy_signal_panel(
     row, usdc_balance, best_params, scenario, buy_condition,
     console: Console, pair_state: Optional[Mapping[str, Any]] = None, buy_reason=None,
+    coin_symbol: Optional[str] = None,
 ):
     """
     Panneau d'analyse des signaux d'achat avec détails des conditions
@@ -49,7 +50,8 @@ def display_buy_signal_panel(
 
     # Devise de cotation
     try:
-        coin_symbol = pair_state.get('coin_symbol')
+        if not coin_symbol:
+            coin_symbol = pair_state.get('coin_symbol')
         quote_currency = pair_state.get('quote_currency')
         if not coin_symbol or not quote_currency:
             real_trading_pair = pair_state.get('real_trading_pair')

@@ -1979,7 +1979,7 @@ def _execute_buy(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
         display_buy_signal_panel(
             row=ctx.row, usdc_balance=usdc_balance_for_display, best_params=ctx.best_params,
             scenario=ctx.scenario, buy_condition=buy_condition, console=deps.console,
-            pair_state=ps, buy_reason=buy_reason,
+            pair_state=ps, buy_reason=buy_reason, coin_symbol=ctx.coin_symbol,
         )
         return
 
@@ -2065,5 +2065,5 @@ def _execute_buy(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
     display_buy_signal_panel(
         row=ctx.row, usdc_balance=usdc_balance_for_display, best_params=ctx.best_params,
         scenario=ctx.scenario, buy_condition=buy_condition, console=deps.console,
-        pair_state=ps, buy_reason=buy_reason,
+        pair_state=ps, buy_reason=buy_reason, coin_symbol=ctx.coin_symbol,
     )
