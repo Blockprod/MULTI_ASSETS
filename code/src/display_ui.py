@@ -119,10 +119,11 @@ def display_buy_signal_panel(
             f"[bold red]{_cd_min:.0f} min restantes[/bold red]",
         )
 
+    _pair_label = f" [{coin_symbol}] " if coin_symbol and coin_symbol != 'COIN' else " "
     panel_title = (
-        "[bold green]SIGNAL D'ACHAT - CONDITIONS REMPLIES[/bold green]"
+        f"[bold green]SIGNAL D'ACHAT{_pair_label}- CONDITIONS REMPLIES[/bold green]"
         if buy_condition else
-        "[bold yellow]SIGNAL D'ACHAT - CONDITIONS NON REMPLIES[/bold yellow]"
+        f"[bold yellow]SIGNAL D'ACHAT{_pair_label}- CONDITIONS NON REMPLIES[/bold yellow]"
     )
     try:
         console.print(Panel(
@@ -176,7 +177,7 @@ def display_sell_signal_panel(
         _scenario = best_params.get('scenario', '?')
         sell_grid.add_row("Stratégie active", "", f"[bold cyan]{_scenario} EMA({_ema1_p}/{_ema2_p}) {_tf}[/bold cyan]")
 
-    sell_grid.add_row("EMA2 > EMA1", _ok(row['ema2'] > row['ema1']), f"EMA1={row['ema1']:.6f}  EMA2={row['ema2']:.6f}")
+    sell_grid.add_row("EMA2 > EMA1", _ok(row['ema2'] > row['ema1']), f"EMA1={row['ema1']:.8f}  EMA2={row['ema2']:.8f}")
     _stoch_exit = getattr(config, 'stoch_rsi_sell_exit', 0.4)
     sell_grid.add_row(f"StochRSI > {_stoch_exit * 100:.0f}%", _ok(row['stoch_rsi'] > _stoch_exit), f"{row['stoch_rsi']*100:.1f}%")
     sell_grid.add_row(f"Solde {coin_symbol} > 0", _ok(coin_balance > 0), "")
@@ -234,9 +235,9 @@ def display_sell_signal_panel(
         partial_2_taken = "[yellow]\u2713 DEJA PRISE[/yellow]" if partial_taken_2 else "[grey62]En attente[/grey62]"
 
         sell_grid.add_row("", "", "")
-        sell_grid.add_row(f"PARTIAL-1 +2% (>={partial_1_threshold:.2f})", partial_1_status, f"{current_price:.2f} vs {partial_1_threshold:.2f}")
+        sell_grid.add_row(f"PARTIAL-1 +2% (>={partial_1_threshold:.8g})", partial_1_status, f"{current_price:.8g} vs {partial_1_threshold:.8g}")
         sell_grid.add_row("  Statut PARTIAL-1", partial_1_taken, "")
-        sell_grid.add_row(f"PARTIAL-2 +4% (>={partial_2_threshold:.2f})", partial_2_status, f"{current_price:.2f} vs {partial_2_threshold:.2f}")
+        sell_grid.add_row(f"PARTIAL-2 +4% (>={partial_2_threshold:.8g})", partial_2_status, f"{current_price:.8g} vs {partial_2_threshold:.8g}")
         sell_grid.add_row("  Statut PARTIAL-2", partial_2_taken, "")
 
     # PnL
@@ -250,7 +251,7 @@ def display_sell_signal_panel(
     # Trailing activation display
     qc = pair_state.get('quote_currency', 'USDC')
     if trailing_activation_price_at_entry is not None:
-        trailing_activation_val = f"{trailing_activation_price_at_entry:.6f} {qc}"
+        trailing_activation_val = f"{trailing_activation_price_at_entry:.8g} {qc}"
     else:
         trailing_activation_val = "N/A"
         logger.warning(f"[PANEL] Prix activation trailing non défini (trailing_activation_price_at_entry={trailing_activation_price_at_entry})")
@@ -258,7 +259,7 @@ def display_sell_signal_panel(
     # Stop-loss display
     if not trailing_stop_activated:
         if stop_loss_at_entry is not None:
-            stop_loss_display = f"{stop_loss_at_entry:.6f} {qc}"
+            stop_loss_display = f"{stop_loss_at_entry:.8g} {qc}"
             stop_loss_nature = "fixe a l'entree"
         else:
             stop_loss_display = "N/A"
@@ -269,7 +270,7 @@ def display_sell_signal_panel(
         atr_at_entry = pair_state.get('atr_at_entry')
         if max_price is not None and atr_at_entry is not None:
             trailing_stop_level = max_price - atr_multiplier * atr_at_entry
-            stop_loss_display = f"{trailing_stop_level:.6f} {qc}"
+            stop_loss_display = f"{trailing_stop_level:.8g} {qc}"
             stop_loss_nature = "[cyan]dynamique (trailing)[/cyan]"
         else:
             stop_loss_display = "N/A"
@@ -289,7 +290,7 @@ def display_sell_signal_panel(
         sell_grid.add_row("PnL en cours", f"[{pnl_color}]{pnl_value:,.2f} {qc}[/{pnl_color}]", "")
     if trailing_active:
         sell_grid.add_row("", "", "")
-        sell_grid.add_row("[bold cyan]Trailing stop[/bold cyan]", "[bold cyan]ACTIF[/bold cyan]", f"[dim]Prix: {current_price:.6f} {qc}[/dim]")
+        sell_grid.add_row("[bold cyan]Trailing stop[/bold cyan]", "[bold cyan]ACTIF[/bold cyan]", f"[dim]Prix: {current_price:.8g} {qc}[/dim]")
         sell_grid.add_row("", "", "[dim]SL dynamique a chaque planification[/dim]")
 
     panel_title = (
@@ -360,9 +361,9 @@ def display_account_balances_panel(
     balance_grid.add_row("Solde USDC disponible", f"[bright_yellow]{usdc_balance:.2f} USDC[/bright_yellow]")
     balance_grid.add_row(f"Solde {coin_symbol} disponible", f"[bright_yellow]{coin_balance:.8f} {coin_symbol}[/bright_yellow]")
     if last_buy_price is not None:
-        balance_grid.add_row("Prix d'achat entree", f"[bright_magenta]{last_buy_price:.2f} USDC[/bright_magenta]")
+        balance_grid.add_row("Prix d'achat entree", f"[bright_magenta]{last_buy_price:.8g} USDC[/bright_magenta]")
     if atr_at_entry is not None:
-        balance_grid.add_row("ATR utilise a l'achat", f"[bright_cyan]{atr_at_entry:.4f} USDC[/bright_cyan]")
+        balance_grid.add_row("ATR utilise a l'achat", f"[bright_cyan]{atr_at_entry:.8g} USDC[/bright_cyan]")
     if spot_price is not None:
         balance_grid.add_row(f"Prix {coin_symbol}/{quote_currency} actuel", f"[bright_magenta]{spot_price:.6f} {quote_currency}[/bright_magenta]")
     balance_grid.add_row("", "")
