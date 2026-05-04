@@ -548,3 +548,28 @@ sell_grid.add_row("Stop-Loss", "", f"{sl:.8g} USDC  fixe a l'entree")
 ```
 **Ref** : `display_ui.py` L285-286 — fix commit session 2026-05-04
 
+---
+
+### L-30 · STOCH-OPT config globale écrasée par la dernière paire du loop
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-05-04
+
+**Contexte** : Avec 2 paires (SOL, PEPE), la boucle startup STOCH-OPT appelle `config.update_stoch_thresholds()` pour chaque paire, dans l'ordre. La dernière paire (PEPE) écrase le singleton config global → SOL évalué avec `buy_min=0.15` (PEPE) au lieu de `0.05` (SOL).  
+**Erreur** : Stocker les seuils STOCH-OPT dans un singleton global `config` suffit pour 1 paire, mais fait tout rater en multi-paires : la dernière paire du loop gagne.  
+**Règle** : Toute valeur optimisée per-pair DOIT être stockée dans `pair_state` (et non dans le config global) avant que les cycles live commencent. Les checkers de signal doivent préférer `pair_state` sur config global.  
+**Pattern correct** :
+```python
+# ✗ global seul (MULTI_SYMBOLS.py loop) :
+config.update_stoch_thresholds(buy_min, buy_max, sell_exit)  # dernière paire gagne
+
+# ✓ per-pair en plus du global :
+_ps_for_stoch = bot_state.setdefault(backtest_pair, _make_default_pair_state())
+_ps_for_stoch['stoch_buy_min']   = _stoch_opt_startup['buy_min']
+_ps_for_stoch['stoch_sell_exit'] = _stoch_opt_startup['sell_exit']
+
+# ✓ checker préfère pair_state (signal_generator.py) :
+def generate_buy_condition_checker(best_params, stoch_buy_min=None, ...):
+    _buy_min = stoch_buy_min if stoch_buy_min is not None else getattr(config, 'stoch_rsi_buy_min', 0.05)
+```
+**Ref** : `MULTI_SYMBOLS.py` L1703-1712, `signal_generator.py`, `order_manager.py` — fix commit `f0d982b`
+
+

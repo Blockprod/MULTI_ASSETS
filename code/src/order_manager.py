@@ -1281,7 +1281,9 @@ def _execute_signal_sell(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
     ps.setdefault('atr_at_entry', ctx.row.get('atr'))
     ps.setdefault('max_price', entry_price_for_panel)
 
-    check_sell_signal = deps.gen_sell_checker_fn(ctx.best_params)
+    _ps_sell_exit = ps.get('stoch_sell_exit')
+    _sell_kwargs  = {'stoch_sell_exit': _ps_sell_exit} if _ps_sell_exit is not None else {}
+    check_sell_signal = deps.gen_sell_checker_fn(ctx.best_params, **_sell_kwargs)
     sell_triggered, sell_reason = check_sell_signal(ctx.row, ctx.coin_balance, entry_price_for_panel, ctx.current_price, ctx.row.get('atr'))
 
     # F-2: Protection min hold time — bloquer la vente signal si l'achat est trop récent.
@@ -1958,7 +1960,10 @@ def _execute_buy(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
     ps = ctx.pair_state
 
     # === CONDITIONS ACHAT (vérifier SEULEMENT si position fermée) ===
-    check_buy_signal = deps.gen_buy_checker_fn(ctx.best_params)
+    _ps_buy_min  = ps.get('stoch_buy_min')
+    _ps_buy_max  = ps.get('stoch_buy_max')
+    _buy_kwargs  = {k: v for k, v in [('stoch_buy_min', _ps_buy_min), ('stoch_buy_max', _ps_buy_max)] if v is not None}
+    check_buy_signal = deps.gen_buy_checker_fn(ctx.best_params, **_buy_kwargs)
     buy_condition, buy_reason = check_buy_signal(ctx.row, ctx.usdc_balance)
     usdc_balance_for_display = ctx.usdc_balance  # snapshot avant éventuel achat
 

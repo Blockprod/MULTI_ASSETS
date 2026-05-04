@@ -83,6 +83,7 @@ _KNOWN_PAIR_KEYS: Set[str] = {
     'oos_blocked', 'oos_blocked_since',
     'drawdown_halted',                         # ST-P2-02
     'quote_currency', 'ticker_spot_price', 'latest_best_params',
+    'stoch_buy_min', 'stoch_buy_max', 'stoch_sell_exit',  # STOCH-OPT per-pair
 }
 
 # Clés globales connues de BotStateDict (C-16).

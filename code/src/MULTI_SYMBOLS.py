@@ -894,8 +894,8 @@ def run_parallel_backtests(crypto_pairs: List[Dict[str, str]], start_date: str, 
 # --- Live Trading Functions ---
 # generate_buy_condition_checker imported from signal_generator.py (P3-SRP)
 # generate_sell_condition_checker wrapper  injects config
-def generate_sell_condition_checker(best_params: Dict[str, Any]) -> Callable[..., Tuple[bool, Optional[str]]]:
-    return _generate_sell_condition_checker(best_params, config=config)
+def generate_sell_condition_checker(best_params: Dict[str, Any], stoch_sell_exit: Optional[float] = None) -> Callable[..., Tuple[bool, Optional[str]]]:
+    return _generate_sell_condition_checker(best_params, config=config, stoch_sell_exit=stoch_sell_exit)
 
 # sync_windows_silently moved to timestamp_utils.py (P3-SRP)
 
@@ -1704,6 +1704,12 @@ if __name__ == "__main__":
                                 'buy_max':   _stoch_opt_startup['buy_max'],
                                 'sell_exit': _stoch_opt_startup['sell_exit'],
                             }
+                            # Persister les seuils par paire dans pair_state pour que
+                            # chaque paire utilise ses propres seuils en cycle live.
+                            _ps_for_stoch = bot_state.setdefault(backtest_pair, _make_default_pair_state())
+                            _ps_for_stoch['stoch_buy_min']   = _stoch_opt_startup['buy_min']
+                            _ps_for_stoch['stoch_buy_max']   = _stoch_opt_startup['buy_max']
+                            _ps_for_stoch['stoch_sell_exit'] = _stoch_opt_startup['sell_exit']
                         save_bot_state()
                         logger.info(
                             "[STARTUP STOCH-OPT] Seuils optimisés: buy_min=%.2f buy_max=%.2f "

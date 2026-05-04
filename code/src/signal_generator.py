@@ -40,6 +40,8 @@ def _get_ml08_model() -> Optional[Dict[str, Any]]:
 
 def generate_buy_condition_checker(
     best_params: Dict[str, Any],
+    stoch_buy_min: Optional[float] = None,
+    stoch_buy_max: Optional[float] = None,
 ) -> Callable[[pd.Series, float], Tuple[bool, str]]:
     """
     Génère une fonction de vérification des conditions d'achat
@@ -68,9 +70,10 @@ def generate_buy_condition_checker(
 
         # Condition de base : EMA1 > EMA2 + StochRSI dans la fenêtre [buy_min, buy_max]
         # P2-08: seuils depuis config pour cohérence exacte avec le backtest
+        # Si des seuils per-paire sont capturés à la création du checker, ils ont la priorité.
         from bot_config import config as _cfg_buy
-        _buy_min = getattr(_cfg_buy, 'stoch_rsi_buy_min', 0.05)
-        _buy_max = getattr(_cfg_buy, 'stoch_rsi_buy_max', 0.8)
+        _buy_min = stoch_buy_min if stoch_buy_min is not None else getattr(_cfg_buy, 'stoch_rsi_buy_min', 0.05)
+        _buy_max = stoch_buy_max if stoch_buy_max is not None else getattr(_cfg_buy, 'stoch_rsi_buy_max', 0.8)
         ema_condition = row['ema1'] > row['ema2']
         stoch_condition = row['stoch_rsi'] < _buy_max
 
@@ -154,6 +157,7 @@ def generate_buy_condition_checker(
 def generate_sell_condition_checker(
     best_params: Dict[str, Any],
     config: Any = None,
+    stoch_sell_exit: Optional[float] = None,
 ) -> Callable[..., Tuple[bool, Optional[str]]]:
     """
     Génère une fonction de vérification des conditions de vente
@@ -213,8 +217,9 @@ def generate_sell_condition_checker(
 
         # Condition de signal de vente : EMA2 > EMA1 + StochRSI > stoch_rsi_sell_exit
         # C-1: seuil optimisé 0.2 → 0.4 (bench +2% PnL, -1pp DD) — doit rester identique au backtest
+        # Si un seuil per-paire est capturé à la création du checker, il a la priorité.
         from bot_config import config as _cfg_sell
-        _sell_exit = getattr(_cfg_sell, 'stoch_rsi_sell_exit', 0.4)
+        _sell_exit = stoch_sell_exit if stoch_sell_exit is not None else getattr(_cfg_sell, 'stoch_rsi_sell_exit', 0.4)
         ema_condition = row['ema2'] > row['ema1']
         stoch_condition = row['stoch_rsi'] > _sell_exit
 

@@ -80,12 +80,14 @@ def display_buy_signal_panel(
     cond_grid.add_row("Stratégie active", "", f"[bold cyan]{_strategy_label}[/bold cyan]")
     cond_grid.add_row(f"Solde {quote_currency} > 0", _ok(usdc_balance > 0), f"{usdc_balance:.2f} {quote_currency}")
     cond_grid.add_row("EMA1 > EMA2", _ok(row['ema1'] > row['ema2']), f"EMA{_ema1_p}={row['ema1']:.8f}  EMA{_ema2_p}={row['ema2']:.8f}")
-    _buy_max = getattr(config, 'stoch_rsi_buy_max', 0.8)
+    _ps_buy_max = pair_state.get('stoch_buy_max') if pair_state else None
+    _buy_max = _ps_buy_max if _ps_buy_max is not None else getattr(config, 'stoch_rsi_buy_max', 0.8)
     _srsi_val = row['stoch_rsi'] * 100
     _srsi_display = f"{_srsi_val:.2f}"
     _srsi_color = "bold green" if _srsi_val < _buy_max * 100 else "bold red"
     cond_grid.add_row(f"StochRSI < {_buy_max*100:.0f}%", _ok(row['stoch_rsi'] < _buy_max), "")
-    _buy_min = getattr(config, 'stoch_rsi_buy_min', 0.05)
+    _ps_buy_min = pair_state.get('stoch_buy_min') if pair_state else None
+    _buy_min = _ps_buy_min if _ps_buy_min is not None else getattr(config, 'stoch_rsi_buy_min', 0.05)
     cond_grid.add_row(
         f"StochRSI > {_buy_min*100:.0f}%",
         _ok(row['stoch_rsi'] > _buy_min),
@@ -180,7 +182,8 @@ def display_sell_signal_panel(
         sell_grid.add_row("Stratégie active", "", f"[bold cyan]{_scenario} EMA({_ema1_p}/{_ema2_p}) {_tf}[/bold cyan]")
 
     sell_grid.add_row("EMA2 > EMA1", _ok(row['ema2'] > row['ema1']), f"EMA1={row['ema1']:.8f}  EMA2={row['ema2']:.8f}")
-    _stoch_exit = getattr(config, 'stoch_rsi_sell_exit', 0.4)
+    _ps_sell_exit = pair_state.get('stoch_sell_exit') if pair_state else None
+    _stoch_exit = _ps_sell_exit if _ps_sell_exit is not None else getattr(config, 'stoch_rsi_sell_exit', 0.4)
     sell_grid.add_row(f"StochRSI > {_stoch_exit * 100:.0f}%", _ok(row['stoch_rsi'] > _stoch_exit), f"{row['stoch_rsi']*100:.1f}%")
     sell_grid.add_row(f"Solde {coin_symbol} > 0", _ok(coin_balance > 0), "")
 
