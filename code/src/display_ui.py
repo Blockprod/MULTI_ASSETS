@@ -371,7 +371,7 @@ def display_account_balances_panel(
     if atr_at_entry is not None:
         balance_grid.add_row("ATR utilise a l'achat", f"[bright_cyan]{atr_at_entry:.8g} USDC[/bright_cyan]")
     if spot_price is not None:
-        balance_grid.add_row(f"Prix {coin_symbol}/{quote_currency} actuel", f"[bright_magenta]{spot_price:.6f} {quote_currency}[/bright_magenta]")
+        balance_grid.add_row(f"Prix {coin_symbol}/{quote_currency} actuel", f"[bright_magenta]{spot_price:.8g} {quote_currency}[/bright_magenta]")
     balance_grid.add_row("", "")
     balance_grid.add_row("[bold]Solde global Binance[/bold]", f"[bold bright_green]{global_balance_usdc:.2f} USDC[/bold bright_green]")
 
@@ -687,7 +687,7 @@ def display_closure_panel(
     closure_grid.add_column("label", style="bold white", width=24, no_wrap=True)
     closure_grid.add_column("value")
     closure_grid.add_row("Stop-Loss utilise", stop_loss_info)
-    closure_grid.add_row("Prix actuel", f"{current_price:.4f} USDC")
+    closure_grid.add_row("Prix actuel", f"{current_price:.8g} USDC")
     closure_grid.add_row(f"Solde {coin_symbol}", f"{coin_balance:.8f}")
     closure_grid.add_row("Raison fermeture", "[bold red]STOP-LOSS touche[/bold red]")
 
