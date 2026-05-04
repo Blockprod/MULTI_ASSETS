@@ -343,6 +343,113 @@ class TestUpdateTrailingStop:
         _update_trailing_stop(ctx, deps)  # ne doit pas crasher
         assert ps.get('breakeven_triggered') is True
 
+    def test_sl_exchange_moved_on_trailing_activation(self):
+        """À l'activation du trailing, le SL exchange est déplacé au niveau trailing."""
+        entry_price = 10.0
+        atr_at_entry = 2.0
+        activation_price = entry_price + 5.5 * atr_at_entry  # 21
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': entry_price,
+            'atr_at_entry': atr_at_entry,
+            'trailing_activation_price_at_entry': activation_price,
+            'trailing_stop_activated': False,
+            'max_price': activation_price,
+            'sl_order_id': 12345,
+            'sl_exchange_placed': True,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance=100.0, current_price=activation_price)
+        mock_client = MagicMock()
+        mock_place_sl = MagicMock(return_value={'orderId': 99999, 'status': 'NEW'})
+        deps = _make_deps(client=mock_client, place_sl_fn=mock_place_sl)
+        _update_trailing_stop(ctx, deps)
+        # Le SL exchange doit avoir été annulé et re-placé
+        mock_client.cancel_order.assert_called_once()
+        mock_place_sl.assert_called_once()
+        # L'orderId doit être mis à jour
+        assert ps.get('sl_order_id') == 99999
+        assert ps.get('sl_exchange_placed') is True
+        # Le stop_price passé doit être le trailing_stop
+        _, call_kwargs = mock_place_sl.call_args
+        trailing_val = ps.get('trailing_stop')
+        assert trailing_val is not None
+        assert call_kwargs['stop_price'] == pytest.approx(trailing_val)
+
+    def test_sl_exchange_moved_on_ratchet_up(self):
+        """Quand le trailing stop monte (ratchet), le SL exchange est déplacé."""
+        initial_trailing = 15.0  # trailing_stop actuel
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 10.0,
+            'atr_at_entry': 2.0,
+            'trailing_activation_price_at_entry': 21.0,
+            'trailing_stop_activated': True,
+            'max_price': 26.0,
+            'trailing_stop': initial_trailing,
+            'sl_order_id': 55555,
+            'sl_exchange_placed': True,
+        }
+        # Prix monte à 30 → new_trailing = 30 - 11 = 19 > 15 → ratchet + déplacement SL
+        ctx = _make_ctx(pair_state=ps, coin_balance=100.0, current_price=30.0)
+        mock_client = MagicMock()
+        mock_place_sl = MagicMock(return_value={'orderId': 77777, 'status': 'NEW'})
+        deps = _make_deps(client=mock_client, place_sl_fn=mock_place_sl)
+        _update_trailing_stop(ctx, deps)
+        # Trailing doit avoir monté
+        new_trail = ps.get('trailing_stop')
+        assert new_trail is not None
+        assert new_trail > initial_trailing
+        # SL exchange annulé et re-placé
+        mock_client.cancel_order.assert_called_once()
+        mock_place_sl.assert_called_once()
+        assert ps.get('sl_order_id') == 77777
+        assert ps.get('sl_exchange_placed') is True
+
+    def test_sl_exchange_not_moved_if_no_sl_placed(self):
+        """Pas de SL exchange actif → cancel_order non appelé."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 10.0,
+            'atr_at_entry': 2.0,
+            'trailing_activation_price_at_entry': 21.0,
+            'trailing_stop_activated': True,
+            'max_price': 26.0,
+            'trailing_stop': 15.0,
+            'sl_exchange_placed': False,
+            'sl_order_id': None,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance=100.0, current_price=30.0)
+        mock_client = MagicMock()
+        mock_place_sl = MagicMock()
+        deps = _make_deps(client=mock_client, place_sl_fn=mock_place_sl)
+        _update_trailing_stop(ctx, deps)
+        mock_client.cancel_order.assert_not_called()
+        mock_place_sl.assert_not_called()
+
+    def test_sl_exchange_move_cancel_fails_silently(self):
+        """Échec annulation SL exchange : loggé mais ne crash pas, trailing_stop mis à jour."""
+        initial_trailing = 15.0
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 10.0,
+            'atr_at_entry': 2.0,
+            'trailing_activation_price_at_entry': 21.0,
+            'trailing_stop_activated': True,
+            'max_price': 26.0,
+            'trailing_stop': initial_trailing,
+            'sl_order_id': 55555,
+            'sl_exchange_placed': True,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance=100.0, current_price=30.0)
+        mock_client = MagicMock()
+        mock_client.cancel_order.side_effect = Exception("Network error")
+        deps = _make_deps(client=mock_client)
+        _update_trailing_stop(ctx, deps)  # ne doit pas crasher
+        # trailing_stop doit quand même avoir été mis à jour
+        new_trail = ps.get('trailing_stop')
+        assert new_trail is not None
+        assert new_trail > initial_trailing
+
 
 # ---------------------------------------------------------------------------
 # Tests _execute_partial_sells

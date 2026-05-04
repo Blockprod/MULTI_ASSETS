@@ -237,7 +237,7 @@ Si aucun résultat → archiver dans `code/legacy/` et retirer de `config/setup.
 **Sévérité** : 🔴 CRITIQUE · **Date** : 2026-04-17
 
 **Contexte** : `_execute_partial_sells` annule le SL exchange (via `_cancel_exchange_sl`) AVANT d'appeler `_execute_one_partial`. Si la vente est bloquée (MIN_NOTIONAL, LOT_SIZE), échoue (NOT FILLED), ou lève une exception, le SL n'est jamais re-placé.  
-**Erreur** : En production, PARTIAL-2 déclenchée pour ONDOUSDC → SL annulé → notional 4.18 USDC < MIN_NOTIONAL 10.00 → vente bloquée → position sans SL pendant plusieurs cycles (alerte `[SL-MANQUANT]` 2 min plus tard). Le détecteur `[SL-MANQUANT]` dans l'orchestrateur envoie un email mais ne prend aucune action corrective.  
+**Erreur** : En production, PARTIAL-2 déclenchée → SL annulé → notional 4.18 USDC < MIN_NOTIONAL 10.00 → vente bloquée → position sans SL pendant plusieurs cycles (alerte `[SL-MANQUANT]` 2 min plus tard). Le détecteur `[SL-MANQUANT]` dans l'orchestrateur envoie un email mais ne prend aucune action corrective.  
 **Règles** :
 1. Tout chemin d'échec dans `_execute_one_partial` DOIT appeler `_restore_exchange_sl` pour remettre le SL.
 2. Ne jamais annuler un SL sans garantir qu'il sera re-placé dans TOUS les chemins (succès, échec, exception).
@@ -407,7 +407,7 @@ if _sl_oid and not str(_sl_oid).isdigit():
 ### L-21 · BUY en boucle — 3 failles combinées (save non-forcé + pas de guard state + dust reset)
 **Sévérité** : 🔴 CRITIQUE · **Date** : 2026-04-17
 
-**Contexte** : En production, 19 ordres BUY ONDOUSDC exécutés sur Binance en 36 minutes (06:22→06:58 UTC). Trade journal montre 18 entrées consécutives identiques (qty=799.5, equity_before=252.18).  
+**Contexte** : En production, 19 ordres BUY exécutés sur Binance en 36 minutes (06:22→06:58 UTC). Trade journal montre 18 entrées consécutives identiques (qty=799.5, equity_before=252.18).  
 **Erreur** : 3 failles combinées dans `order_manager.py` :
 1. `deps.save_fn()` sans `force=True` après BUY → état throttlé 5s → si PM2 restart entre cycles, `last_order_side` non persisté → pair re-initialisée sans historique → `last_order_side=None` → buy autorisé à nouveau.
 2. `_validate_buy_preconditions()` ne vérifiait PAS `last_order_side == 'BUY'` → pas de guard état interne.
@@ -436,7 +436,7 @@ deps.save_fn(force=True)  # OBLIGATOIRE — jamais save_fn() après un achat
 ### L-22 · SL exchange FILLED mais balance=0 → P0-BUY bloque indéfiniment
 **Sévérité** : 🔴 CRITIQUE · **Date** : 2026-04-26
 
-**Contexte** : ONDOUSDC — SL STOP_LOSS_LIMIT rempli par Binance, balance tombe à exactement 0. Le bot répète `[BUY BLOCKED P0-BUY]` toutes les 2 min pendant 2+ heures. Aucun buy possible.
+**Contexte** : SL STOP_LOSS_LIMIT rempli par Binance, balance tombe à exactement 0. Le bot répète `[BUY BLOCKED P0-BUY]` toutes les 2 min pendant 2+ heures. Aucun buy possible.
 **Erreur** : 3 chemins runtime échouent tous quand `coin_balance == 0` :
 1. `_check_and_execute_stop_loss` bails à `ctx.coin_balance <= 0` (L910) → ne détecte jamais le SL fill
 2. `_handle_dust_cleanup` : `coin_balance > min_qty * 0.01` faux quand balance=0 → pas de dust détecté

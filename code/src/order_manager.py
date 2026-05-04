@@ -265,6 +265,35 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                 trailing_stop_val = max_price - trailing_distance
                 ps['trailing_stop'] = trailing_stop_val
                 logger.info(f"[TRAILING] Stop initial: {trailing_stop_val:.4f}")
+                # C-15-TRAILING-SL: Déplacer le SL exchange au niveau trailing dès l'activation
+                if (trailing_stop_val and ps.get('sl_exchange_placed') and ps.get('sl_order_id')
+                        and ctx.coin_balance > ctx.min_qty):
+                    _old_oid_act = ps['sl_order_id']
+                    try:
+                        deps.client.cancel_order(symbol=ctx.real_trading_pair, orderId=_old_oid_act)
+                        ps['sl_order_id'] = None
+                        ps['sl_exchange_placed'] = False
+                        _qty_dec_act = (Decimal(str(ctx.coin_balance)) // ctx.step_size_dec) * ctx.step_size_dec
+                        if _qty_dec_act < ctx.min_qty_dec:
+                            _qty_dec_act = ctx.min_qty_dec
+                        _qty_str_act = f"{_qty_dec_act:.{ctx.step_decimals}f}"
+                        _new_sl_act = deps.place_sl_fn(
+                            symbol=ctx.real_trading_pair,
+                            quantity=_qty_str_act,
+                            stop_price=float(trailing_stop_val),
+                        )
+                        ps['sl_order_id'] = _new_sl_act.get('orderId')
+                        ps['sl_exchange_placed'] = True
+                        logger.info(
+                            "[TRAILING-SL] SL exchange déplacé à l'activation : %.8g "
+                            "(qty=%s, orderId=%s)",
+                            trailing_stop_val, _qty_str_act, ps['sl_order_id'],
+                        )
+                    except Exception as _sl_act_err:
+                        logger.error(
+                            "[TRAILING-SL] Échec déplacement SL exchange à l'activation (%.8g): %s",
+                            trailing_stop_val, _sl_act_err,
+                        )
             # EM-P2-03: email d'activation (1 fois, throttle naturel via trailing_stop_activated)
             try:
                 deps.send_alert_fn(
@@ -289,6 +318,34 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
         if new_trailing is not None and current_trailing is not None and new_trailing > current_trailing:
             ps['trailing_stop'] = new_trailing
             logger.info(f"[TRAILING] Nouveau stop : {new_trailing:.4f} (max: {max_price:.4f})")
+            # C-15-TRAILING-SL: Déplacer proactivement le SL exchange au niveau trailing relevé
+            if (ps.get('sl_exchange_placed') and ps.get('sl_order_id')
+                    and ctx.coin_balance > ctx.min_qty):
+                _old_oid_r = ps['sl_order_id']
+                try:
+                    deps.client.cancel_order(symbol=ctx.real_trading_pair, orderId=_old_oid_r)
+                    ps['sl_order_id'] = None
+                    ps['sl_exchange_placed'] = False
+                    _qty_dec_r = (Decimal(str(ctx.coin_balance)) // ctx.step_size_dec) * ctx.step_size_dec
+                    if _qty_dec_r < ctx.min_qty_dec:
+                        _qty_dec_r = ctx.min_qty_dec
+                    _qty_str_r = f"{_qty_dec_r:.{ctx.step_decimals}f}"
+                    _new_sl_r = deps.place_sl_fn(
+                        symbol=ctx.real_trading_pair,
+                        quantity=_qty_str_r,
+                        stop_price=float(new_trailing),
+                    )
+                    ps['sl_order_id'] = _new_sl_r.get('orderId')
+                    ps['sl_exchange_placed'] = True
+                    logger.info(
+                        "[TRAILING-SL] SL exchange déplacé : %.8g → %.8g (qty=%s, orderId=%s)",
+                        current_trailing, new_trailing, _qty_str_r, ps['sl_order_id'],
+                    )
+                except Exception as _sl_r_err:
+                    logger.error(
+                        "[TRAILING-SL] Échec déplacement SL exchange (%.8g → %.8g): %s",
+                        current_trailing, new_trailing, _sl_r_err,
+                    )
 
     # B-3: Break-even stop — remonter stop_loss au prix d'entrée dès que
     # le profit atteint breakeven_trigger_pct. Identique au backtest (backtest_runner.py).

@@ -196,7 +196,7 @@ automatique au démarrage (risque de supprimer un état valide par erreur de con
 ### Checklist
 
 - [x] Lire `states/bot_state.json` et identifier les clés orphelines
-- [x] Supprimé : ONDOUSDC, ONDOUSDT, PEPEUSDT, SOLUSDT (4 clés)
+- [x] Supprimé : paires legacy USDT et les clés obsolètes (4 clés)
 - [x] Vérifier que le bot recharge correctement avec l'état nettoyé
 - Note : HMAC recalculé automatiquement par le bot au prochain cycle de sauvegarde
 
