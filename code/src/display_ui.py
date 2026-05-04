@@ -34,6 +34,11 @@ def _ok(condition: bool) -> str:
     return '[bold green]\u2714 OK[/bold green]' if condition else '[bold red]\u2718 NOK[/bold red]'
 
 
+def _fmt_price(price: float) -> str:
+    """Format a price with 2 decimal places (≥1) or compact notation (< 1)."""
+    return f"{price:.2f}" if price >= 1.0 else f"{price:.8g}"
+
+
 # ─── Signal Panels ──────────────────────────────────────────────────────────
 
 def display_buy_signal_panel(
@@ -367,11 +372,11 @@ def display_account_balances_panel(
     balance_grid.add_row("Solde USDC disponible", f"[bright_yellow]{usdc_balance:.2f} USDC[/bright_yellow]")
     balance_grid.add_row(f"Solde {coin_symbol} disponible", f"[bright_yellow]{coin_balance:.8f} {coin_symbol}[/bright_yellow]")
     if last_buy_price is not None:
-        balance_grid.add_row("Prix d'achat entree", f"[bright_magenta]{last_buy_price:.8g} USDC[/bright_magenta]")
+        balance_grid.add_row("Prix d'achat entree", f"[bright_magenta]{_fmt_price(last_buy_price)} USDC[/bright_magenta]")
     if atr_at_entry is not None:
         balance_grid.add_row("ATR utilise a l'achat", f"[bright_cyan]{atr_at_entry:.8g} USDC[/bright_cyan]")
     if spot_price is not None:
-        balance_grid.add_row(f"Prix {coin_symbol}/{quote_currency} actuel", f"[bright_magenta]{spot_price:.8g} {quote_currency}[/bright_magenta]")
+        balance_grid.add_row(f"Prix {coin_symbol}/{quote_currency} actuel", f"[bright_magenta]{_fmt_price(spot_price)} {quote_currency}[/bright_magenta]")
     balance_grid.add_row("", "")
     balance_grid.add_row("[bold]Solde global Binance[/bold]", f"[bold bright_green]{global_balance_usdc:.2f} USDC[/bold bright_green]")
 
@@ -681,12 +686,15 @@ def build_tracking_panel(pair_state: Mapping[str, Any], current_run_time: str) -
 def display_closure_panel(
     stop_loss_info: str, current_price: float,
     coin_symbol: str, coin_balance: float, console: Console,
+    fill_price: Optional[float] = None,
 ):
     """Panneau de fermeture de position — STOP-LOSS touché."""
     closure_grid = Table(box=None, show_header=False, pad_edge=False, show_edge=False, padding=(0, 2))
     closure_grid.add_column("label", style="bold white", width=24, no_wrap=True)
     closure_grid.add_column("value")
     closure_grid.add_row("Stop-Loss utilise", stop_loss_info)
+    if fill_price is not None:
+        closure_grid.add_row("Prix fill Binance", f"{fill_price:.8g} USDC")
     closure_grid.add_row("Prix actuel", f"{current_price:.8g} USDC")
     closure_grid.add_row(f"Solde {coin_symbol}", f"{coin_balance:.8f}")
     closure_grid.add_row("Raison fermeture", "[bold red]STOP-LOSS touche[/bold red]")

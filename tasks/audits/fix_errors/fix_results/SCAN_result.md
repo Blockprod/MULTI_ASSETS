@@ -1,9 +1,9 @@
 # SCAN_result — MULTI_ASSETS
 
-**Date** : 2026-04-14  
-**Périmètre** : `code/src/*.py` (31 fichiers) · `tests/*.py`  
+**Date** : 2026-05-04 à 11:01 _(scan précédent : 2026-04-14)_  
+**Périmètre** : `code/src/*.py` (30 fichiers) · `tests/*.py`  
 **Pyright config** : `pyrightconfig.json` — typeCheckingMode: "basic"  
-**Baseline tests** : 768 passed · 0 failed
+**Baseline tests** : 807 passed · 0 failed
 
 ---
 
@@ -11,46 +11,25 @@
 
 | Outil | Périmètre | Violations |
 |-------|-----------|-----------|
-| ruff général | `code/src/` | **0** |
-| ruff ARG001 (args inutilisés) | `code/src/` | **2** (watchdog.py:49) |
-| ruff | `tests/` | **0** |
-| pyright (basic) | `code/src/` 31 fichiers | **0** |
-| IDE get_errors | `code/src/` + `tests/` | **0** (testnet.yml = faux positifs) |
-| `# type: ignore` | `tests/` | **3** |
-| `datetime.utcnow()` | `code/src/` | **0** |
-| `TRAILING_STOP_MARKET` (usage réel invalide) | `code/src/` | **0** ✅ compliant |
-| `start_date` figée à l'import | `code/src/` | **0** |
-| `except Exception: pass` muet | `code/src/` | **0** |
-| `print()` en production | `code/src/` runtime | **0** |
-| **TOTAL actionnable** | | **5** |
+| ruff général | `code/src/` | **0** ✅ |
+| ruff ARG (args inutilisés) | `code/src/` | **0** ✅ |
+| ruff | `tests/` | **0** ✅ |
+| pyright (basic) | `code/src/` 30 fichiers | **0** ✅ |
+| IDE get_errors | `code/src/` + `tests/` | **0** ✅ |
+| `# type: ignore` | `code/src/` + `tests/` | **0** ✅ |
+| `datetime.utcnow()` | `code/src/` | **0** ✅ |
+| `TRAILING_STOP_MARKET` (usage réel invalide) | `code/src/` | **0** ✅ guards OK |
+| `start_date` figée à l'import | `code/src/` | **0** ✅ |
+| `except Exception: pass` muet | `code/src/` | **0** ✅ |
+| `print()` en production | `code/src/` runtime | **0** ✅ |
+| **TOTAL actionnable** | | **0** 🟢 |
 
 ---
 
 ## FILES_TO_FIX
 
 ```yaml
-FILES_TO_FIX:
-
-  - file: "code/src/watchdog.py"
-    errors: ["ARG001"]
-    count: 2
-    lines: [49]
-    detail: "ARG001 — subject et body inutilisés dans _send_email_alert() no-op stub"
-    priority: P2
-
-  - file: "tests/test_e2e_testnet.py"
-    errors: ["type_ignore"]
-    count: 2
-    lines: [93, 102]
-    detail: "# type: ignore[no-untyped-def] — typer client: Any explicitement"
-    priority: P3
-
-  - file: "tests/test_indicators_consistency.py"
-    errors: ["type_ignore"]
-    count: 1
-    lines: [301]
-    detail: "# type: ignore[import] — module Cython backtest_engine sans stub complet"
-    priority: P3
+FILES_TO_FIX: []  # Aucune violation détectée — codebase 100% propre
 ```
 
 ---
@@ -58,18 +37,10 @@ FILES_TO_FIX:
 ## VIOLATIONS_SPECIFIQUES
 
 ```
-ARG001:
-  - code/src/watchdog.py:49  — subject (unused)
-  - code/src/watchdog.py:49  — body (unused)
-  Function: def _send_email_alert(subject: str, body: str) -> bool:  # no-op stub
-
-type_ignore:
-  - tests/test_e2e_testnet.py:93   — # type: ignore[no-untyped-def]
-  - tests/test_e2e_testnet.py:102  — # type: ignore[no-untyped-def]
-  - tests/test_indicators_consistency.py:301 — # type: ignore[import]
-
+type_ignore      : aucun
 utcnow           : aucun
-trailing_stop    : aucun appel effectif (guards NotImplementedError conformes)
+trailing_stop    : aucun appel effectif (exchange_client.py:571 dans fonction compatibility
+                   non-atteignable Spot — MULTI_SYMBOLS.py:400 raise NotImplementedError ✅)
 start_date_figee : aucun
 silent_except    : aucun
 print_prod       : aucun en runtime (benchmark.py + preload_data.py = scripts CLI exclus)
@@ -77,7 +48,7 @@ print_prod       : aucun en runtime (benchmark.py + preload_data.py = scripts CL
 
 ---
 
-## FICHIERS PROPRES (code/src/ — 31/31)
+## FICHIERS PROPRES (code/src/ — 30/30)
 
 Tous les fichiers `code/src/` sont propres (0 violation ruff + 0 erreur pyright) :
 
@@ -88,8 +59,7 @@ backtest_orchestrator.py, data_fetcher.py, indicators_engine.py, signal_generato
 market_analysis.py, backtest_runner.py, walk_forward.py, trade_helpers.py,
 trade_journal.py, position_sizing.py, cache_manager.py, display_ui.py,
 email_utils.py, email_templates.py, error_handler.py, MULTI_SYMBOLS.py,
-watchdog.py (ARG uniquement), indicators.py, cython_integrity.py,
-benchmark.py, preload_data.py, wal_logger.py
+watchdog.py, indicators.py, cython_integrity.py, benchmark.py, preload_data.py
 ```
 
 ---
@@ -98,9 +68,13 @@ benchmark.py, preload_data.py, wal_logger.py
 
 | Priorité | Fichiers | Violations |
 |----------|----------|-----------|
-| P2 | watchdog.py | 2 ARG001 (no-op stub) |
-| P3 | tests/test_e2e_testnet.py, tests/test_indicators_consistency.py | 3 type_ignore |
-| **TOTAL** | 3 fichiers | **5** |
+| — | — | — |
+| **TOTAL** | **0 fichier** | **0** 🟢 |
 
-**→ Passer à P2 (génération du plan de correction depuis ce fichier)**
+**→ Aucune action requise. Codebase entièrement propre au 2026-05-04.**
+
+_Violations résolues depuis le scan 2026-04-14 :_
+- `ARG001` watchdog.py:49 ✅ corrigé
+- `# type: ignore` tests/test_e2e_testnet.py:93,102 ✅ corrigé
+- `# type: ignore` tests/test_indicators_consistency.py:301 ✅ corrigé
 

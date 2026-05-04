@@ -341,6 +341,66 @@ config.update_stoch_thresholds(buy_min, buy_max, sell_exit)
 
 ---
 
+### L-27 · Format `:.4f` inutilisable pour les prix sub-cent (ex: PEPE ~3.4e-06)
+**Sévérité** : 🟡 IMPORTANT · **Date** : 2026-05-04
+
+**Contexte** : `order_manager.py` utilisait `f"{stop_loss_fixed:.4f} USDC"` pour afficher le stop-loss dans le panel de clôture.  
+**Erreur** : Pour des paires à très faible prix (PEPEUSDC ~3.39e-06), `:.4f` affiche `0.0000` — le prix réel est silencieusement tronqué. Le panel de clôture devenait illisible et trompeur lors du diagnostic post-SL.  
+**Règle** : Pour tout prix de crypto-monnaie dont la valeur peut descendre en dessous de 0.0001, utiliser `:.8g` (notation scientifique automatique si nécessaire) au lieu de `:.4f`.  
+**Vérification** : Après tout ajout/modif d'affichage de prix dans `order_manager.py` ou `display_ui.py`, grepper les `:.4f` et évaluer si le prix peut être sub-cent.  
+**Pattern correct** :
+```python
+# ✗ JAMAIS pour des prix crypto :
+f"{stop_loss:.4f} USDC"   # → "0.0000" pour PEPE
+
+# ✓ TOUJOURS :
+f"{stop_loss:.8g} USDC"   # → "3.3888378e-06" pour PEPE, "0.048731" pour BTC(!)
+```
+**Ref** : `code/src/order_manager.py` — 4 occurrences corrigées · `PLAN_ACTION_log_fixes_2026-05-04.md`
+
+---
+
+### L-28 · CANCEL+REPLACE SL sans `_restore_exchange_sl()` → position exposée si `place_sl_fn()` échoue
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-05-04
+
+**Contexte** : Les 3 blocs CANCEL+REPLACE dans `_update_trailing_stop()` (breakeven, trailing activation, trailing ratchet) annulaient l'ancien SL exchange, puis tentaient de placer le nouveau. En cas d'exception sur `place_sl_fn()`, le `except` loggait seulement l'erreur.  
+**Erreur** : Après le `cancel_order()`, `sl_exchange_placed=False` et `sl_order_id=None` étaient écrits en RAM. Si `place_sl_fn()` levait une exception, la position se retrouvait avec `sl_exchange_placed=False` **et aucun SL sur Binance**. `_restore_exchange_sl()` existait (appelée dans les partiels) mais n'était pas appelée ici.  
+**Règle** : **TOUTE** logique CANCEL+REPLACE d'un SL exchange doit appeler `_restore_exchange_sl(ctx, deps, "LABEL")` dans son bloc `except`. Pattern : cancel → set flags → place → si exception → `_restore_exchange_sl()`. Cela correspond au pattern L-19 (SL cancelled but not replaced).  
+**Pattern correct** :
+```python
+try:
+    deps.client.cancel_order(symbol=..., orderId=old_id)
+    ps['sl_order_id'] = None
+    ps['sl_exchange_placed'] = False
+    result = deps.place_sl_fn(symbol=..., quantity=qty, stop_price=new_price)
+    ps['sl_order_id'] = result.get('orderId')
+    ps['sl_exchange_placed'] = True
+except Exception as err:
+    logger.error("[LABEL] Échec: %s", err)
+    _restore_exchange_sl(ctx, deps, "LABEL")  # ← OBLIGATOIRE
+```
+**Ref** : `code/src/order_manager.py` — 3 blocs corrigés (TRAILING-SL-ACTIVATION, TRAILING-SL-RATCHET, BREAKEVEN-SL) · session 2026-05-04
+
+---
+
+### L-29 · `entry_timeframe` effacé après SL → `_sl_cooldown_timeframe` obligatoire
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-05-04
+
+**Contexte** : Le cooldown A-3 est calculé `n_candles × durée_timeframe_stratégie`. Après un SL,
+`update_pair_state(entry_timeframe=None)` efface le timeframe de la stratégie. Au restart, le
+`position_reconciler` recompute le cooldown avec `_ps.get('entry_timeframe') or '1h'` → tombe
+sur le fallback `'1h'` pour TOUTES les paires. Pour PEPE 1d : 12 jours → 12 heures (re-entrée
+~11 jours trop tôt). Pour SOL 4h : 48h → 12h (re-entrée 36h trop tôt).  
+**Erreur** : Utiliser `entry_timeframe` pour revalider le cooldown alors que cette clé est réinitialisée
+à `None` dans le même reset d'état qui suit le SL.  
+**Règle** : Toujours persister `_sl_cooldown_timeframe = ctx.time_interval` **simultanément** au set
+de `_stop_loss_cooldown_until`. Dans le `position_reconciler`, lire :
+`_tf = _ps.get('_sl_cooldown_timeframe') or _ps.get('entry_timeframe') or '1h'`.  
+**Fichiers** : `order_manager.py` (3 blocs A-3 cooldown), `position_reconciler.py` (revalidation),
+`state_manager.py` (_KNOWN_PAIR_KEYS), `MULTI_SYMBOLS.py` (PairState TypedDict) · session 2026-05-04
+
+---
+
 ## Référence — Patterns P0 appliqués (historique)
 
 > Ces patterns sont actifs dans le code. Mettre à jour si une correction change le comportement.

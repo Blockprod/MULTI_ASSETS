@@ -345,7 +345,7 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
                         _sell_ts = float(_last_sell.get('updateTime', 0)) / 1000.0
                         if _sell_ts > 0:
                             _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
-                            _tf = _ps.get('entry_timeframe') or '1h'
+                            _tf = _ps.get('_sl_cooldown_timeframe') or _ps.get('entry_timeframe') or '1h'
                             _TF_MAP: dict[str, int] = {
                                 '1m': 60, '5m': 300, '15m': 900, '30m': 1800,
                                 '1h': 3600, '4h': 14400, '1d': 86400,

@@ -187,7 +187,7 @@ def compute_risk_metrics(
     ):
         _sell_rows = trades_df[trades_df['type'].str.lower() == 'sell']
         _n_sell = len(_sell_rows)
-        if _n_sell >= 10 and (_n_orig_bars / max(_n_sell, 1)) > 20:
+        if _n_sell >= 2 and (_n_orig_bars / max(_n_sell, 1)) > 20:
             # Case B: bar-level diluted — rebuild trade-point equity from profits
             _profs = np.asarray(_sell_rows['profit'].values, dtype=np.float64)
             _cur = float(equity[0])

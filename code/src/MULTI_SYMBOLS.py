@@ -307,6 +307,7 @@ class PairState(TypedDict, total=False):
     buy_timestamp: float                   # F-2: timestamp achat
     # --- Cooldown post-stop (A-3) ---
     _stop_loss_cooldown_until: float
+    _sl_cooldown_timeframe: str            # TF de la stratégie au moment du SL (survit au restart)
     # --- OOS gates (P0-03) ---
     oos_blocked: bool
     oos_blocked_since: float               # time.time()
@@ -1911,7 +1912,7 @@ if __name__ == "__main__":
         # ── Tâche groupée 1 : backtest + WF + trading → toutes les heures ──
         schedule.every(60).minutes.do(_dispatch_scheduled_parallel)
         # ── Tâche groupée 2 : live trading → toutes les 2 minutes ──
-        schedule.every(2).minutes.do(_dispatch_live_parallel)
+        schedule.every(2).minutes.do(_dispatch_live_parallel).tag('live')
 
         logger.info(
             "[PARALLEL] %d paire(s) configurée(s) — exécution parallèle activée",
@@ -2020,7 +2021,9 @@ if __name__ == "__main__":
 
                     # Affichage du temps restant avant la prochaine exécution
                     now = datetime.now()
-                    next_run = schedule.next_run()
+                    _live_jobs = schedule.get_jobs('live')
+                    _live_runs = [_j.next_run for _j in _live_jobs if _j.next_run is not None]
+                    next_run = min(_live_runs) if _live_runs else schedule.next_run()
                     if next_run:
                         delta = next_run - now
                         seconds_left = max(0, int(delta.total_seconds()))

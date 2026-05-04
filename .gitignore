@@ -55,6 +55,10 @@ reports/
 # Sorties de tests locales
 test_output*.txt
 tests_output*.txt
+test_run.txt
+
+# Logs bot générés à la racine
+log_bot.md
 
 # Caches d'outils d'analyse statique
 .mypy_cache/

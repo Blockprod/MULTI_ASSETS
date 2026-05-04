@@ -158,7 +158,7 @@ class TestSLChain:
         )
         ctx = _make_ctx()
 
-        with patch('order_manager.display_buy_signal_panel'):
+        with patch('order_manager.display_buy_signal_panel'), patch('order_manager.log_trade'):
             _execute_buy(ctx, deps)
 
         # Rollback market-sell déclenché
@@ -179,7 +179,7 @@ class TestSLChain:
         )
         ctx = _make_ctx()
 
-        with patch('order_manager.display_buy_signal_panel'):
+        with patch('order_manager.display_buy_signal_panel'), patch('order_manager.log_trade'):
             _execute_buy(ctx, deps)
 
         # emergency_halt posé dans bot_state par set_emergency_halt()
@@ -201,7 +201,7 @@ class TestSLChain:
         )
         ctx = _make_ctx()
 
-        with patch('order_manager.display_buy_signal_panel'):
+        with patch('order_manager.display_buy_signal_panel'), patch('order_manager.log_trade'):
             _execute_buy(ctx, deps)
 
         # SL confirmé dans le pair_state

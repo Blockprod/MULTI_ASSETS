@@ -297,6 +297,7 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                             "[TRAILING-SL] Échec déplacement SL exchange à l'activation (%.8g): %s",
                             trailing_stop_val, _sl_act_err,
                         )
+                        _restore_exchange_sl(ctx, deps, "TRAILING-SL-ACTIVATION")
                 elif trailing_stop_val and trailing_stop_val <= _current_soft_sl_act:
                     logger.debug(
                         "[TRAILING-SL] Déplacement SL ignoré à l'activation : trailing %.8g "
@@ -358,6 +359,7 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                         "[TRAILING-SL] Échec déplacement SL exchange (%.8g → %.8g): %s",
                         current_trailing, new_trailing, _sl_r_err,
                     )
+                    _restore_exchange_sl(ctx, deps, "TRAILING-SL-RATCHET")
 
     # B-3: Break-even stop — remonter stop_loss au prix d'entrée dès que
     # le profit atteint breakeven_trigger_pct. Identique au backtest (backtest_runner.py).
@@ -406,6 +408,7 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                                 "[BREAKEVEN-SL] Échec déplacement SL exchange au breakeven (%.8g): %s",
                                 _be_new_stop, _be_sl_err,
                             )
+                            _restore_exchange_sl(ctx, deps, "BREAKEVEN-SL")
                 ps['breakeven_triggered'] = True
                 # EM-P2-03: email activation breakeven (1 fois, throttle naturel via breakeven_triggered)
                 try:
@@ -794,6 +797,7 @@ def _handle_exchange_sl_fill(
     if _cd_candles > 0:
         _candle_sec = TIMEFRAME_SECONDS.get(ctx.time_interval, 3600)
         ps['_stop_loss_cooldown_until'] = time.time() + (_cd_candles * _candle_sec)
+        ps['_sl_cooldown_timeframe'] = ctx.time_interval
         logger.info(
             "[A-3 COOLDOWN] Post-stop-loss exchange: %d bougies x %ds = %.1fh",
             _cd_candles, _candle_sec, (_cd_candles * _candle_sec) / 3600,
@@ -828,10 +832,10 @@ def _handle_exchange_sl_fill(
 
     # Affichage panel de clôture
     if is_trailing_stop:
-        stop_loss_info = f"{trailing_stop:.4f} USDC (dynamique : trailing)"
+        stop_loss_info = f"{trailing_stop:.8g} USDC (dynamique : trailing)"
     else:
-        stop_loss_info = f"{stop_loss_fixed:.4f} USDC (fixe à l'entrée)"
-    display_closure_panel(stop_loss_info, ctx.current_price, ctx.coin_symbol, ctx.coin_balance, deps.console)
+        stop_loss_info = f"{stop_loss_fixed:.8g} USDC (fixe à l'entrée)"
+    display_closure_panel(stop_loss_info, ctx.current_price, ctx.coin_symbol, ctx.coin_balance, deps.console, fill_price=_sl_fill_price)
 
     ps['last_execution'] = datetime.now(timezone.utc).isoformat()
     deps.save_fn()
@@ -953,6 +957,7 @@ def _handle_manual_sl_trigger(
             if _cd_candles > 0:
                 _candle_sec = TIMEFRAME_SECONDS.get(ctx.time_interval, 3600)
                 ps['_stop_loss_cooldown_until'] = time.time() + (_cd_candles * _candle_sec)
+                ps['_sl_cooldown_timeframe'] = ctx.time_interval
                 logger.info(
                     "[A-3 COOLDOWN] Post-stop-loss : %d bougies x %ds = %.1fh",
                     _cd_candles, _candle_sec, (_cd_candles * _candle_sec) / 3600,
@@ -1009,9 +1014,9 @@ def _handle_manual_sl_trigger(
 
     # Affichage panel de clôture — toujours (même si la vente a échoué)
     if is_trailing_stop:
-        stop_loss_info = f"{trailing_stop:.4f} USDC (dynamique : trailing)"
+        stop_loss_info = f"{trailing_stop:.8g} USDC (dynamique : trailing)"
     else:
-        stop_loss_info = f"{stop_loss_fixed:.4f} USDC (fixe à l'entrée)"
+        stop_loss_info = f"{stop_loss_fixed:.8g} USDC (fixe à l'entrée)"
     display_closure_panel(stop_loss_info, ctx.current_price, ctx.coin_symbol, ctx.coin_balance, deps.console)
 
     ps['last_execution'] = datetime.now(timezone.utc).isoformat()
@@ -1136,6 +1141,7 @@ def _reconcile_zero_balance_sl(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
         _cd_until = _cd_base + (_cd_candles * _candle_sec)
         if _cd_until > time.time():
             ps['_stop_loss_cooldown_until'] = _cd_until
+            ps['_sl_cooldown_timeframe'] = ctx.time_interval
             logger.info(
                 "[A-3 COOLDOWN] SL-reconcile: %.0f min restantes (basé sur fill time)",
                 (_cd_until - time.time()) / 60,
@@ -1282,14 +1288,14 @@ def _handle_dust_cleanup(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
     )
 
     if has_dust:
-        logger.warning(f"[DUST] Résidu détecté : {ctx.coin_balance:.8f} {ctx.coin_symbol} (entre 1% et 98% de min_qty)")
+        logger.debug(f"[DUST] Résidu détecté : {ctx.coin_balance:.8f} {ctx.coin_symbol} (entre 1% et 98% de min_qty)")
 
         # IMPORTANT: Vérifier si la valeur totale du résidu respecte MIN_NOTIONAL
         dust_notional_value = ctx.coin_balance * ctx.current_price
         if dust_notional_value < ctx.min_notional:
-            logger.warning(f"[DUST] Valeur du résidu ({dust_notional_value:.8g} USDC) < MIN_NOTIONAL ({ctx.min_notional:.2f} USDC)")
-            logger.warning(f"[DUST] Impossible de vendre le résidu - Binance refuse les ordres < {ctx.min_notional:.2f} USDC")
-            logger.info("[DUST] Résidu ignoré (position considérée comme fermée)")
+            logger.debug(f"[DUST] Valeur du résidu ({dust_notional_value:.8g} USDC) < MIN_NOTIONAL ({ctx.min_notional:.2f} USDC)")
+            logger.debug(f"[DUST] Impossible de vendre le résidu - Binance refuse les ordres < {ctx.min_notional:.2f} USDC")
+            logger.debug("[DUST] Résidu ignoré (position considérée comme fermée)")
             # Reset état : nettoyer les champs d'entrée stales (quel que soit last_order_side)
             _stale_fields = (
                 ps.get('entry_price') is not None

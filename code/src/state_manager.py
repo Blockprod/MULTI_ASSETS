@@ -80,6 +80,7 @@ _KNOWN_PAIR_KEYS: Set[str] = {
     'entry_scenario', 'entry_timeframe', 'entry_ema1', 'entry_ema2',
     'buy_timestamp',
     '_stop_loss_cooldown_until',
+    '_sl_cooldown_timeframe',                  # TF stratégie au moment du SL (A-3 restart fix)
     'oos_blocked', 'oos_blocked_since',
     'drawdown_halted',                         # ST-P2-02
     'quote_currency', 'ticker_spot_price', 'latest_best_params',

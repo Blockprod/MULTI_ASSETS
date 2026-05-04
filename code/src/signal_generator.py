@@ -78,7 +78,7 @@ def generate_buy_condition_checker(
         stoch_condition = row['stoch_rsi'] < _buy_max
 
         if not ema_condition:
-            return False, f"EMA1 ({row['ema1']:.2f}) <= EMA2 ({row['ema2']:.2f})"
+            return False, f"EMA1 ({row['ema1']:.8g}) <= EMA2 ({row['ema2']:.8g})"
         if not stoch_condition:
             return False, f"StochRSI ({row['stoch_rsi']:.4f}) >= {_buy_max}"
         if row['stoch_rsi'] <= _buy_min:
@@ -90,7 +90,7 @@ def generate_buy_condition_checker(
         if scenario == 'StochRSI_SMA' and 'sma_long' in row:
             sma_long = best_params.get('sma_long', 200)
             if row['close'] <= row['sma_long']:
-                return False, f"Prix ({row['close']:.4f}) <= SMA{sma_long} ({row['sma_long']:.4f})"
+                return False, f"Prix ({row['close']:.8g}) <= SMA{sma_long} ({row['sma_long']:.8g})"
 
         if scenario == 'StochRSI_ADX' and 'adx' in row:
             from bot_config import config as _cfg_adx
