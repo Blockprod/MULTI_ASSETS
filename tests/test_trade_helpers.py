@@ -532,6 +532,101 @@ class TestUpdateTrailingStop:
         assert new_trail > initial_trailing
 
 
+    def test_sl_exchange_not_moved_if_trailing_below_breakeven_at_activation(self):
+        """Conflit breakeven/trailing : trailing < breakeven à l'activation → SL exchange inchangé."""
+        # entry=100, ATR=2, activation=116, trailing_val=116-16=100
+        # breakeven_stop = 100 * 1.001 = 100.1  → trailing(100) < breakeven(100.1) → pas de déplacement
+        entry_price = 100.0
+        atr_at_entry = 2.0
+        activation_price = entry_price + 5.5 * atr_at_entry  # 111
+        trailing_val = activation_price - 5.5 * atr_at_entry  # ≈ 100 (= entry)
+        breakeven_stop = entry_price * 1.001  # 100.1 > trailing_val
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': entry_price,
+            'atr_at_entry': atr_at_entry,
+            'trailing_activation_price_at_entry': activation_price,
+            'trailing_stop_activated': False,
+            'max_price': activation_price,
+            'stop_loss': breakeven_stop,  # breakeven déjà déclenché
+            'stop_loss_at_entry': entry_price - 3 * atr_at_entry,
+            'breakeven_triggered': True,
+            'sl_order_id': 33333,
+            'sl_exchange_placed': True,
+        }
+        ctx = _make_ctx(pair_state=ps, coin_balance=100.0, current_price=activation_price)
+        mock_client = MagicMock()
+        mock_place_sl = MagicMock()
+        deps = _make_deps(client=mock_client, place_sl_fn=mock_place_sl)
+        _update_trailing_stop(ctx, deps)
+        # Trailing activé en state
+        assert ps.get('trailing_stop_activated') is True
+        # Mais SL exchange NON déplacé car trailing (100) <= breakeven (100.1)
+        mock_client.cancel_order.assert_not_called()
+        mock_place_sl.assert_not_called()
+        # sl_order_id inchangé
+        assert ps.get('sl_order_id') == 33333
+
+    def test_sl_exchange_not_moved_if_ratchet_below_breakeven(self):
+        """Conflit breakeven/trailing ratchet : trailing ratchet < breakeven → SL exchange inchangé."""
+        breakeven_stop = 102.0
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'atr_at_entry': 2.0,
+            'trailing_activation_price_at_entry': 111.0,
+            'trailing_stop_activated': True,
+            'max_price': 112.0,
+            'trailing_stop': 100.0,  # trailing actuel sous breakeven
+            'stop_loss': breakeven_stop,  # breakeven à 102 > trailing
+            'breakeven_triggered': True,
+            'sl_order_id': 44444,
+            'sl_exchange_placed': True,
+        }
+        # new_trailing = 113 - 11 = 102.0 = breakeven → toujours pas strictement supérieur
+        ctx = _make_ctx(pair_state=ps, coin_balance=100.0, current_price=113.0)
+        mock_client = MagicMock()
+        mock_place_sl = MagicMock()
+        deps = _make_deps(client=mock_client, place_sl_fn=mock_place_sl)
+        _update_trailing_stop(ctx, deps)
+        # trailing_stop mis à jour en state (ratchet)
+        new_trail = ps.get('trailing_stop')
+        assert new_trail is not None
+        assert new_trail > 100.0
+        # Mais SL exchange NON déplacé : new_trailing(102) <= breakeven(102)
+        mock_client.cancel_order.assert_not_called()
+        mock_place_sl.assert_not_called()
+        assert ps.get('sl_order_id') == 44444
+
+    def test_sl_exchange_moved_when_trailing_surpasses_breakeven(self):
+        """Quand trailing dépasse enfin le breakeven → SL exchange déplacé."""
+        breakeven_stop = 102.0
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 100.0,
+            'atr_at_entry': 2.0,
+            'trailing_activation_price_at_entry': 111.0,
+            'trailing_stop_activated': True,
+            'max_price': 112.0,
+            'trailing_stop': 100.0,
+            'stop_loss': breakeven_stop,
+            'breakeven_triggered': True,
+            'sl_order_id': 55556,
+            'sl_exchange_placed': True,
+        }
+        # prix=115 → new_trailing = 115 - 11 = 104 > breakeven(102) → déplacement SL
+        ctx = _make_ctx(pair_state=ps, coin_balance=100.0, current_price=115.0)
+        mock_client = MagicMock()
+        mock_place_sl = MagicMock(return_value={'orderId': 66666, 'status': 'NEW'})
+        deps = _make_deps(client=mock_client, place_sl_fn=mock_place_sl)
+        _update_trailing_stop(ctx, deps)
+        new_trail = ps.get('trailing_stop')
+        assert new_trail is not None
+        assert new_trail > breakeven_stop  # trailing a dépassé le breakeven
+        mock_client.cancel_order.assert_called_once()
+        mock_place_sl.assert_called_once()
+        assert ps.get('sl_order_id') == 66666
+
 # ---------------------------------------------------------------------------
 # Tests _execute_partial_sells
 # ---------------------------------------------------------------------------

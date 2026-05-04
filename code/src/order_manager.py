@@ -266,7 +266,10 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                 ps['trailing_stop'] = trailing_stop_val
                 logger.info(f"[TRAILING] Stop initial: {trailing_stop_val:.4f}")
                 # C-15-TRAILING-SL: Déplacer le SL exchange au niveau trailing dès l'activation
-                if (trailing_stop_val and ps.get('sl_exchange_placed') and ps.get('sl_order_id')
+                # Guard : ne jamais descendre sous ps['stop_loss'] (breakeven si actif)
+                _current_soft_sl_act = ps.get('stop_loss') or 0
+                if (trailing_stop_val and trailing_stop_val > _current_soft_sl_act
+                        and ps.get('sl_exchange_placed') and ps.get('sl_order_id')
                         and ctx.coin_balance > ctx.min_qty):
                     _old_oid_act = ps['sl_order_id']
                     try:
@@ -294,6 +297,12 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                             "[TRAILING-SL] Échec déplacement SL exchange à l'activation (%.8g): %s",
                             trailing_stop_val, _sl_act_err,
                         )
+                elif trailing_stop_val and trailing_stop_val <= _current_soft_sl_act:
+                    logger.debug(
+                        "[TRAILING-SL] Déplacement SL ignoré à l'activation : trailing %.8g "
+                        "≤ stop_loss actif %.8g (breakeven) — SL exchange inchangé",
+                        trailing_stop_val, _current_soft_sl_act,
+                    )
             # EM-P2-03: email d'activation (1 fois, throttle naturel via trailing_stop_activated)
             try:
                 deps.send_alert_fn(
@@ -319,7 +328,10 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
             ps['trailing_stop'] = new_trailing
             logger.info(f"[TRAILING] Nouveau stop : {new_trailing:.4f} (max: {max_price:.4f})")
             # C-15-TRAILING-SL: Déplacer proactivement le SL exchange au niveau trailing relevé
-            if (ps.get('sl_exchange_placed') and ps.get('sl_order_id')
+            # Guard : ne déplacer que si trailing > stop_loss actif (breakeven) pour ne jamais reculer
+            _current_soft_sl_r = ps.get('stop_loss') or 0
+            if (new_trailing > _current_soft_sl_r
+                    and ps.get('sl_exchange_placed') and ps.get('sl_order_id')
                     and ctx.coin_balance > ctx.min_qty):
                 _old_oid_r = ps['sl_order_id']
                 try:
