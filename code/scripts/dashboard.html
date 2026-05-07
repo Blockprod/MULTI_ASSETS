@@ -469,12 +469,12 @@ footer {
     <div class="kpi-sub" id="kpi-cash-sub">&nbsp;</div>
   </section>
   <section class="kpi-card">
-    <div class="kpi-label">Day Realized</div>
+    <div class="kpi-label">Cumul. Realized</div>
     <div class="kpi-value" id="kpi-daypnl">--</div>
     <div class="kpi-sub" id="kpi-daypnl-sub">&nbsp;</div>
   </section>
   <section class="kpi-card">
-    <div class="kpi-label">Vs. Ref</div>
+    <div class="kpi-label">Open P&amp;L</div>
     <div class="kpi-value" id="kpi-vsstart">--</div>
     <div class="kpi-sub" id="kpi-vsstart-sub">&nbsp;</div>
   </section>
@@ -1026,29 +1026,33 @@ async function refreshData() {
     var equityDelta = data.equity_delta;
     var start = data.starting_equity;
 
-    setKpi("kpi-equity", formatMoney(equity, 2), "");
-    // Si starting_equity est trop proche de l'equity courante mais qu'il y a des trades,
-    // recalculer la vraie référence journalière : equity - dayPnl
+    // Equity delta vs référence journalière (coloré, auto-contenu dans la vignette)
     var trueStart = (start && Math.abs(equity - start) < 0.05 && dayPnl !== 0)
       ? (equity - dayPnl) : start;
-    setKpiSub("kpi-equity-sub", trueStart ? "daily ref: " + formatMoney(trueStart, 2) : "total portfolio", "");
+    var equityDayDelta = trueStart ? equity - trueStart : null;
+    var equitySubCls = equityDayDelta !== null ? signClass(equityDayDelta) : "";
+    var equitySubTxt = trueStart
+      ? (equityDayDelta !== null
+          ? (equityDayDelta >= 0 ? "+" : "") + equityDayDelta.toFixed(2) + " $ today · ref " + formatMoney(trueStart, 2)
+          : "ref " + formatMoney(trueStart, 2))
+      : "total portfolio";
+    setKpi("kpi-equity", formatMoney(equity, 2), "");
+    setKpiSub("kpi-equity-sub", equitySubTxt, equitySubCls);
 
     setKpi("kpi-cash", formatMoney(cash, 2), "");
     setKpiSub("kpi-cash-sub", "free USDC balance", "");
 
-    var dayCls = signClass(dayPnl);
-    setKpi("kpi-daypnl", formatPnl(dayPnl), dayCls);
-    setKpiSub("kpi-daypnl-sub", "realized today " + formatPct(data.daily_pnl_pct), dayCls);
+    var cumulPnl = data.cumul_pnl !== undefined && data.cumul_pnl !== null ? data.cumul_pnl : realizedPnl;
+    var tradeCount = data.trade_count !== undefined && data.trade_count !== null ? data.trade_count : 0;
+    var cumulCls = signClass(cumulPnl);
+    setKpi("kpi-daypnl", formatPnl(cumulPnl), cumulCls);
+    setKpiSub("kpi-daypnl-sub", tradeCount + " trade" + (tradeCount !== 1 ? "s" : "") + " · all time", cumulCls);
 
-    // Fallback sur dayPnl si equityDelta est négligeable (< 0.05 $) mais qu'il y a des trades
-    // (starting_equity peut être écrasé post-sell → equity_delta ≈ 0 alors que dayPnl est réel)
-    var equityDeltaOk = equityDelta !== null && equityDelta !== undefined
-      && (Math.abs(equityDelta) >= 0.05 || dayPnl === 0);
-    var vsValue = equityDeltaOk ? equityDelta : dayPnl;
-    var vsCls = signClass(vsValue);
-    var vsPct = start && start > 0 ? (vsValue / start) * 100 : 0;
-    setKpi("kpi-vsstart", formatPnl(vsValue), vsCls);
-    setKpiSub("kpi-vsstart-sub", formatPct(vsPct) + " vs daily ref · realized " + formatPnl(dayPnl), vsCls);
+    var openPnl = data.total_unrealized_pnl !== undefined && data.total_unrealized_pnl !== null ? data.total_unrealized_pnl : 0;
+    var openCls = signClass(openPnl);
+    var openPct = equity && equity > 0 ? (openPnl / equity) * 100 : 0;
+    setKpi("kpi-vsstart", formatPnl(openPnl), openCls);
+    setKpiSub("kpi-vsstart-sub", formatPct(openPct) + " · unrealized · open positions", openCls);
 
     setKpi("kpi-positions", data.open_count !== undefined && data.open_count !== null ? String(data.open_count) : "--", "");
     setKpiSub("kpi-positions-sub", "max " + (data.total_pairs || "--"), "");

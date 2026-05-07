@@ -149,9 +149,11 @@ def test_dashboard_html_uses_equity_delta_and_dynamic_chart_scale():
     html = (Path(__file__).resolve().parents[1] / 'code' / 'scripts' / 'dashboard.html').read_text(encoding='utf-8')
 
     assert 'data.equity_delta' in html
-    assert 'Vs. Ref' in html
-    assert 'daily ref: ' in html
-    assert 'realized today ' in html
+    assert 'Cumul. Realized' in html
+    assert 'Open P' in html
+    assert 'today · ref ' in html
+    assert 'all time' in html
+    assert 'unrealized · open positions' in html
     assert 'WF/OOS actif: ' in html
     assert 'AXIS_TARGET_MAX = 1000' not in html
     assert 'var d = n >= 100 ? 0 : n >= 1 ? 2 : 4;' not in html
