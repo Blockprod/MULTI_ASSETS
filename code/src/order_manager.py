@@ -1264,8 +1264,12 @@ def _check_and_execute_stop_loss(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool
     return _handle_manual_sl_trigger(ctx, deps, effective_stop, is_trailing_stop, stop_loss_fixed, trailing_stop)
 
 
-def _handle_dust_cleanup(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
-    """C-15: Détecte et nettoie les résidus (dust). Retourne position_has_crypto."""
+def _handle_dust_cleanup(ctx: '_TradeCtx', deps: '_TradingDeps') -> Optional[bool]:
+    """C-15: Détecte et nettoie les résidus (dust). Retourne position_has_crypto.
+
+    Retourne None si un reset dust BUY→SELL vient de se produire dans ce cycle
+    (le caller doit then skipper le cycle entier — pas d'achat immédiat).
+    """
     ps = ctx.pair_state
     # Position réelle = assez de coins ET (valeur >= min_notional OU position intentionnelle BUY)
     # Quand last_order_side='SELL' mais du dust subsiste au-dessus de min_qty,
@@ -1326,6 +1330,9 @@ def _handle_dust_cleanup(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
                 })
                 deps.save_fn(force=True)
                 logger.info("[DUST] État pair_state réinitialisé (dust intradable, position considérée fermée)")
+                # P0-DUST: signaler au caller de skipper ce cycle entier (pas d'achat
+                # immédiatement après un reset dust — évite un BUY dans le même cycle).
+                return None
         else:
             logger.info("[DUST] Tentative de vente forcée du résidu pour débloquer le trading...")
 

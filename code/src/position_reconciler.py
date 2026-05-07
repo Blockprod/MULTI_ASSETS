@@ -477,10 +477,27 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
                                 "vérifiez manuellement sur Binance.", backtest_pair
                             )
                     else:
-                        logger.info(
-                            "[RECONCILE C-11] Stop-loss déjà actif sur Binance pour %s ✓",
-                            backtest_pair,
+                        # SL déjà actif — mémoriser l'orderId pour que SL-POLL fonctionne
+                        _existing_sl = next(
+                            (o for o in open_orders if o.get('type', '') in stop_types),
+                            None,
                         )
+                        if _existing_sl:
+                            with deps.bot_state_lock:
+                                _ps_sl = deps.bot_state.setdefault(backtest_pair, {})
+                                _ps_sl['sl_exchange_placed'] = True
+                                _ps_sl['sl_order_id'] = _existing_sl.get('orderId')
+                            deps.save_fn(force=True)
+                            logger.info(
+                                "[RECONCILE C-11] Stop-loss déjà actif sur Binance pour %s ✓ "
+                                "(orderId=%s, sl_exchange_placed=True persisté)",
+                                backtest_pair, _existing_sl.get('orderId'),
+                            )
+                        else:
+                            logger.info(
+                                "[RECONCILE C-11] Stop-loss déjà actif sur Binance pour %s ✓",
+                                backtest_pair,
+                            )
                 except Exception as _resl_err:
                     logger.error(
                         "[RECONCILE C-11] Erreur vérification/repose SL pour %s: %s",

@@ -1477,6 +1477,14 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
             save_bot_state()
 
         position_has_crypto = _handle_dust_cleanup(ctx, deps)
+        if position_has_crypto is None:
+            # P0-DUST: reset dust BUY→SELL dans ce cycle — pas d'achat immédiat,
+            # on skippe ce cycle pour éviter un BUY juste après le reset.
+            logger.info(
+                "[DUST P0-BUY] %s — cycle skipé après reset dust pour éviter un achat immédiat.",
+                backtest_pair,
+            )
+            return
         if position_has_crypto:
             _execute_signal_sell(ctx, deps)
         else:

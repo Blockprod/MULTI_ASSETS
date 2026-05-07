@@ -679,3 +679,48 @@ open('code/src/MULTI_SYMBOLS.py', 'w', encoding='utf-8').write(new_content)
 **Ref** : Session 2026-05-07
 
 
+---
+
+### L-34 · DUST reset BUY→SELL suivi d'un BUY dans le même cycle
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-05-07
+
+**Contexte** : `_handle_dust_cleanup` réinitialise `pair_state` (last_order_side→SELL) quand un reliquat intradable est détecté avec `last_order_side=='BUY'`. La fonction retournait `position_has_crypto=False`, ce qui provoquait l'appel immédiat à `_execute_buy` dans le même cycle — BUY exécuté 5 secondes après le reset, sans signal valide.  
+**Erreur** : Ne pas bloquer le BUY dans le cycle où un reset dust vient de se produire.  
+**Règle** : `_handle_dust_cleanup` doit retourner `None` (pas `False`) quand un reset dust a été effectué (`_stale_fields=True`). Le caller (`MULTI_SYMBOLS.py`) doit checker `if position_has_crypto is None: return` pour skipper le cycle entier.  
+**Pattern correct** :
+```python
+# order_manager.py — _handle_dust_cleanup
+if _stale_fields:
+    ps.update({..., 'last_order_side': 'SELL', ...})
+    deps.save_fn(force=True)
+    return None  # P0-DUST: skip cycle, pas d'achat immédiat
+
+# MULTI_SYMBOLS.py
+position_has_crypto = _handle_dust_cleanup(ctx, deps)
+if position_has_crypto is None:
+    return  # dust reset ce cycle
+```
+**Ref** : `order_manager.py:_handle_dust_cleanup`, `MULTI_SYMBOLS.py` — fix 2026-05-07
+
+---
+
+### L-35 · `position_reconciler.py` C-11 branch "SL déjà actif" ne persiste pas sl_exchange_placed
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-05-07
+
+**Contexte** : Au démarrage, si un SL est déjà actif sur Binance, le réconciliateur log "Stop-loss déjà actif ✓" mais n'écrit PAS `sl_exchange_placed=True` ni `sl_order_id` dans `pair_state`. Résultat : SL-POLL (condition `sl_exchange_placed==True`) ne se déclenche jamais → si le SL fill, il n'est pas détecté pendant toute la session jusqu'au prochain restart.  
+**Erreur** : Le branch `else` (SL déjà actif) ne persistait que le log, sans écriture d'état.  
+**Règle** : Dans le branch `else`, lire l'ordre SL existant depuis `open_orders` et écrire `sl_exchange_placed=True` + `sl_order_id` dans `bot_state[pair]` + appeler `save_fn(force=True)`.  
+**Pattern correct** :
+```python
+else:
+    _existing_sl = next((o for o in open_orders if o.get('type', '') in stop_types), None)
+    if _existing_sl:
+        with deps.bot_state_lock:
+            _ps_sl = deps.bot_state.setdefault(backtest_pair, {})
+            _ps_sl['sl_exchange_placed'] = True
+            _ps_sl['sl_order_id'] = _existing_sl.get('orderId')
+        deps.save_fn(force=True)
+        logger.info("[RECONCILE C-11] Stop-loss déjà actif ... (orderId=%s, sl_exchange_placed=True persisté)", ...)
+```
+**Ref** : `position_reconciler.py` — fix 2026-05-07
+
