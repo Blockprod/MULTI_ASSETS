@@ -280,3 +280,38 @@ class TestHandlePairDiscrepancy:
 
         assert len(alert_calls) == 0, "Aucune alerte pour position absente + solde nul"
         assert len(save_calls) == 0, "save_fn ne doit pas être appelé en cas de cohérence totale"
+
+    def test_c11_sl_already_active_persists_sl_fields(self):
+        """C-11: SL déjà actif sur Binance → sl_exchange_placed=True + sl_order_id persistés."""
+        bot_state = {
+            BACKTEST_PAIR: {
+                'last_order_side': 'BUY',
+                'stop_loss_at_entry': 0.000008,
+            }
+        }
+        save_calls: list = []
+        deps = _make_deps(
+            bot_state=bot_state,
+            pepe_total=PEPE_QTY,
+            save_fn=lambda force=False: save_calls.append(force),
+        )
+        cast(MagicMock, deps.client).get_open_orders.return_value = [
+            {'type': 'STOP_LOSS_LIMIT', 'orderId': 'SL_EXISTING_001'}
+        ]
+
+        status = _make_status(
+            has_real_balance=True,
+            local_in_position=True,
+            pair_state=bot_state[BACKTEST_PAIR],
+        )
+        _handle_pair_discrepancy(status, deps)
+
+        assert bot_state[BACKTEST_PAIR].get('sl_exchange_placed') is True, (
+            "sl_exchange_placed doit être True quand SL déjà actif sur Binance"
+        )
+        assert bot_state[BACKTEST_PAIR].get('sl_order_id') == 'SL_EXISTING_001', (
+            "sl_order_id doit être persisté depuis l'ordre Binance"
+        )
+        assert any(f is True for f in save_calls), (
+            "save_fn(force=True) doit être appelé après persistance sl_exchange_placed"
+        )

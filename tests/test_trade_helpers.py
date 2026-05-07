@@ -1034,6 +1034,28 @@ class TestHandleDustCleanup:
         deps.market_sell_fn.assert_not_called()
         deps.save_fn.assert_not_called()
 
+    def test_returns_none_when_buy_dust_resets_to_sell(self):
+        """Dust avec last_order_side='BUY' et valeur < min_notional → None (sentinel skip cycle)."""
+        ps = {
+            'last_order_side': 'BUY',
+            'entry_price': 10.0,
+            'stop_loss_at_entry': 8.0,
+        }
+        ctx = _make_ctx(
+            pair_state=ps,
+            coin_balance=0.0005,
+            coin_balance_free=0.0005,
+            coin_balance_locked=0.0,
+            current_price=10.0,
+            min_qty=0.001,
+            min_notional=5.0,
+        )
+        deps = _make_deps()
+        result = _handle_dust_cleanup(ctx, deps)
+        assert result is None  # sentinel : caller doit skipper ce cycle
+        assert ps.get('last_order_side') == 'SELL'
+        deps.save_fn.assert_called_once_with(force=True)
+
 
 # ---------------------------------------------------------------------------
 # Tests check_partial_exits_from_history (trade_helpers.py)
