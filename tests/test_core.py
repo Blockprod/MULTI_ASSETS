@@ -251,6 +251,19 @@ class TestExceptionHierarchy(unittest.TestCase):
         with self.assertRaises(TradingBotError):
             raise StaleDataError("test")
 
+    def test_insufficient_data_error_stores_required_available(self):
+        """InsufficientDataError should persist required and available counts."""
+        err = InsufficientDataError("not enough bars", required=50, available=12)
+        self.assertEqual(err.required, 50)
+        self.assertEqual(err.available, 12)
+        self.assertIsInstance(err, DataError)
+
+    def test_capital_protection_error_stores_drawdown_pct(self):
+        """CapitalProtectionError should persist drawdown_pct."""
+        err = CapitalProtectionError("daily loss limit reached", drawdown_pct=0.06)
+        self.assertAlmostEqual(err.drawdown_pct, 0.06)
+        self.assertIsInstance(err, TradingBotError)
+
 
 # ──────────────────────────────────────────────────────────────
 # Heartbeat Writer Tests
