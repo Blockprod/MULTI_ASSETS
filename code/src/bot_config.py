@@ -70,7 +70,7 @@ class Config:
     atr_stop_multiplier: float = 3.0
     recv_window: int = 60000  # P1-11: centralisé, utilisé par exchange_client
     risk_per_trade: float = 0.055  # B-2: optimisé 5%→5.5% (Calmar max 2.004)
-    sizing_mode: str = 'risk'  # B-2: risk-based sizing (5.5% risk per trade)
+    sizing_mode: str = 'baseline'  # full capital sizing (98% du capital disponible)
     partial_threshold_1: float = 0.02
     partial_threshold_2: float = 0.04
     partial_pct_1: float = 0.50
@@ -91,7 +91,7 @@ class Config:
     volume_filter_enabled: bool = False  # A-1: filtre volume (désactivé: bench négatif)
     volume_sma_period: int = 20        # A-1: période SMA pour filtre volume
     breakeven_enabled: bool = True     # B-3: break-even stop
-    breakeven_trigger_pct: float = 0.02   # B-3: seuil d'activation (2%, bench optimal)
+    breakeven_trigger_pct: float = 0.01   # B-3: seuil d'activation (1% → risk-free avant Partial-1 à 2%)
     stop_loss_cooldown_candles: int = 12   # A-3: cooldown post-stop/breakeven (12h, bench optimal)
     mtf_filter_enabled: bool = True    # A-2: filtre multi-timeframe 4h (EMA fast > EMA slow sur 4h)
     mtf_ema_fast: int = 18             # A-2: période EMA rapide sur 4h
@@ -198,7 +198,7 @@ class Config:
         config_data['risk_per_trade'] = float(os.getenv('RISK_PER_TRADE', '0.055'))  # B-2
         config_data['smtp_server'] = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
         config_data['smtp_port'] = int(os.getenv('SMTP_PORT', '587'))
-        config_data['sizing_mode'] = os.getenv('SIZING_MODE', 'risk')  # B-2
+        config_data['sizing_mode'] = os.getenv('SIZING_MODE', 'baseline')  # full capital
         config_data['recv_window'] = int(os.getenv('RECV_WINDOW', '60000'))  # P1-11
         config_data['partial_threshold_1'] = float(os.getenv('PARTIAL_THRESHOLD_1', '0.02'))
         config_data['partial_threshold_2'] = float(os.getenv('PARTIAL_THRESHOLD_2', '0.04'))
@@ -236,7 +236,7 @@ class Config:
             os.getenv('BREAKEVEN_ENABLED', 'true').lower()
             in ('true', '1', 'yes'))  # B-3
         config_data['breakeven_trigger_pct'] = float(
-            os.getenv('BREAKEVEN_TRIGGER_PCT', '0.02'))  # B-3
+            os.getenv('BREAKEVEN_TRIGGER_PCT', '0.01'))  # B-3
         config_data['stop_loss_cooldown_candles'] = int(
             os.getenv('STOP_LOSS_COOLDOWN_CANDLES', '12'))  # A-3
         config_data['mtf_filter_enabled'] = (

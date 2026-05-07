@@ -632,4 +632,50 @@ def generate_buy_condition_checker(best_params, stoch_buy_min=None, ...):
 ```
 **Ref** : `MULTI_SYMBOLS.py` L1703-1712, `signal_generator.py`, `order_manager.py` — fix commit `f0d982b`
 
+---
+
+### L-31 · Watchdog relance le bot après SIGINT volontaire
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-05-07
+
+**Contexte** : `watchdog.py::run()` appelle `restart_bot(reason="process_dead")` sans vérifier `self.process.returncode`. Un arrêt volontaire (SIGINT / `sys.exit(0)`) a `returncode=0`, mais `is_process_running()` retourne `False` → restart inconditionnel → BUYs exécutés sans supervision.  
+**Erreur** : Ne pas distinguer crash (`returncode != 0`) d'un arrêt propre (`returncode == 0`) avant de redémarrer.  
+**Règle** : Toujours lire `self.process.returncode` après `is_process_running() == False`. Si `rc == 0` → `break` (ne pas relancer). Si `rc != 0 ou None` → restart normal.  
+**Pattern correct** :
+```python
+if not self.is_process_running():
+    rc = self.process.returncode if self.process is not None else None
+    if rc == 0:
+        logger.info("[WATCHDOG] Arrêt propre (returncode=0) — pas de restart.")
+        break
+    logger.warning("Process mort (returncode=%s) — restart.", rc)
+```
+**Ref** : `watchdog.py` — fix 2026-05-07
+
+---
+
+### L-32 · SL fill non détecté en temps réel — gap multi-heures
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-05-07
+
+**Contexte** : `position_reconciler.py` détecte les SL fills uniquement au démarrage (`get_order(sl_order_id)` → FILLED → reset). Si le bot tourne sans redémarrer après un SL fill, `pair_state` reste `in_position=True` jusqu'au prochain restart → gap observé de 11h18.  
+**Erreur** : Se reposer uniquement sur le startup reconciler pour détecter les fills d'ordres limit.  
+**Règle** : Pour tout SL actif (`sl_exchange_placed=True AND sl_order_id not None`), ajouter un polling périodique dans la boucle principale. Toutes 30 itérations (~1h pour cycle 2min), appeler `client.get_order(sl_order_id)` → si FILLED → reset complet pair_state.  
+**Ref** : `MULTI_SYMBOLS.py` SL-POLL block — fix 2026-05-07
+
+---
+
+### L-33 · `replace_string_in_file` échoue sur les fichiers avec caractères Unicode (U+2019, U+00E9)
+**Sévérité** : 🔵 INFO · **Date** : 2026-05-07
+
+**Contexte** : `MULTI_SYMBOLS.py` contient des commentaires avec guillemets courbes (`'` U+2019) et lettres accentuées (`é` U+00E9). `replace_string_in_file` normalise les caractères → la correspondance échoue silencieusement.  
+**Règle** : Pour les fichiers Python avec commentaires français/Unicode, utiliser un script Python intermédiaire avec `open(fpath, encoding='utf-8')` + `str.replace()` + `open(fpath, 'w', encoding='utf-8')`. Créer le script avec `create_file`, l'exécuter, puis le supprimer.  
+**Pattern correct** :
+```python
+# _patch.py
+content = open('code/src/MULTI_SYMBOLS.py', encoding='utf-8').read()
+anchor = '    # F-COH: Si position ouverte, ...'  # avec U+2019
+new_content = content.replace(anchor, new_block + anchor, 1)
+open('code/src/MULTI_SYMBOLS.py', 'w', encoding='utf-8').write(new_content)
+```
+**Ref** : Session 2026-05-07
+
 

@@ -374,7 +374,7 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                 if _be_new_stop > _current_sl:
                     ps['stop_loss'] = _be_new_stop
                     logger.info(
-                        "[B-3 BREAKEVEN] Stop remonté au prix d'entrée + slippage : %.4f "
+                        "[B-3 BREAKEVEN] Stop remonté au prix d'entrée + slippage : %g "
                         "(profit %.2f%% >= seuil %.1f%%)",
                         _be_new_stop, _be_profit * 100,
                         getattr(config, 'breakeven_trigger_pct', 0.02) * 100,

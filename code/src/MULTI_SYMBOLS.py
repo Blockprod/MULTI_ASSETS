@@ -468,6 +468,10 @@ class _BotRuntime:
         )
         self.sl_missing_throttle = AlertThrottle(cooldown=3600)
         self.drawdown_throttle = AlertThrottle(cooldown=3600)
+        # SL polling counters per pair (SL-POLL — détection fill en temps réel)
+        self.sl_poll_counters: Dict[str, int] = {}
+        # OOS fail streak counters per pair (OOS-STREAK — N=6 cycles before hard block)
+        self.oos_fail_streaks: Dict[str, int] = {}
         # Live trading fees (init from config, updated once after API fetch — P0-01)
         self.taker_fee: float = config.taker_fee
         self.maker_fee: float = config.maker_fee
@@ -1248,6 +1252,88 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
             except Exception as _sl_alert_err:
                 logger.error("[SL-MANQUANT] Email impossible: %s", _sl_alert_err)
 
+    # SL-POLL: Vérifie périodiquement si un SL exchange actif a été exécuté (FILLED).
+    # Complète position_reconciler.py (startup-only) — corrige le gap de détection multi-heures.
+    # Cadence : toutes _SL_POLL_INTERVAL itérations (~1h pour cycle 2 min).
+    _SL_POLL_INTERVAL = 30
+    if (
+        pair_state.get('last_order_side') == 'BUY'
+        and pair_state.get('sl_exchange_placed')
+        and pair_state.get('sl_order_id')
+    ):
+        _poll_cnt = _runtime.sl_poll_counters.get(backtest_pair, 0) + 1
+        _runtime.sl_poll_counters[backtest_pair] = _poll_cnt
+        if _poll_cnt % _SL_POLL_INTERVAL == 0:
+            _sl_oid_poll = pair_state['sl_order_id']
+            try:
+                _sl_info_poll = client.get_order(
+                    symbol=real_trading_pair, orderId=_sl_oid_poll
+                )
+                if _sl_info_poll.get('status') == 'FILLED':
+                    _sl_eq_poll = float(_sl_info_poll.get('executedQty', 0))
+                    _sl_cq_poll = float(_sl_info_poll.get('cummulativeQuoteQty', 0))
+                    _sl_price_poll = (_sl_cq_poll / _sl_eq_poll) if _sl_eq_poll > 0 else 0.0
+                    _sl_ut_poll = _sl_info_poll.get('updateTime', 0)
+                    _sl_fill_ts_poll = float(_sl_ut_poll) / 1000.0 if _sl_ut_poll else 0.0
+                    _entry_tf_poll = pair_state.get('entry_timeframe') or '1h'
+                    logger.info(
+                        '[SL-POLL] SL orderId=%s FILLED détecté en temps réel pour %s — '
+                        'prix %.6g USDC, qty %.8f',
+                        _sl_oid_poll, backtest_pair, _sl_price_poll, _sl_eq_poll,
+                    )
+                    # Reset pair_state (même logique que position_reconciler.py L.284-296)
+                    with _bot_state_lock:
+                        pair_state['last_order_side'] = 'SELL'
+                        pair_state['sl_order_id'] = None
+                        pair_state['sl_exchange_placed'] = False
+                        pair_state['entry_price'] = None
+                        pair_state['max_price'] = None
+                        pair_state['stop_loss'] = None
+                        pair_state['trailing_stop'] = None
+                        pair_state['trailing_stop_activated'] = False
+                        pair_state['atr_at_entry'] = None
+                        pair_state['stop_loss_at_entry'] = None
+                        pair_state['trailing_activation_price_at_entry'] = None
+                        pair_state['initial_position_size'] = None
+                        pair_state['partial_taken_1'] = False
+                        pair_state['partial_taken_2'] = False
+                        pair_state['breakeven_triggered'] = False
+                        pair_state['entry_scenario'] = None
+                        pair_state['entry_timeframe'] = None
+                        pair_state['entry_ema1'] = None
+                        pair_state['entry_ema2'] = None
+                    # A-3: cooldown post-SL si configuré
+                    _sl_cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
+                    if _sl_cd_candles > 0:
+                        _TF_SEC_POLL: Dict[str, int] = {
+                            '1m': 60, '5m': 300, '15m': 900, '30m': 1800,
+                            '1h': 3600, '4h': 14400, '1d': 86400,
+                        }
+                        _cd_sec_poll = _TF_SEC_POLL.get(_entry_tf_poll, 3600)
+                        _cd_base_poll = _sl_fill_ts_poll if _sl_fill_ts_poll > 0 else time.time()
+                        _cd_until_poll = _cd_base_poll + (_sl_cd_candles * _cd_sec_poll)
+                        if _cd_until_poll > time.time():
+                            with _bot_state_lock:
+                                pair_state['_stop_loss_cooldown_until'] = _cd_until_poll  # type: ignore[typeddict-unknown-key]
+                    _runtime.sl_poll_counters[backtest_pair] = 0
+                    save_bot_state(force=True)
+                    try:
+                        send_trading_alert_email(
+                            subject=f'[SL-FILL] Stop-loss exécuté: {backtest_pair}',
+                            body_main=(
+                                f'Stop-loss détecté FILLED en temps réel pour {backtest_pair}.\n\n'
+                                f'Prix de vente  : {_sl_price_poll:.6g} USDC\n'
+                                f'Quantité       : {_sl_eq_poll:.8f}\n'
+                                f'Montant total  : {_sl_cq_poll:.4f} USDC\n'
+                                f'Ordre SL       : {_sl_oid_poll}\n'
+                            ),
+                            client=client,
+                        )
+                    except Exception as _sl_poll_mail_err:
+                        logger.error('[SL-POLL] Email impossible: %s', _sl_poll_mail_err)
+            except Exception as _sl_poll_err:
+                logger.debug('[SL-POLL] Erreur polling SL pour %s: %s', backtest_pair, _sl_poll_err)
+
     # F-COH: Si position ouverte, verrouiller les params de l’entrée pour le signal de vente.
     # Garantit que le sell est évalué sur le même scenario/TF/EMA que l’achat,
     # même si le WF a sélectionné une stratégie différente entre-temps.
@@ -1425,6 +1511,32 @@ def backtest_and_display_results(backtest_pair: str, real_trading_pair: str, sta
     """C-03 Phase 3 wrapper ? delegue a backtest_orchestrator._backtest_and_display_results."""
     deps = _make_backtest_deps()
     _backtest_and_display_results(backtest_pair, real_trading_pair, start_date, timeframes, sizing_mode, deps)
+
+    # OOS-STREAK (scheduled): suit les cycles consécutifs avec oos_blocked=True.
+    # Renforce la persistance du blocage (prévient un unblock par gate IS seule).
+    _OOS_FAIL_STREAK_N = 6
+    with _bot_state_lock:
+        _ps_streak = cast(Dict[str, Any], bot_state.get(backtest_pair, {}))
+        if _ps_streak.get('oos_blocked'):
+            _streak_s = _runtime.oos_fail_streaks.get(backtest_pair, 0) + 1
+            _runtime.oos_fail_streaks[backtest_pair] = _streak_s
+            if _streak_s >= _OOS_FAIL_STREAK_N:
+                logger.critical(
+                    '[OOS-STREAK] %s — %d cycles consécutifs oos_blocked=True. '
+                    'Blocage renforcé (WF OOS en échec prolongé).',
+                    backtest_pair, _streak_s,
+                )
+                # Forcer oos_blocked_since récent pour garder la trace du début de streak
+                if 'oos_blocked_since' not in _ps_streak:
+                    _ps_streak['oos_blocked_since'] = _ps_streak.get('oos_blocked_since', 0)
+        else:
+            _prev_s = _runtime.oos_fail_streaks.get(backtest_pair, 0)
+            if _prev_s > 0:
+                logger.info(
+                    '[OOS-STREAK] %s — oos_blocked levé. Streak %d réinitialisé.',
+                    backtest_pair, _prev_s,
+                )
+            _runtime.oos_fail_streaks[backtest_pair] = 0
 
 if __name__ == "__main__":
 
@@ -1699,42 +1811,54 @@ if __name__ == "__main__":
                 # === STOCH THRESHOLD GRID SEARCH (IS-only) ===
                 # Optimise buy_min × buy_max × sell_exit avant le WF pour que la
                 # validation OOS porte sur les seuils optimisés (même pattern que orchestrateur).
-                try:
-                    from backtest_orchestrator import run_stoch_threshold_grid_search as _run_stoch_opt_s
-                    _stoch_opt_startup = _run_stoch_opt_s(
-                        is_results=data['results'],
-                        base_dataframes=_wf_dfs_startup,
-                        backtest_fn=backtest_from_dataframe,
-                        scenario_default_params=SCENARIO_DEFAULT_PARAMS,
-                        sizing_mode=args.sizing_mode,
+                # Si des seuils sont déjà persistés dans bot_state, on les conserve au startup :
+                # le prochain cycle horaire planifié relancera le grid search avec des données fraîches.
+                with _bot_state_lock:
+                    _stoch_already_saved = bool(bot_state.get('stoch_params'))
+                if _stoch_already_saved:
+                    logger.info(
+                        "[STARTUP STOCH-OPT] Seuils déjà persistés (buy_min=%.2f buy_max=%.2f "
+                        "sell_exit=%.2f) — grid search différé au prochain cycle horaire.",
+                        config.stoch_rsi_buy_min, config.stoch_rsi_buy_max, config.stoch_rsi_sell_exit,
                     )
-                    if _stoch_opt_startup:
-                        config.update_stoch_thresholds(
-                            _stoch_opt_startup['buy_min'],
-                            _stoch_opt_startup['buy_max'],
-                            _stoch_opt_startup['sell_exit'],
+                    _stoch_opt_startup = None
+                else:
+                    try:
+                        from backtest_orchestrator import run_stoch_threshold_grid_search as _run_stoch_opt_s
+                        _stoch_opt_startup = _run_stoch_opt_s(
+                            is_results=data['results'],
+                            base_dataframes=_wf_dfs_startup,
+                            backtest_fn=backtest_from_dataframe,
+                            scenario_default_params=SCENARIO_DEFAULT_PARAMS,
+                            sizing_mode=args.sizing_mode,
                         )
-                        with _bot_state_lock:
-                            bot_state['stoch_params'] = {
-                                'buy_min':   _stoch_opt_startup['buy_min'],
-                                'buy_max':   _stoch_opt_startup['buy_max'],
-                                'sell_exit': _stoch_opt_startup['sell_exit'],
-                            }
-                            # Persister les seuils par paire dans pair_state pour que
-                            # chaque paire utilise ses propres seuils en cycle live.
-                            _ps_for_stoch = bot_state.setdefault(backtest_pair, _make_default_pair_state())
-                            _ps_for_stoch['stoch_buy_min']   = _stoch_opt_startup['buy_min']
-                            _ps_for_stoch['stoch_buy_max']   = _stoch_opt_startup['buy_max']
-                            _ps_for_stoch['stoch_sell_exit'] = _stoch_opt_startup['sell_exit']
-                        save_bot_state()
-                        logger.info(
-                            "[STARTUP STOCH-OPT] Seuils optimisés: buy_min=%.2f buy_max=%.2f "
-                            "sell_exit=%.2f (Calmar=%.3f)",
-                            _stoch_opt_startup['buy_min'], _stoch_opt_startup['buy_max'],
-                            _stoch_opt_startup['sell_exit'], _stoch_opt_startup['avg_calmar'],
-                        )
-                except Exception as _stoch_startup_err:
-                    logger.warning("[STARTUP STOCH-OPT] Grid search skipped: %s", _stoch_startup_err)
+                        if _stoch_opt_startup:
+                            config.update_stoch_thresholds(
+                                _stoch_opt_startup['buy_min'],
+                                _stoch_opt_startup['buy_max'],
+                                _stoch_opt_startup['sell_exit'],
+                            )
+                            with _bot_state_lock:
+                                bot_state['stoch_params'] = {
+                                    'buy_min':   _stoch_opt_startup['buy_min'],
+                                    'buy_max':   _stoch_opt_startup['buy_max'],
+                                    'sell_exit': _stoch_opt_startup['sell_exit'],
+                                }
+                                # Persister les seuils par paire dans pair_state pour que
+                                # chaque paire utilise ses propres seuils en cycle live.
+                                _ps_for_stoch = bot_state.setdefault(backtest_pair, _make_default_pair_state())
+                                _ps_for_stoch['stoch_buy_min']   = _stoch_opt_startup['buy_min']
+                                _ps_for_stoch['stoch_buy_max']   = _stoch_opt_startup['buy_max']
+                                _ps_for_stoch['stoch_sell_exit'] = _stoch_opt_startup['sell_exit']
+                            save_bot_state()
+                            logger.info(
+                                "[STARTUP STOCH-OPT] Seuils optimisés: buy_min=%.2f buy_max=%.2f "
+                                "sell_exit=%.2f (Calmar=%.3f)",
+                                _stoch_opt_startup['buy_min'], _stoch_opt_startup['buy_max'],
+                                _stoch_opt_startup['sell_exit'], _stoch_opt_startup['avg_calmar'],
+                            )
+                    except Exception as _stoch_startup_err:
+                        logger.warning("[STARTUP STOCH-OPT] Grid search skipped: %s", _stoch_startup_err)
 
                 # ML-07: Optuna en priorité (espace EMA + scenario continu)
                 _wf_res_startup = _run_wf_optuna_startup(
@@ -1810,6 +1934,31 @@ if __name__ == "__main__":
                         bot_state[backtest_pair] = _make_default_pair_state()
 
             pair_state: PairState = cast('PairState', bot_state[backtest_pair])
+
+            # OOS-STREAK (startup): track WF OOS result — source la plus fiable.
+            _OOS_FAIL_STREAK_N = 6
+            if _startup_wf_best is None:
+                _oos_streak_val = _runtime.oos_fail_streaks.get(backtest_pair, 0) + 1
+                _runtime.oos_fail_streaks[backtest_pair] = _oos_streak_val
+                if _oos_streak_val >= _OOS_FAIL_STREAK_N:
+                    logger.critical(
+                        '[OOS-STREAK] %s — %d cycles WF consécutifs sans config OOS valide. '
+                        'oos_blocked forcé en dur.',
+                        backtest_pair, _oos_streak_val,
+                    )
+                    with _bot_state_lock:
+                        pair_state['oos_blocked'] = True
+                        if 'oos_blocked_since' not in cast(Dict[str, Any], pair_state):
+                            cast(Dict[str, Any], pair_state)['oos_blocked_since'] = time.time()
+                    save_bot_state(force=True)
+            else:
+                _prev_streak_val = _runtime.oos_fail_streaks.get(backtest_pair, 0)
+                if _prev_streak_val > 0:
+                    logger.info(
+                        '[OOS-STREAK] %s — WF OOS repassé. Streak %d réinitialisé.',
+                        backtest_pair, _prev_streak_val,
+                    )
+                _runtime.oos_fail_streaks[backtest_pair] = 0
 
             try:
                 execute_real_trades(data['real_pair'], best_params['timeframe'], best_params, backtest_pair, sizing_mode=args.sizing_mode)

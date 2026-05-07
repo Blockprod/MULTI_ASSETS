@@ -252,10 +252,22 @@ class TradingBotWatchdog:
                 self.check_disk_space()
 
                 if not self.is_process_running():
-                    logger.warning("Bot arrêté détecté (process dead)")
-                    if not self.restart_bot(reason="process_dead"):
+                    rc = self.process.returncode if self.process is not None else None
+                    if rc == 0:
+                        # Arrêt volontaire (SIGINT / sys.exit(0)) — ne pas relancer.
+                        logger.info(
+                            "[WATCHDOG] Bot terminé proprement (returncode=0) — "
+                            "pas de redémarrage automatique."
+                        )
+                        _notify_watchdog_stopped(
+                            self.restart_count,
+                            "Arrêt volontaire du bot (returncode=0)"
+                        )
+                        break
+                    logger.warning("Bot arrêté détecté (process dead, returncode=%s)", rc)
+                    if not self.restart_bot(reason=f"process_dead (rc={rc})"):
                         logger.error("Impossible de redémarrer. Arrêt du watchdog.")
-                        _notify_watchdog_stopped(self.restart_count, "Echec du redémarrage après process_dead")
+                        _notify_watchdog_stopped(self.restart_count, f"Echec du redémarrage après process_dead (rc={rc})")
                         break
                 elif not self.is_heartbeat_fresh():
                     logger.warning("Bot bloqué détecté (heartbeat stale)")
