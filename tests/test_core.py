@@ -261,6 +261,7 @@ class TestExceptionHierarchy(unittest.TestCase):
     def test_capital_protection_error_stores_drawdown_pct(self):
         """CapitalProtectionError should persist drawdown_pct."""
         err = CapitalProtectionError("daily loss limit reached", drawdown_pct=0.06)
+        assert err.drawdown_pct is not None
         self.assertAlmostEqual(err.drawdown_pct, 0.06)
         self.assertIsInstance(err, TradingBotError)
 
