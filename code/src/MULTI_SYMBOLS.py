@@ -1264,7 +1264,7 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
         _poll_cnt = _runtime.sl_poll_counters.get(backtest_pair, 0) + 1
         _runtime.sl_poll_counters[backtest_pair] = _poll_cnt
         if _poll_cnt % _SL_POLL_INTERVAL == 0:
-            _sl_oid_poll = pair_state['sl_order_id']
+            _sl_oid_poll = pair_state.get('sl_order_id')
             try:
                 _sl_info_poll = client.get_order(
                     symbol=real_trading_pair, orderId=_sl_oid_poll
