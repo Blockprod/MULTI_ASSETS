@@ -437,6 +437,55 @@ def _read_log_lines(n: int = 120) -> list[str]:
 
 # --- data aggregation ----------------------------------------------------
 
+def _win_stats(real_pairs: set[str]) -> tuple[float | None, int, int]:
+    """Return (win_rate_pct or None, win_count, total_count) from trade journal."""
+    win_count = 0
+    total_count = 0
+    try:
+        if os.path.isdir(LOGS_DIR):
+            for f in os.listdir(LOGS_DIR):
+                if f == "trade_journal.jsonl" or (f.startswith("journal_") and f.endswith(".jsonl")):
+                    path = os.path.join(LOGS_DIR, f)
+                    try:
+                        with open(path, encoding="utf-8") as fh:
+                            for line in fh:
+                                line = line.strip()
+                                if not line:
+                                    continue
+                                rec = json.loads(line)
+                                if real_pairs and rec.get("pair") not in real_pairs:
+                                    continue
+                                if rec.get("side", "").lower() != "sell":
+                                    continue
+                                total_count += 1
+                                pnl = rec.get("pnl")
+                                if pnl is not None and float(pnl) > 0:
+                                    win_count += 1
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    win_rate = round(win_count / total_count * 100.0, 1) if total_count > 0 else None
+    return win_rate, win_count, total_count
+
+
+def _max_drawdown_pct(equity_points: list[dict]) -> float:
+    """Peak-to-trough max drawdown percentage from equity history."""
+    if not equity_points:
+        return 0.0
+    peak = 0.0
+    max_dd = 0.0
+    for pt in equity_points:
+        e = float(pt.get("equity", 0) or 0)
+        if e > peak:
+            peak = e
+        elif peak > 0:
+            dd = (peak - e) / peak * 100.0
+            if dd > max_dd:
+                max_dd = dd
+    return round(max_dd, 2)
+
+
 def collect_data() -> dict:
     hb = _read_json(HEARTBEAT)
     raw_state = _read_json(BOT_STATE)
@@ -571,6 +620,9 @@ def collect_data() -> dict:
 
     equity_curve = _build_mark_to_market_curve(starting_equity, total_equity, latest_buy_ts, equity_history)
 
+    win_rate, win_count, _ = _win_stats(real_pairs)
+    max_dd = _max_drawdown_pct(equity_history)
+
     return {
         "now":             now_utc,
         "now_local":       now_local,
@@ -602,6 +654,9 @@ def collect_data() -> dict:
         "maker_fee":       mt.get("maker_fee", 0.0002),
         "metrics_ts":      mt.get("timestamp_utc"),
         "bot_version":     mt.get("bot_version", ""),
+        "win_rate":        win_rate,
+        "win_count":       win_count,
+        "max_drawdown_pct": max_dd,
     }
 
 

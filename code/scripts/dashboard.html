@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="darkreader-lock">
-<title>MULTI ASSETS</title>
+<title>MULTI ASSETS BINANCE Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -394,6 +394,16 @@ body {
   background: rgba(255, 135, 144, 0.1);
   border-color: rgba(255, 135, 144, 0.28);
 }
+.badge-be {
+  color: #ffd166;
+  background: rgba(255, 209, 102, 0.10);
+  border-color: rgba(255, 209, 102, 0.28);
+}
+.badge-trail {
+  color: #8ecaff;
+  background: rgba(142, 202, 255, 0.10);
+  border-color: rgba(142, 202, 255, 0.28);
+}
 
 #live-log {
   font-family: var(--mono);
@@ -445,7 +455,7 @@ footer {
 <header class="app-header">
   <div class="header-left">
     <span class="logo"><span class="brand">MULTI</span> ASSETS</span>
-    <span class="logo-sub">Dashboard</span>
+    <span class="logo-sub">BINANCE Dashboard</span>
   </div>
   <div class="header-right">
     <span id="clock">--:--:-- LOCAL</span>
@@ -482,6 +492,16 @@ footer {
     <div class="kpi-label">Positions</div>
     <div class="kpi-value" id="kpi-positions">--</div>
     <div class="kpi-sub" id="kpi-positions-sub">&nbsp;</div>
+  </section>
+  <section class="kpi-card">
+    <div class="kpi-label">WinRate</div>
+    <div class="kpi-value" id="kpi-winrate">--</div>
+    <div class="kpi-sub" id="kpi-winrate-sub">&nbsp;</div>
+  </section>
+  <section class="kpi-card">
+    <div class="kpi-label">Drawdown</div>
+    <div class="kpi-value" id="kpi-drawdown">--</div>
+    <div class="kpi-sub" id="kpi-drawdown-sub">&nbsp;</div>
   </section>
 </div>
 
@@ -935,16 +955,36 @@ function renderTrades(trades) {
   }
 
   tbody.innerHTML = trades.slice(0, 50).map(function (t) {
-    var buy = (t.side || "").toLowerCase() === "buy";
-    var badge = buy
-      ? '<span class="badge badge-buy">BUY</span>'
-      : '<span class="badge badge-close">CLOSE</span>';
+    var side = (t.side || "").toLowerCase();
+    var buy = side === "buy";
+    var isBe = side === "breakeven";
+    var isTrail = side === "trail_activated";
+    var badge;
+    if (buy) {
+      badge = '<span class="badge badge-buy">BUY</span>';
+    } else if (isBe) {
+      badge = '<span class="badge badge-be">BE</span>';
+    } else if (isTrail) {
+      badge = '<span class="badge badge-trail">TRAIL</span>';
+    } else {
+      badge = '<span class="badge badge-close">CLOSE</span>';
+    }
     var symbol = esc(stripQuote(t.pair || ""));
 
     var details = "";
     if (buy) {
       if (t.stop !== null && t.stop !== undefined) {
         details = "SL " + formatPrice(t.stop);
+      }
+    } else if (isBe) {
+      details = "SL moved to " + formatPrice(t.stop);
+      if (t.profit_pct !== null && t.profit_pct !== undefined) {
+        details += " (" + Number(t.profit_pct).toFixed(2) + "% profit)";
+      }
+    } else if (isTrail) {
+      details = "Trailing SL: " + formatPrice(t.stop);
+      if (t.activation_price !== null && t.activation_price !== undefined) {
+        details += " — activated at " + formatPrice(t.activation_price);
       }
     } else {
       var reason = esc(t.sell_reason || "");
@@ -1056,6 +1096,21 @@ async function refreshData() {
 
     setKpi("kpi-positions", data.open_count !== undefined && data.open_count !== null ? String(data.open_count) : "--", "");
     setKpiSub("kpi-positions-sub", "max " + (data.total_pairs || "--"), "");
+
+    var wr = data.win_rate;
+    var wc = data.win_count !== undefined ? data.win_count : 0;
+    var tc = data.trade_count || 0;
+    if (wr !== null && wr !== undefined) {
+      setKpi("kpi-winrate", wr.toFixed(1) + "%", signClass(wr - 50));
+      setKpiSub("kpi-winrate-sub", wc + " win" + (wc !== 1 ? "s" : "") + " / " + tc + " trades", "");
+    } else {
+      setKpi("kpi-winrate", "--", "");
+      setKpiSub("kpi-winrate-sub", "no trades yet", "");
+    }
+    var dd = data.max_drawdown_pct;
+    var ddCls = dd !== null && dd !== undefined && dd > 10 ? "neg" : "";
+    setKpi("kpi-drawdown", dd !== null && dd !== undefined ? (dd > 0 ? "-" + dd.toFixed(2) + "%" : "0.00%") : "--", ddCls);
+    setKpiSub("kpi-drawdown-sub", "max peak-to-trough", "");
 
     if (data.equity_curve && data.equity_curve.length > 1) {
       curveData = data.equity_curve;
