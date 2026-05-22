@@ -985,7 +985,7 @@ def _live_process_pair(
             best = _live_best_params.get(pair)
             last = _pair_last_indicators.get(pair)
 
-        # ─── [LIVE-ONLY] log — affiché avant les early returns ─────────────
+        # ─── [LIVE-ONLY] log ─────────────────────────────────────────────────
         _now_str = datetime.now().strftime("%H:%M:%S")
         if best is not None:
             _ep = best.get("ema_periods", ["?", "?"])
@@ -1000,73 +1000,7 @@ def _live_process_pair(
         else:
             logger.info("[LIVE-ONLY] %s @ %s \u2014 attente initialisation (cycle 60 min)", pair, _now_str)
 
-        # oos_blocked bloque les nouveaux achats mais pas le monitoring d'une
-        # position déjà ouverte (les exits restent actifs).
-        if oos_blocked and not in_position:
-            logger.info(
-                "[IBKR-LIVE] %s — OOS gates non validées, achat bloqué (2 min)", pair,
-            )
-            return
-
-        if best is None or last is None:
-            logger.info(
-                "[IBKR-LIVE] %s — params non encore initialisés (en attente du cycle 60 min)",
-                pair,
-            )
-            return
-
-        # ── Rafraîchir les indicateurs depuis les OHLCV récents ─────────────
-        # Identique à execute_real_trades du bot Binance : recalcul à chaque cycle
-        # pour avoir StochRSI, ATR et EMAs sur la dernière bougie fermée.
-        # fetch_forex_data utilise le cache (TTL 30 j) — requête IBKR uniquement
-        # si la dernière bougie 1h est absente du cache.
-        try:
-            df_fresh = fetch_forex_data(
-                pair,
-                interval="1h",
-                start_date=_fresh_start_date(),
-                client=client,
-                cache_dir=ibkr_cfg.cache_dir,
-            )
-            if df_fresh is not None and len(df_fresh) >= 50:
-                ema_periods = best.get("ema_periods", [18, 58])
-                params = _scenario_params(best.get("scenario", ""))
-                best_tf = best.get("timeframe", "1h")
-                if best_tf == "4h":
-                    import pandas as _pd
-                    df_signal: Any = (
-                        df_fresh
-                        .resample("4h")
-                        .agg({"open": "first", "high": "max", "low": "min",
-                              "close": "last", "volume": "sum"})
-                        .dropna(subset=["close"])
-                    )
-                    if len(df_signal) < 50:
-                        df_signal = df_fresh
-                else:
-                    df_signal = df_fresh
-                df_ind = calculate_indicators(
-                    df_signal.copy(),
-                    ema1_period=ema_periods[0],
-                    ema2_period=ema_periods[1],
-                    stoch_period=params.get("stoch_period", 14),
-                    sma_long=params.get("sma_long"),
-                    adx_period=params.get("adx_period"),
-                    trix_length=params.get("trix_length"),
-                    trix_signal=params.get("trix_signal"),
-                )
-                if not df_ind.empty:
-                    last = df_ind.iloc[-2]  # bougie fermée (identique bot Binance)
-                    with _ibkr_state_lock:
-                        _pair_last_indicators[pair] = last.copy()
-        except Exception as exc:
-            logger.debug(
-                "[IBKR-LIVE] %s — rafraîchissement indicateurs ignoré, utilisation cache : %s",
-                pair, exc,
-            )
-            # Fallback sur les indicateurs mis en cache lors du dernier cycle 60 min
-
-        # ─── Panneau soldes IBKR ──────────────────────────────────────────────
+        # ─── Panneau soldes IBKR (affiché à chaque cycle, avant les guards) ──
         try:
             _disp_price = get_current_price(client, pair)
             _disp_nav = get_account_nav(client)
@@ -1076,9 +1010,79 @@ def _live_process_pair(
         except Exception as _disp_err:
             logger.debug("[IBKR-LIVE] %s \u2014 affichage balance ignor\u00e9 : %s", pair, _disp_err)
 
-        _execute_pair_signal(pair, best, last, client, ibkr_cfg)
+        # ─── Guards — achat bloqué ou params absents ──────────────────────────
+        _run_signal = True
 
-        # ─── Panneau planification ────────────────────────────────────────────
+        # oos_blocked bloque les nouveaux achats mais pas le monitoring d'une
+        # position déjà ouverte (les exits restent actifs).
+        if oos_blocked and not in_position:
+            logger.info(
+                "[IBKR-LIVE] %s \u2014 OOS gates non valid\u00e9es, achat bloqu\u00e9 (2 min)", pair,
+            )
+            _run_signal = False
+
+        if _run_signal and (best is None or last is None):
+            logger.info(
+                "[IBKR-LIVE] %s \u2014 params non encore initialis\u00e9s (en attente du cycle 60 min)",
+                pair,
+            )
+            _run_signal = False
+
+        if _run_signal:
+            assert best is not None and last is not None  # garanti par les guards ci-dessus
+            # ── Rafraîchir les indicateurs depuis les OHLCV récents ──────────
+            # Identique à execute_real_trades du bot Binance : recalcul à chaque
+            # cycle pour avoir StochRSI, ATR et EMAs sur la dernière bougie fermée.
+            # fetch_forex_data utilise le cache (TTL 30 j) — requête IBKR uniquement
+            # si la dernière bougie 1h est absente du cache.
+            try:
+                df_fresh = fetch_forex_data(
+                    pair,
+                    interval="1h",
+                    start_date=_fresh_start_date(),
+                    client=client,
+                    cache_dir=ibkr_cfg.cache_dir,
+                )
+                if df_fresh is not None and len(df_fresh) >= 50:
+                    ema_periods = best.get("ema_periods", [18, 58])
+                    params = _scenario_params(best.get("scenario", ""))
+                    best_tf = best.get("timeframe", "1h")
+                    if best_tf == "4h":
+                        import pandas as _pd
+                        df_signal: Any = (
+                            df_fresh
+                            .resample("4h")
+                            .agg({"open": "first", "high": "max", "low": "min",
+                                  "close": "last", "volume": "sum"})
+                            .dropna(subset=["close"])
+                        )
+                        if len(df_signal) < 50:
+                            df_signal = df_fresh
+                    else:
+                        df_signal = df_fresh
+                    df_ind = calculate_indicators(
+                        df_signal.copy(),
+                        ema1_period=ema_periods[0],
+                        ema2_period=ema_periods[1],
+                        stoch_period=params.get("stoch_period", 14),
+                        sma_long=params.get("sma_long"),
+                        adx_period=params.get("adx_period"),
+                        trix_length=params.get("trix_length"),
+                        trix_signal=params.get("trix_signal"),
+                    )
+                    if not df_ind.empty:
+                        last = df_ind.iloc[-2]  # bougie fermée (identique bot Binance)
+                        with _ibkr_state_lock:
+                            _pair_last_indicators[pair] = last.copy()
+            except Exception as exc:
+                logger.debug(
+                    "[IBKR-LIVE] %s \u2014 rafra\u00eechissement indicateurs ignor\u00e9, utilisation cache : %s",
+                    pair, exc,
+                )
+
+            _execute_pair_signal(pair, best, last, client, ibkr_cfg)
+
+        # ─── Panneau planification (affiché à chaque cycle) ──────────────────
         _now_exec = datetime.now()
         _next_exec = _now_exec + timedelta(minutes=2)
         _display_ibkr_planning_panel(_now_exec, _next_exec, console)

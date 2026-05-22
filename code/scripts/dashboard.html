@@ -178,7 +178,7 @@ body {
 
 .kpi-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: var(--vignette-gap);
   background: var(--bg);
   padding: var(--vignette-gap) var(--vignette-gap) var(--spacing-03);
@@ -188,8 +188,8 @@ body {
 .kpi-card {
   position: relative;
   background: var(--tile-bg);
-  min-height: 82px;
-  padding: 11px 12px 8px 13px;
+  min-height: 68px;
+  padding: 8px 10px 6px 11px;
   border: 1px solid var(--line);
   display: flex;
   flex-direction: column;
@@ -445,7 +445,7 @@ footer {
 }
 
 @media (max-width: 980px) {
-  .kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .kpi-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .row-top, .row-bottom { grid-template-columns: 1fr; }
   .main { grid-template-rows: 1fr 1fr; }
 }
