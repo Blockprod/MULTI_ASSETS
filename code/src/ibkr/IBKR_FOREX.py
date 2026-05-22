@@ -137,7 +137,8 @@ _pair_locks_mutex = threading.Lock()
 bot_state: Dict[str, Any] = {}
 
 # ─── Cache cycle live 2 min (identique _runtime.live_best_params Binance) ────────────────────
-_live_best_params: Dict[str, Optional[Dict[str, Any]]] = {}     # mis à jour chaque 60 min
+_live_best_params: Dict[str, Optional[Dict[str, Any]]] = {}     # OOS validé — mis à jour chaque 60 min
+_live_is_best_params: Dict[str, Optional[Dict[str, Any]]] = {}  # IS best — fallback affichage quand OOS bloqué
 _pair_last_indicators: Dict[str, Any] = {}                       # pd.Series.copy() chaque 60 min
 
 # ─── Compteur d'échecs sauvegarde (kill-switch) ──────────────────────────────
@@ -294,6 +295,10 @@ def _select_best_scenario(
         logger.warning("[IBKR] %s — aucun résultat backtest IS", pair)
         return None
 
+    # Stocker le IS best pour l'affichage 2 min même quand OOS échoue
+    with _ibkr_state_lock:
+        _live_is_best_params[pair] = results[0]
+
     # Afficher le tableau IS identique au bot Binance
     try:
         import sys as _sys
@@ -441,6 +446,7 @@ def _display_ibkr_buy_panel(
         )
         grid.add_row("StochRSI < 80%", _ok_mark(stoch < 0.8), f"{stoch * 100:.1f}%")
         grid.add_row("StochRSI > 5%",  _ok_mark(stoch > 0.05), f"{stoch * 100:.1f}%")
+        grid.add_row("StochRSI actuel", "", f"[bold white]{stoch * 100:.2f}[/bold white]")
 
         if scenario == "StochRSI_ADX":
             adx = float(last.get("adx", 0.0) or 0.0)
@@ -465,15 +471,27 @@ def _display_ibkr_buy_panel(
         grid.add_row("", "", "")
         grid.add_row("", "", f"[dim italic]{buy_reason}[/dim italic]")
 
-        panel_title = (
-            f"[bold green]SIGNAL D'ACHAT [{pair}] \u2014 CONDITIONS REMPLIES[/bold green]"
-            if buy_signal else
-            f"[bold yellow]SIGNAL D'ACHAT [{pair}] \u2014 CONDITIONS NON REMPLIES[/bold yellow]"
-        )
+        if oos_blocked:
+            grid.add_row("", "", "")
+            grid.add_row(
+                "OOS gates",
+                "[bold red]\u2718 BLOQU\u00c9[/bold red]",
+                "[dim]Achat suspendu — analyse IS (informatif)[/dim]",
+            )
+
+        if oos_blocked:
+            panel_title = f"[bold yellow]ANALYSE IS [{pair}] \u2014 OOS NON VALID\u00c9 (informatif)[/bold yellow]"
+            border = "yellow"
+        elif buy_signal:
+            panel_title = f"[bold green]SIGNAL D'ACHAT [{pair}] \u2014 CONDITIONS REMPLIES[/bold green]"
+            border = "green"
+        else:
+            panel_title = f"[bold yellow]SIGNAL D'ACHAT [{pair}] \u2014 CONDITIONS NON REMPLIES[/bold yellow]"
+            border = "yellow"
         con.print(Panel(
             grid,
             title=panel_title,
-            border_style="green" if buy_signal else "yellow",
+            border_style=border,
             padding=(1, 2),
         ))
     except Exception as _panel_err:
@@ -1011,23 +1029,27 @@ def _live_process_pair(
             logger.debug("[IBKR-LIVE] %s \u2014 affichage balance ignor\u00e9 : %s", pair, _disp_err)
 
         # ─── Panneau conditions BUY/SELL (affiché si params disponibles) ───────
-        if best is not None and last is not None and _disp_price > 0:
+        # Fallback sur IS best quand OOS échoue ─ affichage informatif uniquement
+        _best_disp = best if best is not None else _live_is_best_params.get(pair)
+        _is_disp_only = (best is None and _best_disp is not None)
+        if _best_disp is not None and last is not None and _disp_price > 0:
             try:
-                _scenario = best.get("scenario", "StochRSI")
+                _scenario = _best_disp.get("scenario", "StochRSI")
                 if in_position:
                     _entry_px = float(pair_state.get("entry_price") or 0.0)
                     _qty = float(pair_state.get("quantity") or 0.0)
                     _stoch_val = float(last.get("stoch_rsi", 0.0) or 0.0)
                     _sell_sig = _stoch_val > 0.4
                     _display_ibkr_sell_panel(
-                        pair, _disp_price, last, _entry_px, _qty, _sell_sig, console, best=best
+                        pair, _disp_price, last, _entry_px, _qty, _sell_sig, console, best=_best_disp
                     )
                 else:
                     _buy_sig, _buy_reason = _check_ibkr_buy_signal(
                         last, _scenario, _disp_price
                     )
                     _display_ibkr_buy_panel(
-                        pair, _disp_price, last, best, _buy_sig, _buy_reason, console
+                        pair, _disp_price, last, _best_disp, _buy_sig, _buy_reason, console,
+                        oos_blocked=_is_disp_only,
                     )
             except Exception as _cond_err:
                 logger.debug("[IBKR-LIVE] %s \u2014 affichage conditions ignor\u00e9 : %s", pair, _cond_err)
