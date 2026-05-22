@@ -572,7 +572,7 @@ def _display_ibkr_forex_balance_panel(
         grid.add_row("Devise de cotation", quote)
         grid.add_row("", "")
         grid.add_row(
-            "NAV IBKR disponible",
+            "Capital de trading",
             f"[bold cyan]{nav:,.2f} \u20ac[/bold cyan]" if nav > 0 else "[dim]N/A[/dim]",
         )
         grid.add_row(
@@ -1001,14 +1001,36 @@ def _live_process_pair(
             logger.info("[LIVE-ONLY] %s @ %s \u2014 attente initialisation (cycle 60 min)", pair, _now_str)
 
         # ─── Panneau soldes IBKR (affiché à chaque cycle, avant les guards) ──
+        _disp_price = 0.0
         try:
             _disp_price = get_current_price(client, pair)
-            _disp_nav = get_account_nav(client)
             _display_ibkr_forex_balance_panel(
-                pair, _disp_nav, _disp_price, in_position, pair_state, console
+                pair, ibkr_cfg.initial_capital, _disp_price, in_position, pair_state, console
             )
         except Exception as _disp_err:
             logger.debug("[IBKR-LIVE] %s \u2014 affichage balance ignor\u00e9 : %s", pair, _disp_err)
+
+        # ─── Panneau conditions BUY/SELL (affiché si params disponibles) ───────
+        if best is not None and last is not None and _disp_price > 0:
+            try:
+                _scenario = best.get("scenario", "StochRSI")
+                if in_position:
+                    _entry_px = float(pair_state.get("entry_price") or 0.0)
+                    _qty = float(pair_state.get("quantity") or 0.0)
+                    _stoch_val = float(last.get("stoch_rsi", 0.0) or 0.0)
+                    _sell_sig = _stoch_val > 0.4
+                    _display_ibkr_sell_panel(
+                        pair, _disp_price, last, _entry_px, _qty, _sell_sig, console, best=best
+                    )
+                else:
+                    _buy_sig, _buy_reason = _check_ibkr_buy_signal(
+                        last, _scenario, _disp_price
+                    )
+                    _display_ibkr_buy_panel(
+                        pair, _disp_price, last, best, _buy_sig, _buy_reason, console
+                    )
+            except Exception as _cond_err:
+                logger.debug("[IBKR-LIVE] %s \u2014 affichage conditions ignor\u00e9 : %s", pair, _cond_err)
 
         # ─── Guards — achat bloqué ou params absents ──────────────────────────
         _run_signal = True
@@ -1187,6 +1209,7 @@ def main() -> None:
 
     # Exécuter immédiatement au démarrage
     _trading_job(client, ibkr_cfg)
+    _live_trading_job(client, ibkr_cfg)  # premier cycle live sans attendre 2 min
 
     # Boucle infinie
     try:
