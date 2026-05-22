@@ -410,6 +410,8 @@ def _display_ibkr_buy_panel(
     buy_signal: bool,
     buy_reason: str,
     con: "Console",
+    *,
+    oos_blocked: bool = False,
 ) -> None:
     """Panneau Rich des conditions d'achat IBKR — affiché à chaque cycle live.
 
@@ -1109,6 +1111,7 @@ def _live_process_pair(
                     )
             except Exception as _cond_err:
                 logger.debug("[IBKR-LIVE] %s \u2014 affichage conditions ignor\u00e9 : %s", pair, _cond_err)
+        _run_signal = True
         # oos_blocked bloque les nouveaux achats mais pas le monitoring d'une
         # position déjà ouverte (les exits restent actifs).
         if oos_blocked and not in_position:
