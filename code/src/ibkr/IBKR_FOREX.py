@@ -125,6 +125,7 @@ WF_SCENARIOS: List[Dict[str, Any]] = [
     {"name": "StochRSI_SMA",  "params": {"stoch_period": 14, "sma_long": 200}},
     {"name": "StochRSI_ADX",  "params": {"stoch_period": 14, "adx_period": 14}},
     {"name": "StochRSI_TRIX", "params": {"stoch_period": 14, "trix_length": 7, "trix_signal": 15}},
+    {"name": "StochRSI_DipBuy", "params": {"stoch_period": 14, "stoch_buy_max": 0.30}},
 ]
 
 # ─── Thread-safety ────────────────────────────────────────────────────────────
@@ -320,6 +321,7 @@ def _select_best_scenario(
             initial_capital=ibkr_cfg.initial_capital,
             sizing_mode="risk",
             leverage=ibkr_cfg.max_leverage,
+            top_per_tf=4,   # IBKR Forex: 4 candidats/TF vs 2 par défaut (Binance)
             n_folds=3,  # Folds plus larges (91j 4h) vs 4 (68j) — plus de trades/fold
         )
     except Exception as exc:
@@ -381,6 +383,11 @@ def _check_ibkr_buy_signal(
         trix_val = float(trix_histo) if trix_histo is not None else float("nan")
         if trix_histo is None or trix_val <= 0:
             return False, f"TRIX_HISTO ({trix_val:.5f}) \u2264 0"
+    if scenario == "StochRSI_DipBuy":
+        # Retour à la moyenne : uniquement en zone de survente profonde (< 0.30).
+        # Le seuil 0.30 reflète stoch_buy_max=0.30 utilisé dans le backtest.
+        if not (stoch < 0.30):
+            return False, f"StochRSI ({stoch:.3f}) \u2265 0.30 (seuil DipBuy non atteint)"
 
     return True, "[OK] Signal d'achat valide"
 

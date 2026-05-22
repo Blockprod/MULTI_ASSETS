@@ -431,6 +431,7 @@ def run_walk_forward_validation(
     sizing_mode: str = 'risk',
     leverage: float = 1.0,  # Forex levier (1.0 = crypto spot, 20.0 = IBKR Forex)
     top_n: int = 15,
+    top_per_tf: int = 2,
     n_folds: int = 4,
     initial_train_pct: float = 0.40,
 ) -> Dict[str, Any]:
@@ -463,6 +464,8 @@ def run_walk_forward_validation(
         Position sizing mode forwarded to ``backtest_fn``.
     top_n : int
         Number of top configs to validate (default 5).
+    top_per_tf : int
+        Max candidates per timeframe bucket (default 2; use 4 for IBKR Forex).
     n_folds : int
         Number of WF folds.
     initial_train_pct : float
@@ -481,11 +484,11 @@ def run_walk_forward_validation(
     # window but are unlikely to survive OOS. The decay gate (OOS/IS >= 0.15) provides
     # a second filter, but pre-selecting by Sharpe reduces the risk of the best OOS
     # config being eliminated before WF testing.
-    # Cap at top-2 per timeframe to ensure 1h/4h/1d diversity.
+    # Cap at top-`top_per_tf` per timeframe to ensure 1h/4h/1d diversity.
     _tf_buckets: Dict[str, List] = {}
     for _r in sorted(full_sample_results, key=lambda x: x.get('sharpe_ratio', x.get('final_wallet', 0.0)), reverse=True):
         _tf = _r.get('timeframe', '')
-        if len(_tf_buckets.get(_tf, [])) < 2:
+        if len(_tf_buckets.get(_tf, [])) < top_per_tf:
             _tf_buckets.setdefault(_tf, []).append(_r)
     _all_candidates = [c for _bucket in _tf_buckets.values() for c in _bucket]
     top_configs = sorted(_all_candidates, key=lambda x: x.get('sharpe_ratio', x.get('final_wallet', 0.0)), reverse=True)[:top_n]
@@ -584,6 +587,8 @@ def run_walk_forward_validation(
                 adx_period=s_params.get('adx_period'),
                 trix_length=s_params.get('trix_length'),
                 trix_signal=s_params.get('trix_signal'),
+                stoch_buy_max_override=s_params.get('stoch_buy_max'),
+                stoch_buy_min_override=s_params.get('stoch_buy_min'),
                 sizing_mode=sizing_mode,
                 leverage=leverage,
                 periods_per_year=ppy,
@@ -596,6 +601,8 @@ def run_walk_forward_validation(
                 adx_period=s_params.get('adx_period'),
                 trix_length=s_params.get('trix_length'),
                 trix_signal=s_params.get('trix_signal'),
+                stoch_buy_max_override=s_params.get('stoch_buy_max'),
+                stoch_buy_min_override=s_params.get('stoch_buy_min'),
                 sizing_mode=sizing_mode,
                 leverage=leverage,
                 periods_per_year=ppy,

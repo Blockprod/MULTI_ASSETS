@@ -919,6 +919,8 @@ def run_single_backtest_optimized(args: Tuple[Any, ...]) -> Dict[str, Any]:
             adx_period=scenario['params'].get('adx_period'),
             trix_length=scenario['params'].get('trix_length'),
             trix_signal=scenario['params'].get('trix_signal'),
+            stoch_buy_max_override=scenario['params'].get('stoch_buy_max'),
+            stoch_buy_min_override=scenario['params'].get('stoch_buy_min'),
             sizing_mode=sizing_mode,
             leverage=leverage,
         )
@@ -1011,6 +1013,10 @@ def run_all_backtests(
         {
             'name': 'StochRSI_TRIX',
             'params': {'stoch_period': 14, 'trix_length': 7, 'trix_signal': 15},
+        },
+        {
+            'name': 'StochRSI_DipBuy',
+            'params': {'stoch_period': 14, 'stoch_buy_max': 0.30},
         },
     ]
 
