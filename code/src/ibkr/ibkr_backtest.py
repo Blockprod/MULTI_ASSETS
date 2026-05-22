@@ -74,7 +74,7 @@ logger = logging.getLogger("ibkr_backtest")
 
 FOREX_PAIRS: List[Dict[str, Any]] = [
     {"ibkr_pair": "EURUSD", "periods_per_year": 6240},
-    {"ibkr_pair": "EURGBP", "periods_per_year": 6240},
+    {"ibkr_pair": "GBPUSD", "periods_per_year": 6240},
 ]
 
 WF_SCENARIOS: List[Dict[str, Any]] = [

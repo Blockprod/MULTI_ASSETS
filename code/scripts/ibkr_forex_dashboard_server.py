@@ -51,7 +51,7 @@ _ds._fetch_usdc_balance     = _noop_fetch_balances  # type: ignore[assignment]
 def _parse_forex_pairs() -> list[dict[str, str]]:
     return [
         {"backtest_pair": "EURUSD", "real_pair": "EURUSD"},
-        {"backtest_pair": "EURGBP", "real_pair": "EURGBP"},
+        {"backtest_pair": "GBPUSD", "real_pair": "GBPUSD"},
     ]
 
 
