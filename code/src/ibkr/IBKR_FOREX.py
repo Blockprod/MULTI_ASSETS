@@ -853,8 +853,11 @@ def _live_process_pair(
 
     Identique au pattern execute_live_trading_only du bot Binance :
     - N'exécute PAS de backtest (données déjà calculées lors du cycle 60 min)
-    - Utilise _live_best_params[pair] et _pair_last_indicators[pair]
+    - Rafraîchit les indicateurs depuis les OHLCV récents (via cache — pas de nouvelle
+      requête IBKR si le cache est frais) pour avoir StochRSI/ATR à jour
     - Non-bloquant : skip si le cycle 60 min tient encore le lock
+    - oos_blocked bloque uniquement les nouveaux BUY ; les positions ouvertes
+      continuent d'être surveillées pour les exits
     """
     pair = pair_def["ibkr_pair"]
 
@@ -869,13 +872,76 @@ def _live_process_pair(
             if bot_state.get("emergency_halt", False):
                 return
             pair_state = bot_state[pair]
-            if pair_state.get("oos_blocked", False):
-                return  # bloqué OOS — pas de trading
+            in_position = (pair_state.get("last_order_side") == "BUY")
+            oos_blocked = pair_state.get("oos_blocked", False)
             best = _live_best_params.get(pair)
             last = _pair_last_indicators.get(pair)
 
+        # oos_blocked bloque les nouveaux achats mais pas le monitoring d'une
+        # position déjà ouverte (les exits restent actifs).
+        if oos_blocked and not in_position:
+            logger.info(
+                "[IBKR-LIVE] %s — OOS gates non validées, achat bloqué (2 min)", pair,
+            )
+            return
+
         if best is None or last is None:
-            return  # pas encore initialisé par le cycle 60 min
+            logger.info(
+                "[IBKR-LIVE] %s — params non encore initialisés (en attente du cycle 60 min)",
+                pair,
+            )
+            return
+
+        # ── Rafraîchir les indicateurs depuis les OHLCV récents ─────────────
+        # Identique à execute_real_trades du bot Binance : recalcul à chaque cycle
+        # pour avoir StochRSI, ATR et EMAs sur la dernière bougie fermée.
+        # fetch_forex_data utilise le cache (TTL 30 j) — requête IBKR uniquement
+        # si la dernière bougie 1h est absente du cache.
+        try:
+            df_fresh = fetch_forex_data(
+                pair,
+                interval="1h",
+                start_date=_fresh_start_date(),
+                client=client,
+                cache_dir=ibkr_cfg.cache_dir,
+            )
+            if df_fresh is not None and len(df_fresh) >= 50:
+                ema_periods = best.get("ema_periods", [18, 58])
+                params = _scenario_params(best.get("scenario", ""))
+                best_tf = best.get("timeframe", "1h")
+                if best_tf == "4h":
+                    import pandas as _pd
+                    df_signal: Any = (
+                        df_fresh
+                        .resample("4h")
+                        .agg({"open": "first", "high": "max", "low": "min",
+                              "close": "last", "volume": "sum"})
+                        .dropna(subset=["close"])
+                    )
+                    if len(df_signal) < 50:
+                        df_signal = df_fresh
+                else:
+                    df_signal = df_fresh
+                df_ind = calculate_indicators(
+                    df_signal.copy(),
+                    ema1_period=ema_periods[0],
+                    ema2_period=ema_periods[1],
+                    stoch_period=params.get("stoch_period", 14),
+                    sma_long=params.get("sma_long"),
+                    adx_period=params.get("adx_period"),
+                    trix_length=params.get("trix_length"),
+                    trix_signal=params.get("trix_signal"),
+                )
+                if not df_ind.empty:
+                    last = df_ind.iloc[-2]  # bougie fermée (identique bot Binance)
+                    with _ibkr_state_lock:
+                        _pair_last_indicators[pair] = last.copy()
+        except Exception as exc:
+            logger.debug(
+                "[IBKR-LIVE] %s — rafraîchissement indicateurs ignoré, utilisation cache : %s",
+                pair, exc,
+            )
+            # Fallback sur les indicateurs mis en cache lors du dernier cycle 60 min
 
         _execute_pair_signal(pair, best, last, client, ibkr_cfg)
 
