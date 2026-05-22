@@ -295,9 +295,16 @@ def _select_best_scenario(
         logger.warning("[IBKR] %s — aucun résultat backtest IS", pair)
         return None
 
-    # Stocker le IS best pour l'affichage 2 min même quand OOS échoue
+    # Stocker le IS best pour l'affichage 2 min même quand OOS échoue.
+    # Tri explicite par profit IS décroissant : run_all_backtests retourne les
+    # résultats dans l'ordre de complétion des futures (non déterministe).
+    _is_sorted = sorted(
+        results,
+        key=lambda r: r.get("final_wallet", 0.0) - r.get("initial_wallet", 0.0),
+        reverse=True,
+    )
     with _ibkr_state_lock:
-        _live_is_best_params[pair] = results[0]
+        _live_is_best_params[pair] = _is_sorted[0]
 
     # Afficher le tableau IS identique au bot Binance
     try:
@@ -631,6 +638,8 @@ def _display_ibkr_planning_panel(
     last_exec_dt: datetime,
     next_exec_dt: datetime,
     con: "Console",
+    *,
+    paper_mode: bool = False,
 ) -> None:
     """Panneau Rich planification — analogue 'SUIVI D\u2019EXECUTION' du bot Binance.
 
@@ -650,10 +659,11 @@ def _display_ibkr_planning_panel(
         grid.add_row("Derni\u00e8re ex\u00e9cution", last_exec_dt.strftime("%Y-%m-%d %H:%M:%S"))
         grid.add_row("Temps \u00e9coul\u00e9", elapsed_str)
         grid.add_row("", "")
-        grid.add_row("Mode de planification", "Live: 2 min | Backtest+WF: 60 min")
+        _mode_tag = "Paper" if paper_mode else "Live"
+        grid.add_row("Mode de planification", f"{_mode_tag}: 2 min | Backtest+WF: 60 min")
         grid.add_row(
             "Prochaine ex\u00e9cution",
-            f"Live toutes les 2 min ({next_exec_dt.strftime('%H:%M:%S')})",
+            f"{_mode_tag} toutes les 2 min ({next_exec_dt.strftime('%H:%M:%S')})",
         )
 
         con.print(Panel(
@@ -1184,7 +1194,7 @@ def _live_process_pair(
         # ─── Panneau planification (affiché à chaque cycle) ──────────────────
         _now_exec = datetime.now()
         _next_exec = _now_exec + timedelta(minutes=2)
-        _display_ibkr_planning_panel(_now_exec, _next_exec, console)
+        _display_ibkr_planning_panel(_now_exec, _next_exec, console, paper_mode=ibkr_cfg.paper_mode)
 
         with _ibkr_state_lock:
             bot_state[pair]["last_live_time"] = datetime.utcnow().isoformat() + "Z"
