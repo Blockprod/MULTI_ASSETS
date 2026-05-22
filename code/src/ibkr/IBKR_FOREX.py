@@ -545,6 +545,107 @@ def _display_ibkr_sell_panel(
         logger.debug("[IBKR] _display_ibkr_sell_panel erreur : %s", _panel_err)
 
 
+def _display_ibkr_forex_balance_panel(
+    pair: str,
+    nav: float,
+    current_price: float,
+    in_position: bool,
+    pair_state: Dict[str, Any],
+    con: "Console",
+) -> None:
+    """Panneau Rich compte IBKR — analogue 'SOLDES DE TRADING' du bot Binance.
+
+    Affiché à chaque cycle live 2 min dans _live_process_pair.
+    """
+    try:
+        base = pair[:3]   # EUR, GBP
+        quote = pair[3:]  # USD
+
+        grid = Table(
+            box=None, show_header=False, pad_edge=False,
+            show_edge=False, padding=(0, 2),
+        )
+        grid.add_column("label", width=32, no_wrap=True, style="dim")
+        grid.add_column("value", style="bold white")
+
+        grid.add_row("Paire Forex", pair)
+        grid.add_row("Devise de cotation", quote)
+        grid.add_row("", "")
+        grid.add_row(
+            "NAV IBKR disponible",
+            f"[bold cyan]{nav:,.2f} \u20ac[/bold cyan]" if nav > 0 else "[dim]N/A[/dim]",
+        )
+        grid.add_row(
+            f"Prix {pair} actuel",
+            f"[white]{current_price:.5f} {quote}[/white]",
+        )
+        grid.add_row("", "")
+
+        if in_position:
+            entry = pair_state.get("entry_price") or 0.0
+            qty = pair_state.get("quantity") or 0.0
+            pnl = (current_price - entry) * qty if entry > 0 else 0.0
+            pnl_pct = (current_price - entry) / entry * 100 if entry > 0 else 0.0
+            pnl_color = "bold green" if pnl >= 0 else "bold red"
+            grid.add_row("Statut", "[bold green]EN POSITION (BUY)[/bold green]")
+            grid.add_row("Prix d'entr\u00e9e", f"{entry:.5f} {quote}")
+            grid.add_row("Quantit\u00e9", f"{qty:,.0f} {base}")
+            grid.add_row(
+                "PnL latent",
+                f"[{pnl_color}]{pnl:+.2f} \u20ac ({pnl_pct:+.2f}%)[/{pnl_color}]",
+            )
+        else:
+            grid.add_row("Statut", "[dim]Hors position[/dim]")
+
+        con.print(Panel(
+            grid,
+            title="[bold white]SOLDES IBKR FOREX[/bold white]",
+            border_style="blue",
+            padding=(1, 2),
+        ))
+    except Exception as _err:
+        logger.debug("[IBKR] _display_ibkr_forex_balance_panel erreur : %s", _err)
+
+
+def _display_ibkr_planning_panel(
+    last_exec_dt: datetime,
+    next_exec_dt: datetime,
+    con: "Console",
+) -> None:
+    """Panneau Rich planification — analogue 'SUIVI D\u2019EXECUTION' du bot Binance.
+
+    Affiché à chaque cycle live 2 min, après l'évaluation des signaux.
+    """
+    try:
+        elapsed = datetime.now() - last_exec_dt
+        elapsed_str = str(elapsed).split(".")[0]
+
+        grid = Table(
+            box=None, show_header=False, pad_edge=False,
+            show_edge=False, padding=(0, 2),
+        )
+        grid.add_column("label", width=32, no_wrap=True, style="dim")
+        grid.add_column("value", style="bold white")
+
+        grid.add_row("Derni\u00e8re ex\u00e9cution", last_exec_dt.strftime("%Y-%m-%d %H:%M:%S"))
+        grid.add_row("Temps \u00e9coul\u00e9", elapsed_str)
+        grid.add_row("", "")
+        grid.add_row("Mode de planification", "Live: 2 min | Backtest+WF: 60 min")
+        grid.add_row(
+            "Prochaine ex\u00e9cution",
+            f"Live toutes les 2 min ({next_exec_dt.strftime('%H:%M:%S')})",
+        )
+
+        con.print(Panel(
+            grid,
+            title="[bold white]SUIVI D\u2019EX\u00c9CUTION & PLANIFICATION AUTOMATIQUE[/bold white]",
+            border_style="dim",
+            padding=(1, 2),
+        ))
+    except Exception as _err:
+        logger.debug("[IBKR] _display_ibkr_planning_panel erreur : %s", _err)
+
+
 # ─── Signal BUY/SELL partagé (60 min + 2 min) ────────────────────────────────
 
 def _execute_pair_signal(
@@ -884,6 +985,21 @@ def _live_process_pair(
             best = _live_best_params.get(pair)
             last = _pair_last_indicators.get(pair)
 
+        # ─── [LIVE-ONLY] log — affiché avant les early returns ─────────────
+        _now_str = datetime.now().strftime("%H:%M:%S")
+        if best is not None:
+            _ep = best.get("ema_periods", ["?", "?"])
+            _ep0 = _ep[0] if isinstance(_ep, (list, tuple)) and len(_ep) > 0 else "?"
+            _ep1 = _ep[1] if isinstance(_ep, (list, tuple)) and len(_ep) > 1 else "?"
+            logger.info(
+                "[LIVE-ONLY] %s -> %s @ %s \u2014 %s EMA(%s/%s) %s",
+                pair, pair, _now_str,
+                best.get("scenario", "?"), _ep0, _ep1,
+                best.get("timeframe", "1h"),
+            )
+        else:
+            logger.info("[LIVE-ONLY] %s @ %s \u2014 attente initialisation (cycle 60 min)", pair, _now_str)
+
         # oos_blocked bloque les nouveaux achats mais pas le monitoring d'une
         # position déjà ouverte (les exits restent actifs).
         if oos_blocked and not in_position:
@@ -950,7 +1066,22 @@ def _live_process_pair(
             )
             # Fallback sur les indicateurs mis en cache lors du dernier cycle 60 min
 
+        # ─── Panneau soldes IBKR ──────────────────────────────────────────────
+        try:
+            _disp_price = get_current_price(client, pair)
+            _disp_nav = get_account_nav(client)
+            _display_ibkr_forex_balance_panel(
+                pair, _disp_nav, _disp_price, in_position, pair_state, console
+            )
+        except Exception as _disp_err:
+            logger.debug("[IBKR-LIVE] %s \u2014 affichage balance ignor\u00e9 : %s", pair, _disp_err)
+
         _execute_pair_signal(pair, best, last, client, ibkr_cfg)
+
+        # ─── Panneau planification ────────────────────────────────────────────
+        _now_exec = datetime.now()
+        _next_exec = _now_exec + timedelta(minutes=2)
+        _display_ibkr_planning_panel(_now_exec, _next_exec, console)
 
         with _ibkr_state_lock:
             bot_state[pair]["last_live_time"] = datetime.utcnow().isoformat() + "Z"
