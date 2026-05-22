@@ -1003,17 +1003,65 @@ def _live_process_pair(
             best = _live_best_params.get(pair)
             last = _pair_last_indicators.get(pair)
 
+        # ─── IS best fallback + calcul indicateurs si cache absent ───────────────
+        _best_disp = best if best is not None else _live_is_best_params.get(pair)
+        _is_disp_only = (best is None and _best_disp is not None)
+        # Quand OOS échoue, last est None (non calculé par _process_pair).
+        # Calculer les indicateurs maintenant (depuis cache OHLCV) pour que le
+        # panneau conditions soit toujours affiché -- identique au bot Binance.
+        if last is None and _best_disp is not None:
+            try:
+                _ema_p = _best_disp.get("ema_periods", [18, 58])
+                _params_d = _scenario_params(_best_disp.get("scenario", ""))
+                _tf_d = _best_disp.get("timeframe", "1h")
+                _df_d = fetch_forex_data(
+                    pair, interval="1h", start_date=_fresh_start_date(),
+                    client=client, cache_dir=ibkr_cfg.cache_dir,
+                )
+                if _df_d is not None and len(_df_d) >= 50:
+                    if _tf_d == "4h":
+                        _df_d = (
+                            _df_d.resample("4h")
+                            .agg({"open": "first", "high": "max", "low": "min",
+                                  "close": "last", "volume": "sum"})
+                            .dropna(subset=["close"])
+                        )
+                        if len(_df_d) < 50:
+                            _df_d = None
+                    if _df_d is not None:
+                        _df_ind_d = calculate_indicators(
+                            _df_d.copy(),
+                            ema1_period=_ema_p[0],
+                            ema2_period=_ema_p[1],
+                            stoch_period=_params_d.get("stoch_period", 14),
+                            sma_long=_params_d.get("sma_long"),
+                            adx_period=_params_d.get("adx_period"),
+                            trix_length=_params_d.get("trix_length"),
+                            trix_signal=_params_d.get("trix_signal"),
+                        )
+                        if not _df_ind_d.empty:
+                            last = _df_ind_d.iloc[-2]
+                            with _ibkr_state_lock:
+                                _pair_last_indicators[pair] = last.copy()
+            except Exception as _ind_disp_err:
+                logger.debug(
+                    "[IBKR-LIVE] %s \u2014 calcul indicateurs affichage ignor\u00e9 : %s",
+                    pair, _ind_disp_err,
+                )
+
         # ─── [LIVE-ONLY] log ─────────────────────────────────────────────────
         _now_str = datetime.now().strftime("%H:%M:%S")
-        if best is not None:
-            _ep = best.get("ema_periods", ["?", "?"])
+        _log_cfg = best if best is not None else _live_is_best_params.get(pair)
+        if _log_cfg is not None:
+            _ep = _log_cfg.get("ema_periods", ["?", "?"])
             _ep0 = _ep[0] if isinstance(_ep, (list, tuple)) and len(_ep) > 0 else "?"
             _ep1 = _ep[1] if isinstance(_ep, (list, tuple)) and len(_ep) > 1 else "?"
+            _oos_tag = "" if best is not None else " [IS \u2014 OOS non valid\u00e9]"
             logger.info(
-                "[LIVE-ONLY] %s -> %s @ %s \u2014 %s EMA(%s/%s) %s",
-                pair, pair, _now_str,
-                best.get("scenario", "?"), _ep0, _ep1,
-                best.get("timeframe", "1h"),
+                "[LIVE-ONLY] %s @ %s \u2014 %s EMA(%s/%s) %s%s",
+                pair, _now_str,
+                _log_cfg.get("scenario", "?"), _ep0, _ep1,
+                _log_cfg.get("timeframe", "1h"), _oos_tag,
             )
         else:
             logger.info("[LIVE-ONLY] %s @ %s \u2014 attente initialisation (cycle 60 min)", pair, _now_str)
@@ -1022,6 +1070,17 @@ def _live_process_pair(
         _disp_price = 0.0
         try:
             _disp_price = get_current_price(client, pair)
+        except Exception as _price_err:
+            logger.debug("[IBKR-LIVE] %s \u2014 prix live indisponible : %s", pair, _price_err)
+        # Fallback : utiliser le close des indicateurs si prix live indisponible
+        if _disp_price <= 0 and last is not None:
+            try:
+                _close_fb = float(last.get("close", 0.0) or 0.0)
+                if _close_fb > 0:
+                    _disp_price = _close_fb
+            except Exception:
+                pass
+        try:
             _display_ibkr_forex_balance_panel(
                 pair, ibkr_cfg.initial_capital, _disp_price, in_position, pair_state, console
             )
@@ -1029,10 +1088,7 @@ def _live_process_pair(
             logger.debug("[IBKR-LIVE] %s \u2014 affichage balance ignor\u00e9 : %s", pair, _disp_err)
 
         # ─── Panneau conditions BUY/SELL (affiché si params disponibles) ───────
-        # Fallback sur IS best quand OOS échoue ─ affichage informatif uniquement
-        _best_disp = best if best is not None else _live_is_best_params.get(pair)
-        _is_disp_only = (best is None and _best_disp is not None)
-        if _best_disp is not None and last is not None and _disp_price > 0:
+        if _best_disp is not None and last is not None:
             try:
                 _scenario = _best_disp.get("scenario", "StochRSI")
                 if in_position:
@@ -1053,10 +1109,6 @@ def _live_process_pair(
                     )
             except Exception as _cond_err:
                 logger.debug("[IBKR-LIVE] %s \u2014 affichage conditions ignor\u00e9 : %s", pair, _cond_err)
-
-        # ─── Guards — achat bloqué ou params absents ──────────────────────────
-        _run_signal = True
-
         # oos_blocked bloque les nouveaux achats mais pas le monitoring d'une
         # position déjà ouverte (les exits restent actifs).
         if oos_blocked and not in_position:
