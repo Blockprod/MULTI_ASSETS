@@ -1,28 +1,40 @@
-# MULTI_ASSETS — Bot de Trading Crypto Multi-Actifs
+# MULTI_ASSETS — Bot de Trading Algorithmique Multi-Actifs
 
-Bot de trading algorithmique Binance Spot capable de gérer plusieurs paires
-de crypto-monnaies simultanément, avec backtest intégré, gestion du risque
-avancée et alertes e-mail en temps réel.
+Plateforme de trading algorithmique gérant deux bots indépendants :
+- **Bot Binance Spot** — multi-paires crypto (BTC, SOL, PEPE…) en USDC
+- **Bot IBKR Forex** — EUR/USD et GBP/USD via IB Gateway (paper / live)
+
+Les deux bots partagent le même moteur de backtest Cython, le walk-forward
+validation OOS et les modules d'indicateurs.
 
 ## Architecture
 
 ```
 code/src/
-├── MULTI_SYMBOLS.py      # Point d'entrée — orchestration principale
-├── bot_config.py          # Configuration centralisée (.env), décorateurs
-├── exchange_client.py     # Client Binance, ordres, filtres symboles
-├── position_sizing.py     # Calcul de taille de position (risk, fixed, vol-parity)
-├── email_utils.py         # Envoi d'alertes e-mail (SMTP)
-├── email_templates.py     # Templates d'e-mails (subject/body)
-├── state_manager.py       # Sauvegarde/chargement de l'état du bot (pickle)
-├── cache_manager.py       # Cache des données historiques (pickle + lock)
-├── indicators.py          # Indicateurs techniques (RSI, MACD, ADX, ATR)
-├── error_handler.py       # Circuit-breaker et gestion d'erreurs
-├── trade_journal.py       # Journal de trades (JSONL)
-├── walk_forward.py        # Walk-forward analysis pour les backtests
-├── watchdog.py            # Surveillance santé du bot (heartbeat)
-├── preload_data.py        # Pré-chargement des données historiques
-└── benchmark.py           # Benchmarking des performances
+├── MULTI_SYMBOLS.py       # Bot Binance — orchestration principale (multi-paires)
+├── bot_config.py           # Configuration centralisée (.env)
+├── exchange_client.py      # Client Binance (ordres, filtres, rate limiter)
+├── backtest_runner.py      # Moteur backtest Python + wrapper Cython
+├── backtest_orchestrator.py# Sélection IS/OOS et déclenchement backtests
+├── walk_forward.py         # Walk-forward validation (OOS gates Sharpe/WR/decay)
+├── position_sizing.py      # Sizing (risk, fixed, vol-parity)
+├── order_manager.py        # BUY/SELL, stop-loss natif, partial sells
+├── state_manager.py        # État JSON_V1 + HMAC-SHA256
+├── indicators_engine.py    # EMA adaptatif, cache indicateurs
+├── email_utils.py          # Alertes e-mail SMTP
+├── watchdog.py             # Surveillance heartbeat (continuité de service)
+├── cython_integrity.py     # Vérification SHA256 des .pyd au démarrage
+└── ibkr/                   # Bot IBKR Forex
+    ├── IBKR_FOREX.py       # Orchestrateur principal Forex
+    ├── ibkr_config.py      # Config IBKR (levier, risque, connexion)
+    ├── ibkr_client.py      # Client IB Gateway (ib_insync)
+    ├── ibkr_order_manager_forex.py  # Ordres Forex + stop-loss ATR
+    ├── ibkr_data_fetcher.py         # OHLCV IBKR + cache
+    └── ibkr_state_manager.py        # État JSON_V1 + HMAC-SHA256
+
+code/bin/
+├── backtest_engine_standard.cp311-win_amd64.pyd  # Moteur backtest Cython
+└── indicators.cp311-win_amd64.pyd                # Indicateurs Cython
 ```
 
 ## Prérequis
@@ -57,7 +69,7 @@ copy .env.example .env
 
 Toute la configuration passe par le fichier `.env` (voir `.env.example`).
 
-### Variables requises
+### Variables requises — Bot Binance
 
 | Variable              | Description                      |
 |-----------------------|----------------------------------|
@@ -66,6 +78,16 @@ Toute la configuration passe par le fichier `.env` (voir `.env.example`).
 | `SENDER_EMAIL`        | E-mail expéditeur (Gmail)        |
 | `RECEIVER_EMAIL`      | E-mail destinataire des alertes  |
 | `GOOGLE_MAIL_PASSWORD`| Mot de passe d'application Gmail |
+
+### Variables requises — Bot IBKR Forex
+
+| Variable           | Défaut  | Description                                    |
+|--------------------|---------|------------------------------------------------|
+| `IBKR_SECRET`      | —       | Clé HMAC pour signature de l'état persisté     |
+| `IBKR_CLIENT_ID`   | `4`     | clientId IB Gateway (≠ AlphaEdge = 3)          |
+| `IBKR_PAPER_MODE`  | `true`  | `false` pour passer en trading réel            |
+| `IBKR_MAX_LEVERAGE`| `5`     | Levier maximum (5x recommandé pour Forex)      |
+| `IBKR_RISK_PER_TRADE`| `0.02`| Risque par trade (2% du capital)               |
 
 ### Variables optionnelles
 
@@ -80,12 +102,18 @@ cd code/src
 python MULTI_SYMBOLS.py
 ```
 
-### En production avec PM2
+### En production avec le watchdog
 
-```bash
-pm2 start config/ecosystem.config.js
-pm2 save
+```powershell
+# Bot Binance
+.\start_safe.ps1
+
+# Bot IBKR Forex
+python -m code.src.ibkr.IBKR_FOREX
 ```
+
+Le watchdog (`watchdog.py`) assure la continuité de service en surveillant le heartbeat
+et en redémarrant le bot Binance en cas de crash.
 
 ## Tests
 
@@ -97,19 +125,21 @@ python -m pytest tests/ -v
 python -m pytest tests/test_core.py -v
 ```
 
-590 tests couvrent : configuration, sizing, backtest, error handling, journal
-de trades, alertes e-mail, indicateurs et watchdog.
+836 tests couvrent : configuration, sizing, backtest Cython + Python fallback,
+error handling, alertes e-mail, indicateurs, walk-forward OOS, intégrité Cython,
+client IBKR et data fetcher Forex.
 
 ## Modes d'exécution
 
 | Mode | Commande | Effet |
 |------|----------|-------|
-| **Backtest seul** | `python code/src/backtest_runner.py` | Aucun ordre réel, aucune connexion Binance requise |
-| **Live (direct)** | `cd code/src && python MULTI_SYMBOLS.py` | Ordres réels — clés API actives obligatoires |
-| **Production (PM2)** | `pm2 start config/ecosystem.config.js` | Démon supervisé, redémarrage automatique |
+| **Backtest seul** | `python code/src/backtest_runner.py` | Aucun ordre réel, aucune connexion requise |
+| **Binance Live** | `.\start_safe.ps1` | Ordres réels Binance Spot — clés API actives |
+| **IBKR Paper** | `python -m code.src.ibkr.IBKR_FOREX` | Paper trading IB Gateway port 4002 |
+| **IBKR Live** | `IBKR_PAPER_MODE=false python -m code.src.ibkr.IBKR_FOREX` | Ordres réels Forex via IB Gateway port 4001 |
 
-> ⚠️ En mode Live ou Production, toute position ouverte engage du capital réel.  
-> Vérifier `BINANCE_API_KEY` et `BINANCE_SECRET_KEY` dans `.env` avant tout démarrage.
+> ⚠️ En mode Live, toute position ouverte engage du capital réel.  
+> Vérifier les clés API et `IBKR_PAPER_MODE=false` dans `.env` avant tout démarrage.
 
 ## Ressources AI & Architecture
 

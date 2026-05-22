@@ -1557,6 +1557,7 @@ if __name__ == "__main__":
     crypto_pairs = [
         {"backtest_pair": "PEPEUSDC", "real_pair": "PEPEUSDC"},
         {"backtest_pair": "SOLUSDC",  "real_pair": "SOLUSDC"},
+        {"backtest_pair": "BTCUSDC",  "real_pair": "BTCUSDC"},
     ]
     _voluntary_event   = threading.Event()
     _shutdown_verified = threading.Event()
@@ -2078,7 +2079,7 @@ if __name__ == "__main__":
         logger.info(f"Tâches planifiées actives: {len(schedule.jobs)}")
 
         # === BOUCLE PRINCIPALE ===
-        # C-04: Handler SIGTERM/SIGINT pour graceful shutdown (PM2, taskkill, systemd, Ctrl+C)
+        # C-04: Handler SIGTERM/SIGINT pour graceful shutdown (taskkill, Ctrl+C)
         # P3-01: remplacement des closures fragiles par threading.Event
         _shutdown_event     = threading.Event()   # set → le main-loop s'arrête
         _voluntary_event    = threading.Event()   # set → CTRL+C → pas d'email

@@ -91,7 +91,7 @@ _api_rate_limiter = _TokenBucket(rate=18.0, capacity=18.0)
 
 # ─── Circuit breaker (TS-P2-01) ───────────────────────────────────────────────────────
 # Quarantaine temporaire de l'API Binance après N échecs réseau consécutifs.
-# Évite la saturation des workers PM2 pendant un outage prolongé (429/503).
+# Évite la saturation des workers pendant un outage prolongé (429/503).
 # Utilise un dict mutable pour éviter les déclarations `global` dans les méthodes.
 _circuit_state: Dict[str, Any] = {'failure_count': 0, 'open_until': 0.0}
 _circuit_lock = threading.Lock()

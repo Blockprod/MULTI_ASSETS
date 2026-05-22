@@ -429,6 +429,7 @@ def run_walk_forward_validation(
     backtest_fn: Callable,
     initial_capital: float = 10000.0,
     sizing_mode: str = 'risk',
+    leverage: float = 1.0,  # Forex levier (1.0 = crypto spot, 20.0 = IBKR Forex)
     top_n: int = 15,
     n_folds: int = 4,
     initial_train_pct: float = 0.40,
@@ -584,6 +585,7 @@ def run_walk_forward_validation(
                 trix_length=s_params.get('trix_length'),
                 trix_signal=s_params.get('trix_signal'),
                 sizing_mode=sizing_mode,
+                leverage=leverage,
                 periods_per_year=ppy,
             )
 
@@ -595,6 +597,7 @@ def run_walk_forward_validation(
                 trix_length=s_params.get('trix_length'),
                 trix_signal=s_params.get('trix_signal'),
                 sizing_mode=sizing_mode,
+                leverage=leverage,
                 periods_per_year=ppy,
                 slippage_model=_oos_slippage,  # P2-02: slippage stochastique OOS uniquement
             )
@@ -665,10 +668,11 @@ def run_walk_forward_validation(
         # P1-WF: Ne PAS retourner un "meilleur" non-validé — retourner None
         # pour forcer le caller à utiliser des paramètres conservatifs par défaut.
         best = None
+        _rt_sharpe_min, _rt_wr_min = _get_oos_thresholds()
         logger.warning(
             "⚠ No config passed OOS gates (Sharpe > %.1f & WR > %.0f%%). "
             "Returning best_wf_config=None — caller should use conservative defaults.",
-            OOS_SHARPE_MIN, OOS_WIN_RATE_MIN,
+            _rt_sharpe_min, _rt_wr_min,
         )
     else:
         best = None

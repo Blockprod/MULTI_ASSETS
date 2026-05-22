@@ -2,11 +2,11 @@
 
 ## Vue d'ensemble
 
-MULTI_ASSETS est un bot de trading algorithmique multi-paires fonctionnant sur **Binance Spot** (quote USDC uniquement). Il tourne 24/7 sur Windows, supervisé par PM2 + un watchdog Python interne. Le cycle de trading est **synchrone et horaire** (1 bougie 1h = 1 décision).
+MULTI_ASSETS est un bot de trading algorithmique multi-paires fonctionnant sur **Binance Spot** (quote USDC uniquement). Il tourne 24/7 sur Windows, supervisé par un watchdog Python interne. Le cycle de trading est **synchrone et horaire** (1 bougie 1h = 1 décision).
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        PM2 / Watchdog                        │
+│                          Watchdog                            │
 │   ┌─────────────────────────────────────────────────────┐   │
 │   │                   MULTI_SYMBOLS.py                   │   │
 │   │   (orchestrateur principal — boucle scheduler)       │   │
@@ -166,8 +166,7 @@ email_utils.py ──► SMTP Gmail (alertes critiques)
 
 | Composant | Rôle | Config |
 |-----------|------|--------|
-| PM2 | Supervisor de processus, redémarrage auto | `config/ecosystem.config.js` |
-| `watchdog.py` | Surveillance interne, re-spawn si crash | `schedule.every(30s).do(check_health)` |
+| `watchdog.py` | Surveillance et redémarrage auto si crash | `schedule.every(30s).do(check_health)` |
 | `heartbeat.json` | Preuve de vie du bot (horodatage) | `states/heartbeat.json` |
 | `.venv/` | Environnement Python isolé (3.13) | `requirements.txt` |
 | `code/bin/` | Modules Cython compilés `.pyd` | `config/setup.py` |
@@ -177,15 +176,8 @@ email_utils.py ──► SMTP Gmail (alertes critiques)
 
 ### Démarrage du bot
 ```powershell
-# Via PM2 (production)
-pm2 start config/ecosystem.config.js
-
-# Via script direct (debug)
+# Démarrage direct
 .venv\Scripts\python.exe code/src/MULTI_SYMBOLS.py
-
-# Vérification santé
-pm2 status
-pm2 logs multi-assets --lines 50
 ```
 
 ---
@@ -195,8 +187,8 @@ pm2 logs multi-assets --lines 50
 | Choix | Pourquoi |
 |-------|---------|
 | **Binance Spot, pas Futures** | Pas de levier, pas de liquidation, adapté au capital initial de 10K USDC |
-| **Scheduler synchrone, pas asyncio** | `python-binance` sync, PM2 gère la disponibilité, complexité réduite |
-| **Windows + PM2** | Environnement de l'opérateur, PM2 multiplatform disponible via Node.js |
+| **Scheduler synchrone, pas asyncio** | `python-binance` sync, watchdog gère la disponibilité, complexité réduite |
+| **Windows + watchdog.py** | Environnement de l'opérateur, watchdog Python natif sans dépendance Node.js |
 | **USDC uniquement (pas USDT)** | USDC = stablecoin réglementé, meilleure traçabilité fiscale |
 | **Bougie 1h** | Compromis signal/bruit : assez fréquent pour capturer les tendances, assez lent pour les frais |
 | **4 scénarios WF** | Diversification des modèles sans overfitting (StochRSI, +SMA200, +ADX, +TRIX) |

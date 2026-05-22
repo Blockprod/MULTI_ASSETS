@@ -10,12 +10,12 @@
 **Date** : 2024
 
 ### Contexte
-Le bot doit survivre aux redémarrages (PM2, watchdog, crash OS) sans perdre l'état des positions ouvertes ni les `sl_order_id`. Un état corrompu peut entraîner des achats en double ou un stop-loss fantôme.
+Le bot doit survivre aux redémarrages (watchdog, crash OS) sans perdre l'état des positions ouvertes ni les `sl_order_id`. Un état corrompu peut entraîner des achats en double ou un stop-loss fantôme.
 
 ### Alternatives évaluées
 | Option | Évalué | Rejeté car |
 |--------|--------|-----------|
-| SQLite | Oui | Verrouillage fichier incompatible avec PM2 multi-process |
+| SQLite | Oui | Verrouillage fichier incompatible avec accès multi-thread |
 | Redis | Oui | Dépendance externe, complexité opérationnelle sur Windows |
 | Pickle Python | Oui | Pas de détection de corruption, vulnérable à l'injection |
 | JSON brut | Oui | Aucune protection contre la modification manuelle silencieuse |

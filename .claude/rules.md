@@ -57,7 +57,6 @@ Inclure 3-5 lignes de contexte autour du changement.
 - Les tests de state doivent vérifier l'intégrité HMAC post-sauvegarde
 
 ## Règles de déploiement (ne pas faire sans confirmation)
-- `git push` ou modification de `config/ecosystem.config.js`
+- `git push`
 - Modification du `.env` de production
-- `pm2 restart` ou `pm2 delete`
 - Modification de `states/bot_state.json` directement

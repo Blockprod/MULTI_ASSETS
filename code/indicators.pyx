@@ -289,8 +289,9 @@ def calculate_indicators(
             trix_histo[i] = np.nan
 
     # Création sécurisée du DataFrame résultat avec données disponibles
-    # Utiliser np.array() (copie) plutôt que .values (vue) pour éviter
-    # le ChainedAssignmentError pandas 2.2 Copy-on-Write.
+    # Passer l'index directement au constructeur pour éviter ChainedAssignmentError
+    # Pandas 3.0 CoW : result_df.index = df.index après création marque result_df
+    # comme "copy" → les __setitem__ suivants déclenchent le warning.
     try:
         result_data = {
             'high': np.array(df['high'], dtype=np.float64),
@@ -306,12 +307,10 @@ def calculate_indicators(
         # Ajouter 'open' seulement si disponible
         if 'open' in df.columns:
             result_data['open'] = np.array(df['open'], dtype=np.float64)
-            
-        result_df = pd.DataFrame(result_data)
-        
-        # Restaurer l'index si possible
-        if len(result_df) == len(df):
-            result_df.index = df.index
+
+        # Index passé au constructeur — évite le post-assignment qui pollue CoW
+        _index = df.index if len(df) == len(ema1) else None
+        result_df = pd.DataFrame(result_data, index=_index)
     except Exception as e:
         raise ValueError(f"Erreur création DataFrame résultat: {e}")
     # Ajout des indicateurs optionnels

@@ -81,7 +81,8 @@ def backtest_from_dataframe_fast(
     double breakeven_trigger_pct=0.015,
     int cooldown_candles=0,
     np.ndarray[DTYPE_t, ndim=1] mtf_bullish=None,
-    bint use_mtf_filter=False
+    bint use_mtf_filter=False,
+    double leverage=1.0         # Forex levier : max_affordable *= leverage (1.0 = crypto spot)
 ) -> dict:
     """
     Moteur de backtest standard pour MULTI_SYMBOLS.py
@@ -193,7 +194,10 @@ def backtest_from_dataframe_fast(
                     if not position.partial_taken_1 and profit_pct >= partial_threshold_1:
                         partial_qty = coin * partial_pct_1
                         if partial_qty * current_price >= min_notional:
-                            partial_proceeds = partial_qty * current_price * (1.0 - taker_fee)
+                            if leverage > 1.0:
+                                partial_proceeds = partial_qty * (current_price - position.entry_price) - partial_qty * current_price * taker_fee
+                            else:
+                                partial_proceeds = partial_qty * current_price * (1.0 - taker_fee)
                             usd = usd + partial_proceeds
                             coin = coin - partial_qty
                             trades.append({
@@ -209,7 +213,10 @@ def backtest_from_dataframe_fast(
                     if not position.partial_taken_2 and profit_pct >= partial_threshold_2 and coin > 0:
                         partial_qty = coin * partial_pct_2
                         if partial_qty * current_price >= min_notional:
-                            partial_proceeds = partial_qty * current_price * (1.0 - taker_fee)
+                            if leverage > 1.0:
+                                partial_proceeds = partial_qty * (current_price - position.entry_price) - partial_qty * current_price * taker_fee
+                            else:
+                                partial_proceeds = partial_qty * current_price * (1.0 - taker_fee)
                             usd = usd + partial_proceeds
                             coin = coin - partial_qty
                             trades.append({
@@ -245,9 +252,16 @@ def backtest_from_dataframe_fast(
                     fill_price = open_prices[i + 1] * (1.0 - slippage_sell)
                 else:
                     fill_price = current_price * (1.0 - slippage_sell)
-                gross_proceeds = coin * fill_price
-                fee = gross_proceeds * taker_fee
-                usd = usd + (gross_proceeds - fee)
+                if leverage > 1.0:
+                    # Forex avec levier : usd = marge + P&L - fee
+                    # usd contient déjà les partial P&L éventuels (= 0 si aucun partial)
+                    pnl = coin * (fill_price - position.entry_price)
+                    fee = coin * fill_price * taker_fee
+                    usd = position.entry_usd_invested + usd + pnl - fee
+                else:
+                    gross_proceeds = coin * fill_price
+                    fee = gross_proceeds * taker_fee
+                    usd = usd + (gross_proceeds - fee)
                 coin = 0.0
 
                 trade_profit = usd - position.entry_usd_invested
@@ -341,7 +355,12 @@ def backtest_from_dataframe_fast(
                     if stop_distance > 0:
                         risk_amount = usd * risk_per_trade
                         qty_by_risk = risk_amount / stop_distance
-                        max_affordable = (usd * 0.98) / fill_price
+                        if leverage > 1.0:
+                            # Forex avec levier : max_affordable doit dépasser qty_by_risk
+                            max_affordable = (usd * leverage) / fill_price
+                        else:
+                            # Crypto spot : limité à 98% du capital disponible
+                            max_affordable = (usd * 0.98) / fill_price
                         gross_coin = fmin(max_affordable, qty_by_risk)
                     else:
                         gross_coin = (usd * 0.98) / fill_price

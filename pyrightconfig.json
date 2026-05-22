@@ -1,7 +1,8 @@
 {
   "extraPaths": [
     "./code/bin",
-    "./code/src"
+    "./code/src",
+    "./code/src/ibkr"
   ],
   "include": [
     "code/src",

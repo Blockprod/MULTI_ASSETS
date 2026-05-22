@@ -258,16 +258,22 @@ def calculate_indicators(
         # C-14: Deleguer au moteur Cython centralise quand disponible.
         if CYTHON_INDICATORS_AVAILABLE and _cython_indicators is not None:
             try:
-                df_cython = _cython_indicators.calculate_indicators(
-                    df.copy(),
-                    ema1_period,
-                    ema2_period,
-                    stoch_period,
-                    sma_long or 0,
-                    adx_period or 0,
-                    trix_length or 0,
-                    trix_signal or 0,
-                )
+                import warnings as _warnings
+                with _warnings.catch_warnings():
+                    _warnings.filterwarnings(
+                        "ignore",
+                        category=getattr(pd.errors, "ChainedAssignmentError", UserWarning),
+                    )
+                    df_cython = _cython_indicators.calculate_indicators(
+                        df.copy(),
+                        ema1_period,
+                        ema2_period,
+                        stoch_period,
+                        sma_long or 0,
+                        adx_period or 0,
+                        trix_length or 0,
+                        trix_signal or 0,
+                    )
                 if df_cython is not None and not df_cython.empty:
                     try:
                         with _indicators_cache_lock:

@@ -5,6 +5,7 @@ env/
 
 # Variables d'environnement (API keys, secrets)
 .env
+.env.ibkr
 
 # Python cache
 __pycache__/

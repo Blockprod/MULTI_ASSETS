@@ -18,7 +18,7 @@
 - **Python 3.13** · Binance **Spot uniquement** (pas Futures) · Pandas 3.0 / NumPy 2.4
 - Quote currency: **USDC** (jamais USDT) sur toutes les paires
 - Venv: `.venv/` · Tests: `pytest` depuis `c:\Users\averr\MULTI_ASSETS`
-- PM2 + `code/src/watchdog.py` assurent la continuité de service
+- `code/src/watchdog.py` assure la continuité de service
 
 ## Structure
 ```

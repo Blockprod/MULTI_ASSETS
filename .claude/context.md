@@ -82,7 +82,6 @@ bot_state = {
 - Séquence de protection : `daily_loss_limit` → `oos_blocked` → `emergency_halt`
 
 ## Infrastructure de déploiement
-- **Windows** : PM2 (`config/ecosystem.config.js`) + watchdog Python
+- **Windows** : watchdog Python (`code/src/watchdog.py`)
 - Heartbeat : `states/heartbeat.json` (fraîcheur < 10 minutes)
-- Logs rotatifs : `code/logs/` (PM2) + `trading_bot.log` (Python logging)
-- Max 5 restarts/heure, min 30s uptime pour compter comme démarrage réussi
+- Logs rotatifs : `code/logs/` + `trading_bot.log` (Python logging)

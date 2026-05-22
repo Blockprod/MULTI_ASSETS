@@ -164,6 +164,7 @@ def backtest_from_dataframe(
     stoch_buy_min_override: Optional[float] = None,   # grid search — override config
     stoch_buy_max_override: Optional[float] = None,   # grid search — override config
     stoch_sell_exit_override: Optional[float] = None, # grid search — override config
+    leverage: float = 1.0,  # Forex levier (1.0 = crypto spot, 20.0 = IBKR Forex)
     **_kwargs: Any,
 ) -> Dict[str, Any]:
     """Exécute un backtest à partir d'un DataFrame préparé.
@@ -283,6 +284,9 @@ def backtest_from_dataframe(
                 _cy_stoch_buy_min   = stoch_buy_min_override   if stoch_buy_min_override   is not None else config.stoch_rsi_buy_min
                 _cy_stoch_sell_exit = stoch_sell_exit_override if stoch_sell_exit_override is not None else config.stoch_rsi_sell_exit
 
+                # Leverage kwarg : uniquement pour les nouveaux .pyd (Forex) — backward-compatible
+                _leverage_kw: Dict[str, Any] = {} if leverage == 1.0 else {'leverage': leverage}
+
                 result = backtest_engine.backtest_from_dataframe_fast(
                     df_work['close'].to_numpy(dtype=np.float64),
                     df_work['high'].to_numpy(dtype=np.float64),
@@ -350,6 +354,7 @@ def backtest_from_dataframe(
                     cooldown_candles=getattr(config, 'stop_loss_cooldown_candles', 0),
                     mtf_bullish=_mtf_bullish if _use_mtf and _mtf_bullish is not None else None,
                     use_mtf_filter=_use_mtf and _mtf_bullish is not None,
+                    **_leverage_kw,
                 )
                 _cython_result = {
                     'final_wallet': result['final_wallet'],
@@ -409,10 +414,18 @@ def backtest_from_dataframe(
                     logger.debug("[backtest_runner] compute_risk_metrics Cython a échoué: %s", _exc)
                 return _cython_result
             except Exception as e:
+                _is_leverage_err = isinstance(e, TypeError) and 'leverage' in str(e)
                 logger.warning(
                     f"Cython backtest failed, using Python fallback: {e}"
                 )
-                traceback.print_exc()
+                if _is_leverage_err:
+                    logger.info(
+                        "[backtest_runner] .pyd sans paramètre 'leverage' — "
+                        "déployer code/bin/backtest_engine_standard.cp311-win_amd64.pyd "
+                        "(depuis config/build/) puis redémarrer le bot pour activer Cython+levier."
+                    )
+                else:
+                    traceback.print_exc()
 
         # === PYTHON FALLBACK ===
         df_work = df.copy()
@@ -631,9 +644,15 @@ def backtest_from_dataframe(
                     if slippage_model is not None:
                         _vr = float(_vol_rank_arr[i]) if _vol_rank_arr is not None else 0.5
                         optimized_exit_price = optimized_exit_price * slippage_model.sell_factor(_vr)
-                    gross_proceeds = coin * optimized_exit_price
-                    fee = gross_proceeds * config.backtest_taker_fee
-                    usd = usd + (gross_proceeds - fee)
+                    if leverage > 1.0:
+                        # Forex avec levier : marge + P&L - fee (pas le notionnel complet)
+                        pnl = coin * (optimized_exit_price - entry_price)
+                        sell_fee = coin * optimized_exit_price * config.backtest_taker_fee
+                        usd = entry_usd_invested + pnl - sell_fee
+                    else:
+                        gross_proceeds = coin * optimized_exit_price
+                        fee = gross_proceeds * config.backtest_taker_fee
+                        usd = usd + (gross_proceeds - fee)
                     coin = 0.0
                     trade_profit = usd - entry_usd_invested
                     # Correction post-exit : l'exit se fait à open[i+1], pas close[i].
@@ -732,7 +751,10 @@ def backtest_from_dataframe(
                     if stop_distance > 0:
                         risk_amount = usd * config.risk_per_trade
                         qty_by_risk = risk_amount / stop_distance
-                        max_affordable = (usd * 0.98) / optimized_price
+                        if leverage > 1.0:
+                            max_affordable = (usd * leverage) / optimized_price
+                        else:
+                            max_affordable = (usd * 0.98) / optimized_price
                         gross_coin = min(max_affordable, qty_by_risk)
                     else:
                         gross_coin = (usd * 0.98) / optimized_price if optimized_price > 0 else 0.0
@@ -879,11 +901,15 @@ def run_single_backtest_optimized(args: Tuple[Any, ...]) -> Dict[str, Any]:
     if len(args) == 6:
         (timeframe, ema1, ema2, scenario, base_df, _pair_symbol) = args
         sizing_mode = 'risk'  # B-2: risk-based sizing
-    else:
+        leverage = 1.0
+    elif len(args) == 7:
         _args7 = cast(
             'Tuple[Any, Any, Any, Any, Any, Any, Any]', args
         )
         (timeframe, ema1, ema2, scenario, base_df, pair_symbol, sizing_mode) = _args7
+        leverage = 1.0
+    else:
+        (timeframe, ema1, ema2, scenario, base_df, pair_symbol, sizing_mode, leverage) = args[:8]  # type: ignore[misc]
     try:
         result = backtest_from_dataframe(
             df=base_df,
@@ -894,6 +920,7 @@ def run_single_backtest_optimized(args: Tuple[Any, ...]) -> Dict[str, Any]:
             trix_length=scenario['params'].get('trix_length'),
             trix_signal=scenario['params'].get('trix_signal'),
             sizing_mode=sizing_mode,
+            leverage=leverage,
         )
         return {
             'timeframe': timeframe,
@@ -918,6 +945,7 @@ def run_all_backtests(
     start_date: str,
     timeframes: List[str],
     sizing_mode: str = 'risk',  # B-2: risk-based sizing
+    leverage: float = 1.0,      # Forex levier (1.0 = crypto spot, 20.0 = IBKR Forex)
     *,
     prepare_base_dataframe_fn: Optional[Callable[..., Optional[pd.DataFrame]]] = None,
 ) -> List[Dict[str, Any]]:
@@ -1036,7 +1064,7 @@ def run_all_backtests(
         for ema1, ema2 in ema_periods_unique:
             for scenario in scenarios:
                 tasks.append(
-                    (timeframe, ema1, ema2, scenario, is_df, backtest_pair, sizing_mode)
+                    (timeframe, ema1, ema2, scenario, is_df, backtest_pair, sizing_mode, leverage)
                 )
 
     with ThreadPoolExecutor(max_workers=config.max_workers) as executor:

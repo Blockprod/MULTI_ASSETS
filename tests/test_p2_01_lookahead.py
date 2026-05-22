@@ -417,7 +417,7 @@ class TestISIndicatorIsolation:
         captured_is_dfs = []
 
         def fake_run_single(task):
-            tf, e1, e2, scenario, is_df_arg, bp, sm = task
+            tf, e1, e2, scenario, is_df_arg, bp, sm = task[:7]  # 7 or 8-tuple (leverage ajouté)
             captured_is_dfs.append(is_df_arg.copy())
             return {
                 'scenario': scenario['name'], 'timeframe': tf,

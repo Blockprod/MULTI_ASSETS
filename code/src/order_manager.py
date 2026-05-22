@@ -318,6 +318,25 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                 )
             except Exception as _trail_err:
                 logger.warning("[TRAILING] Email activation impossible: %s", _trail_err)
+            # Journal de trading — trailing stop activé
+            try:
+                _trail_logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+                log_trade(
+                    logs_dir=_trail_logs_dir,
+                    pair=ctx.real_trading_pair,
+                    side='trail_activated',
+                    quantity=ctx.coin_balance,
+                    price=ctx.current_price if ctx.current_price is not None else 0.0,
+                    stop_price=ps.get('trailing_stop'),
+                    scenario=ctx.scenario,
+                    timeframe=ctx.time_interval,
+                    extra={
+                        'activation_price': trailing_activation_price,
+                        'initial_trailing_stop': ps.get('trailing_stop'),
+                    },
+                )
+            except Exception as _trail_j_err:
+                logger.warning("[TRAILING] Journal impossible: %s", _trail_j_err)
 
     # Mise à jour du trailing stop SI activé
     if trailing_activated and atr_at_entry is not None and max_price is not None:
@@ -424,6 +443,22 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                     )
                 except Exception as _be_err:
                     logger.warning("[BREAKEVEN] Email activation impossible: %s", _be_err)
+                # Journal de trading — événement breakeven
+                try:
+                    _be_logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+                    log_trade(
+                        logs_dir=_be_logs_dir,
+                        pair=ctx.real_trading_pair,
+                        side='breakeven',
+                        quantity=ctx.coin_balance,
+                        price=entry_price,
+                        stop_price=float(_be_new_stop),
+                        scenario=ctx.scenario,
+                        timeframe=ctx.time_interval,
+                        extra={'new_sl': float(_be_new_stop), 'profit_pct': round(_be_profit * 100, 2)},
+                    )
+                except Exception as _be_j_err:
+                    logger.warning("[BREAKEVEN] Journal impossible: %s", _be_j_err)
                 deps.save_fn()
 
     ps.update({

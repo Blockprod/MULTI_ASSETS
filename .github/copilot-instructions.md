@@ -4,7 +4,7 @@
 - **Python 3.11.9** · Binance **Spot uniquement** (pas Futures) · Pandas 3.0 / NumPy 2.4
 - Quote currency: **USDC** (jamais USDT) sur toutes les paires
 - Venv: `.venv/` · Tests: `pytest tests/ -x -q` (depuis la racine du repo)
-- PM2 + `code/src/watchdog.py` assurent la continuité de service
+- `code/src/watchdog.py` assure la continuité de service
 
 ## Structure
 ```
@@ -13,7 +13,7 @@ code/bin/      ← .pyd Cython compilés (backtest_engine_standard, indicators)
 states/        ← bot_state.json (JSON_V1 + HMAC-SHA256)
 cache/         ← cache OHLCV pickle (TTL 30 jours)
 tests/         ← pytest (590 tests, 25 fichiers)
-config/        ← ecosystem.config.js (PM2)
+config/        ← fichiers de configuration
 ```
 
 ## Config & Credentials
