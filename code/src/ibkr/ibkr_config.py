@@ -46,6 +46,24 @@ class IBKRConfig:
         self.max_leverage: float = 20.0           # IBKR Forex retail (20:1 EUR/USD)
         self.daily_loss_limit_pct: float = 0.05   # 5% = 500€/j
 
+        # ─── Trailing stop & partials ─────────────────────────────────────
+        self.atr_multiplier_sl: float = 3.0               # SL initial = entry ± 3×ATR
+        self.atr_multiplier_trailing: float = 8.0          # Distance trailing = 8×ATR
+        self.trailing_activation_multiplier: float = 8.0   # Activation trailing = entry ± 8×ATR
+        self.breakeven_pct: float = 0.01                   # Breakeven à +1%
+        self.partial_threshold_1: float = 0.02             # 1er partiel à +2%
+        self.partial_threshold_2: float = 0.04             # 2e partiel à +4%
+        self.partial_pct_1: float = 0.50                   # Vendre 50% au 1er partiel
+        self.partial_pct_2: float = 0.30                   # Vendre 30% au 2e partiel
+
+        # ─── Signaux stochastique ────────────────────────────────────────────
+        self.stoch_rsi_sell_exit: float = 0.40             # Sortie LONG si stoch > 0.40
+        self.stoch_rsi_short_entry: float = 0.80           # Entrée SHORT si stoch > 0.80
+        self.stoch_rsi_cover_exit: float = 0.20            # Sortie SHORT si stoch < 0.20
+
+        # ─── Short selling ───────────────────────────────────────────────────
+        self.allow_short: bool = True                      # SHORT activé sur IBKR Forex
+
         # ─── Cycle ───────────────────────────────────────────────────────
         self.schedule_interval_minutes: int = 60  # Cycle Forex 1h
 
@@ -111,6 +129,24 @@ class IBKRConfig:
         cfg.daily_loss_limit_pct = float(
             os.environ.get("IBKR_DAILY_LOSS_LIMIT_PCT", "0.05")
         )
+
+        # Trailing stop & partials
+        cfg.atr_multiplier_sl = float(os.environ.get("IBKR_ATR_SL", "3.0"))
+        cfg.atr_multiplier_trailing = float(os.environ.get("IBKR_ATR_TRAILING", "8.0"))
+        cfg.trailing_activation_multiplier = float(os.environ.get("IBKR_TRAILING_ACTIVATION", "8.0"))
+        cfg.breakeven_pct = float(os.environ.get("IBKR_BREAKEVEN_PCT", "0.01"))
+        cfg.partial_threshold_1 = float(os.environ.get("IBKR_PARTIAL_THRESHOLD_1", "0.02"))
+        cfg.partial_threshold_2 = float(os.environ.get("IBKR_PARTIAL_THRESHOLD_2", "0.04"))
+        cfg.partial_pct_1 = float(os.environ.get("IBKR_PARTIAL_PCT_1", "0.50"))
+        cfg.partial_pct_2 = float(os.environ.get("IBKR_PARTIAL_PCT_2", "0.30"))
+
+        # Signaux stochastique
+        cfg.stoch_rsi_sell_exit = float(os.environ.get("IBKR_STOCH_SELL_EXIT", "0.40"))
+        cfg.stoch_rsi_short_entry = float(os.environ.get("IBKR_STOCH_SHORT_ENTRY", "0.80"))
+        cfg.stoch_rsi_cover_exit = float(os.environ.get("IBKR_STOCH_COVER_EXIT", "0.20"))
+
+        # Short selling
+        cfg.allow_short = os.environ.get("IBKR_ALLOW_SHORT", "true").lower() == "true"
 
         # Cycle
         cfg.schedule_interval_minutes = int(

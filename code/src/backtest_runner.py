@@ -131,8 +131,12 @@ def _compute_mtf_bullish(df_1h: pd.DataFrame, ema_fast: int, ema_slow: int) -> n
 # --- Cython Backtest Engine Import -------------------------------------------
 
 _BIN_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'bin'))
+_BUILD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if _BIN_DIR not in sys.path:
     sys.path.insert(0, _BIN_DIR)
+# Prioritize --inplace build output over code/bin (handles locked .pyd on Windows)
+if _BUILD_DIR not in sys.path:
+    sys.path.insert(0, _BUILD_DIR)
 
 import types as _bt_types
 backtest_engine: Optional[_bt_types.ModuleType] = None
@@ -165,6 +169,7 @@ def backtest_from_dataframe(
     stoch_buy_max_override: Optional[float] = None,   # grid search — override config
     stoch_sell_exit_override: Optional[float] = None, # grid search — override config
     leverage: float = 1.0,  # Forex levier (1.0 = crypto spot, 20.0 = IBKR Forex)
+    allow_short: bool = False,  # Activer les positions SHORT (IBKR uniquement)
     **_kwargs: Any,
 ) -> Dict[str, Any]:
     """Exécute un backtest à partir d'un DataFrame préparé.
@@ -286,6 +291,7 @@ def backtest_from_dataframe(
 
                 # Leverage kwarg : uniquement pour les nouveaux .pyd (Forex) — backward-compatible
                 _leverage_kw: Dict[str, Any] = {} if leverage == 1.0 else {'leverage': leverage}
+                _allow_short_kw: Dict[str, Any] = {} if not allow_short else {'allow_short': allow_short}
 
                 result = backtest_engine.backtest_from_dataframe_fast(
                     df_work['close'].to_numpy(dtype=np.float64),
@@ -355,6 +361,7 @@ def backtest_from_dataframe(
                     mtf_bullish=_mtf_bullish if _use_mtf and _mtf_bullish is not None else None,
                     use_mtf_filter=_use_mtf and _mtf_bullish is not None,
                     **_leverage_kw,
+                    **_allow_short_kw,
                 )
                 _cython_result = {
                     'final_wallet': result['final_wallet'],
@@ -902,14 +909,19 @@ def run_single_backtest_optimized(args: Tuple[Any, ...]) -> Dict[str, Any]:
         (timeframe, ema1, ema2, scenario, base_df, _pair_symbol) = args
         sizing_mode = 'risk'  # B-2: risk-based sizing
         leverage = 1.0
+        allow_short = False
     elif len(args) == 7:
         _args7 = cast(
             'Tuple[Any, Any, Any, Any, Any, Any, Any]', args
         )
         (timeframe, ema1, ema2, scenario, base_df, pair_symbol, sizing_mode) = _args7
         leverage = 1.0
-    else:
+        allow_short = False
+    elif len(args) == 8:
         (timeframe, ema1, ema2, scenario, base_df, pair_symbol, sizing_mode, leverage) = args[:8]  # type: ignore[misc]
+        allow_short = False
+    else:
+        (timeframe, ema1, ema2, scenario, base_df, pair_symbol, sizing_mode, leverage, allow_short) = args[:9]  # type: ignore[misc]
     try:
         result = backtest_from_dataframe(
             df=base_df,
@@ -923,6 +935,7 @@ def run_single_backtest_optimized(args: Tuple[Any, ...]) -> Dict[str, Any]:
             stoch_buy_min_override=scenario['params'].get('stoch_buy_min'),
             sizing_mode=sizing_mode,
             leverage=leverage,
+            allow_short=allow_short,
         )
         return {
             'timeframe': timeframe,
@@ -948,6 +961,7 @@ def run_all_backtests(
     timeframes: List[str],
     sizing_mode: str = 'risk',  # B-2: risk-based sizing
     leverage: float = 1.0,      # Forex levier (1.0 = crypto spot, 20.0 = IBKR Forex)
+    allow_short: bool = False,  # Activer les positions SHORT (IBKR uniquement, défaut False = Binance inchangé)
     *,
     prepare_base_dataframe_fn: Optional[Callable[..., Optional[pd.DataFrame]]] = None,
 ) -> List[Dict[str, Any]]:
@@ -1070,7 +1084,7 @@ def run_all_backtests(
         for ema1, ema2 in ema_periods_unique:
             for scenario in scenarios:
                 tasks.append(
-                    (timeframe, ema1, ema2, scenario, is_df, backtest_pair, sizing_mode, leverage)
+                    (timeframe, ema1, ema2, scenario, is_df, backtest_pair, sizing_mode, leverage, allow_short)
                 )
 
     with ThreadPoolExecutor(max_workers=config.max_workers) as executor:

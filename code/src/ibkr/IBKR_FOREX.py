@@ -91,6 +91,7 @@ from ibkr_state_manager import (                                         # noqa:
 from ibkr_order_manager_forex import (                                   # noqa: E402
     safe_forex_buy, safe_forex_sell, place_forex_stop_loss,
     cancel_forex_order, get_current_price, get_account_nav,
+    safe_forex_short_open, place_forex_stop_buy, safe_forex_cover,
 )
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
@@ -179,10 +180,19 @@ def _ensure_pair_state(pair: str) -> None:
                 "trailing_stop_activated": False,
                 "trailing_stop": None,
                 "max_price": None,
+                "min_price": None,
                 "partial_taken_1": False,
                 "partial_taken_2": False,
                 "buy_timestamp": 0.0,
+                "breakeven_activated": False,
             }
+        else:
+            # Rétro-compat : ajouter les champs manquants pour les états existants
+            ps = bot_state[pair]
+            if "min_price" not in ps:
+                ps["min_price"] = None
+            if "breakeven_activated" not in ps:
+                ps["breakeven_activated"] = False
 
 
 def _save_state(ibkr_config: IBKRConfig, *, force: bool = False) -> None:
@@ -285,6 +295,7 @@ def _select_best_scenario(
             pair, start_date, timeframes,
             sizing_mode="risk",
             leverage=ibkr_cfg.max_leverage,
+            allow_short=ibkr_cfg.allow_short,
             prepare_base_dataframe_fn=prepare_fn,
         )
     except Exception as exc:
@@ -407,6 +418,80 @@ def _check_ibkr_buy_signal(
 def _ok_mark(cond: bool) -> str:
     """✔ vert / ✘ rouge pour les panneaux Rich."""
     return "[bold green]\u2714 OK[/bold green]" if cond else "[bold red]\u2718 NOK[/bold red]"
+
+
+def _check_ibkr_sell_signal(
+    last: "Any",
+    scenario: str,
+    ibkr_cfg: "IBKRConfig",
+) -> "Tuple[bool, str]":
+    """Évalue la condition de sortie LONG (stoch > sell_exit seuil).
+
+    Retourne (signal_valide, raison_détaillée).
+    """
+    stoch = float(last.get("stoch_rsi", 0.0) or 0.0)
+    threshold = ibkr_cfg.stoch_rsi_sell_exit
+
+    if stoch > threshold:
+        return True, f"[OK] StochRSI ({stoch:.3f}) > {threshold:.2f} — sortie LONG"
+    return False, f"StochRSI ({stoch:.3f}) \u2264 {threshold:.2f} — maintien LONG"
+
+
+def _check_ibkr_short_signal(
+    last: "Any",
+    scenario: str,
+    current_price: float,
+    ibkr_cfg: "IBKRConfig",
+) -> "Tuple[bool, str]":
+    """Évalue les conditions d'entrée SHORT Forex — miroir inversé du signal BUY.
+
+    Signaux requis : EMA1 < EMA2 (tendance baissière) ET stoch > 0.80
+    (surachat, retournement attendu à la baisse) + filtres scénario inversés.
+
+    Retourne (signal_valide, raison_détaillée).
+    """
+    ema1 = float(last.get("ema1", 0.0) or 0.0)
+    ema2 = float(last.get("ema2", 0.0) or 0.0)
+    stoch = float(last.get("stoch_rsi", 0.0) or 0.0)
+    threshold = ibkr_cfg.stoch_rsi_short_entry
+
+    if not (ema1 < ema2):
+        return False, f"EMA1 ({ema1:.5f}) \u2265 EMA2 ({ema2:.5f}) — pas baissier"
+    if not (stoch > threshold):
+        return False, f"StochRSI ({stoch:.3f}) \u2264 {threshold:.2f} (pas en surachat)"
+
+    if scenario == "StochRSI_SMA":
+        sma_long = last.get("sma_long")
+        if sma_long is not None and current_price > float(sma_long):
+            return False, f"Prix ({current_price:.5f}) > SMA200 ({float(sma_long):.5f}) — filtre haussier"
+    if scenario == "StochRSI_ADX":
+        adx = float(last.get("adx", 0.0) or 0.0)
+        if adx < 25.0:
+            return False, f"ADX ({adx:.2f}) < 25 — tendance trop faible"
+    if scenario == "StochRSI_TRIX":
+        trix_histo = last.get("TRIX_HISTO")
+        trix_val = float(trix_histo) if trix_histo is not None else float("nan")
+        if trix_histo is None or trix_val >= 0:
+            return False, f"TRIX_HISTO ({trix_val:.5f}) \u2265 0 — pas baissier"
+
+    return True, "[OK] Signal SHORT valide"
+
+
+def _check_ibkr_cover_signal(
+    last: "Any",
+    scenario: str,
+    ibkr_cfg: "IBKRConfig",
+) -> "Tuple[bool, str]":
+    """Évalue la condition de rachat SHORT (cover) : stoch < cover_exit seuil.
+
+    Retourne (signal_valide, raison_détaillée).
+    """
+    stoch = float(last.get("stoch_rsi", 1.0) or 1.0)
+    threshold = ibkr_cfg.stoch_rsi_cover_exit
+
+    if stoch < threshold:
+        return True, f"[OK] StochRSI ({stoch:.3f}) < {threshold:.2f} — rachat SHORT"
+    return False, f"StochRSI ({stoch:.3f}) \u2265 {threshold:.2f} — maintien SHORT"
 
 
 def _display_ibkr_buy_panel(
@@ -676,6 +761,268 @@ def _display_ibkr_planning_panel(
         logger.debug("[IBKR] _display_ibkr_planning_panel erreur : %s", _err)
 
 
+# ─── Trailing stop ATR ────────────────────────────────────────────────────────
+
+def _update_ibkr_trailing_stop(
+    pair: str,
+    pair_state: "Dict[str, Any]",
+    current_price: float,
+    atr: float,
+    client: "IBKRForexClient",
+    ibkr_cfg: "IBKRConfig",
+) -> None:
+    """Met à jour le trailing stop ATR pour LONG et SHORT.
+
+    LONG : high-water mark (max_price), activation à +trailing_activation×ATR,
+           trailing = max_price - trailing×ATR, breakeven à +breakeven_pct.
+    SHORT: low-water mark (min_price), activation à -trailing_activation×ATR,
+           trailing = min_price + trailing×ATR.
+
+    Annule l'ancien SL exchange et en place un nouveau si le trailing bouge.
+    """
+    if atr <= 0 or current_price <= 0:
+        return
+
+    entry_price = float(pair_state.get("entry_price") or 0.0)
+    qty = float(pair_state.get("quantity") or 0.0)
+    if entry_price <= 0 or qty <= 0:
+        return
+
+    is_short = pair_state.get("last_order_side") == "SHORT"
+    trailing_dist = ibkr_cfg.atr_multiplier_trailing * atr
+    activation_dist = ibkr_cfg.trailing_activation_multiplier * atr
+    current_sl = float(pair_state.get("stop_loss") or 0.0)
+    old_sl_id = pair_state.get("sl_order_id")
+
+    if not is_short:
+        # ── LONG ──────────────────────────────────────────────────────────────
+        max_p = float(pair_state.get("max_price") or entry_price)
+        if current_price > max_p:
+            max_p = current_price
+            with _ibkr_state_lock:
+                pair_state["max_price"] = max_p
+
+        # Breakeven
+        if (not pair_state.get("breakeven_activated")
+                and current_price >= entry_price * (1 + ibkr_cfg.breakeven_pct)):
+            new_sl = entry_price
+            if new_sl > current_sl:
+                with _ibkr_state_lock:
+                    pair_state["breakeven_activated"] = True
+                    pair_state["stop_loss"] = new_sl
+                if old_sl_id:
+                    cancel_forex_order(client, pair, old_sl_id)
+                sl_result = place_forex_stop_loss(client, pair, qty, new_sl)
+                with _ibkr_state_lock:
+                    pair_state["sl_order_id"] = sl_result["sl_order_id"] if sl_result else None
+                    pair_state["sl_exchange_placed"] = sl_result is not None
+                logger.info("[IBKR] %s Breakeven SL → %.5f", pair, new_sl)
+
+        # Trailing activation
+        if current_price >= entry_price + activation_dist:
+            new_trailing = max_p - trailing_dist
+            if not pair_state.get("trailing_stop_activated") or new_trailing > (pair_state.get("trailing_stop") or 0.0):
+                with _ibkr_state_lock:
+                    pair_state["trailing_stop_activated"] = True
+                    pair_state["trailing_stop"] = new_trailing
+                    old_id = pair_state.get("sl_order_id")
+                    pair_state["stop_loss"] = new_trailing
+                if old_id:
+                    cancel_forex_order(client, pair, old_id)
+                sl_result = place_forex_stop_loss(client, pair, qty, new_trailing)
+                with _ibkr_state_lock:
+                    pair_state["sl_order_id"] = sl_result["sl_order_id"] if sl_result else None
+                    pair_state["sl_exchange_placed"] = sl_result is not None
+                logger.info("[IBKR] %s Trailing LONG SL → %.5f", pair, new_trailing)
+
+    else:
+        # ── SHORT ─────────────────────────────────────────────────────────────
+        min_p = float(pair_state.get("min_price") or entry_price)
+        if current_price < min_p:
+            min_p = current_price
+            with _ibkr_state_lock:
+                pair_state["min_price"] = min_p
+
+        # Trailing activation (below entry)
+        if current_price <= entry_price - activation_dist:
+            new_trailing = min_p + trailing_dist
+            cur_trailing = pair_state.get("trailing_stop") or float("inf")
+            if not pair_state.get("trailing_stop_activated") or new_trailing < cur_trailing:
+                with _ibkr_state_lock:
+                    pair_state["trailing_stop_activated"] = True
+                    pair_state["trailing_stop"] = new_trailing
+                    old_id = pair_state.get("sl_order_id")
+                    pair_state["stop_loss"] = new_trailing
+                if old_id:
+                    cancel_forex_order(client, pair, old_id)
+                sl_result = place_forex_stop_buy(client, pair, qty, new_trailing)
+                with _ibkr_state_lock:
+                    pair_state["sl_order_id"] = sl_result["sl_order_id"] if sl_result else None
+                    pair_state["sl_exchange_placed"] = sl_result is not None
+                logger.info("[IBKR] %s Trailing SHORT SL → %.5f", pair, new_trailing)
+
+
+# ─── Partiels ─────────────────────────────────────────────────────────────────
+
+def _execute_ibkr_partial_exit(
+    pair: str,
+    pair_state: "Dict[str, Any]",
+    current_price: float,
+    client: "IBKRForexClient",
+    ibkr_cfg: "IBKRConfig",
+) -> None:
+    """Exécute les sorties partielles (2 niveaux) pour LONG et SHORT.
+
+    Niveaux : partial_threshold_1 (défaut 2%) → vend partial_pct_1 (50%)
+              partial_threshold_2 (défaut 4%) → vend partial_pct_2 (30%)
+
+    Re-place le SL sur la quantité restante après chaque partiel.
+    """
+    entry_price = float(pair_state.get("entry_price") or 0.0)
+    qty = float(pair_state.get("quantity") or 0.0)
+    if entry_price <= 0 or qty <= 0 or current_price <= 0:
+        return
+
+    is_short = pair_state.get("last_order_side") == "SHORT"
+
+    if is_short:
+        profit_pct = (entry_price - current_price) / entry_price
+    else:
+        profit_pct = (current_price - entry_price) / entry_price
+
+    # 1er partiel
+    if (not pair_state.get("partial_taken_1")
+            and profit_pct >= ibkr_cfg.partial_threshold_1):
+        partial_qty = _round_to_lot_ibkr(qty * ibkr_cfg.partial_pct_1)
+        if partial_qty > 0:
+            if is_short:
+                result = safe_forex_cover(client, pair, partial_qty, reason="PARTIAL-1")
+            else:
+                result = safe_forex_sell(client, pair, partial_qty, reason="PARTIAL-1")
+            if result:
+                remaining_qty = qty - partial_qty
+                old_sl_id = pair_state.get("sl_order_id")
+                if old_sl_id:
+                    cancel_forex_order(client, pair, old_sl_id)
+                sl_price = float(pair_state.get("stop_loss") or 0.0)
+                if sl_price > 0 and remaining_qty > 0:
+                    if is_short:
+                        sl_result = place_forex_stop_buy(client, pair, remaining_qty, sl_price)
+                    else:
+                        sl_result = place_forex_stop_loss(client, pair, remaining_qty, sl_price)
+                    with _ibkr_state_lock:
+                        pair_state["sl_order_id"] = sl_result["sl_order_id"] if sl_result else None
+                with _ibkr_state_lock:
+                    pair_state["quantity"] = remaining_qty
+                    pair_state["partial_taken_1"] = True
+                logger.info(
+                    "[IBKR] %s PARTIAL-1 %.0f unités @%.5f (profit=%.2f%%)",
+                    pair, partial_qty, current_price, profit_pct * 100,
+                )
+
+    # 2e partiel
+    if (not pair_state.get("partial_taken_2")
+            and pair_state.get("partial_taken_1")
+            and profit_pct >= ibkr_cfg.partial_threshold_2):
+        qty_now = float(pair_state.get("quantity") or 0.0)
+        partial_qty = _round_to_lot_ibkr(qty_now * ibkr_cfg.partial_pct_2)
+        if partial_qty > 0:
+            if is_short:
+                result = safe_forex_cover(client, pair, partial_qty, reason="PARTIAL-2")
+            else:
+                result = safe_forex_sell(client, pair, partial_qty, reason="PARTIAL-2")
+            if result:
+                remaining_qty = qty_now - partial_qty
+                old_sl_id = pair_state.get("sl_order_id")
+                if old_sl_id:
+                    cancel_forex_order(client, pair, old_sl_id)
+                sl_price = float(pair_state.get("stop_loss") or 0.0)
+                if sl_price > 0 and remaining_qty > 0:
+                    if is_short:
+                        sl_result = place_forex_stop_buy(client, pair, remaining_qty, sl_price)
+                    else:
+                        sl_result = place_forex_stop_loss(client, pair, remaining_qty, sl_price)
+                    with _ibkr_state_lock:
+                        pair_state["sl_order_id"] = sl_result["sl_order_id"] if sl_result else None
+                with _ibkr_state_lock:
+                    pair_state["quantity"] = remaining_qty
+                    pair_state["partial_taken_2"] = True
+                logger.info(
+                    "[IBKR] %s PARTIAL-2 %.0f unités @%.5f (profit=%.2f%%)",
+                    pair, partial_qty, current_price, profit_pct * 100,
+                )
+
+
+def _round_to_lot_ibkr(qty: float, lot_size: float = 20_000.0) -> float:
+    """Arrondit la quantité au lot IBKR inférieur (helper interne)."""
+    import math
+    return math.floor(qty / lot_size) * lot_size if lot_size > 0 else qty
+
+
+# ─── Panneau Rich SHORT ──────────────────────────────────────────────────────
+
+def _display_ibkr_short_panel(
+    pair: str,
+    current_price: float,
+    last: "Any",
+    entry_price: float,
+    qty: float,
+    cover_signal: bool,
+    con: "Console",
+    best: "Optional[Dict[str, Any]]" = None,
+) -> None:
+    """Panneau Rich des conditions de rachat SHORT IBKR."""
+    try:
+        stoch = float(last.get("stoch_rsi", float("nan")) or float("nan"))
+        pnl_latent = (entry_price - current_price) * qty if entry_price and qty else 0.0
+        pnl_pct = (
+            (entry_price - current_price) / entry_price * 100
+            if entry_price and entry_price > 0 else 0.0
+        )
+
+        grid = Table(
+            title="[bold white]Analyse des conditions de rachat SHORT[/bold white]",
+            title_justify="left",
+            box=None, show_header=False, pad_edge=False,
+            show_edge=False, padding=(0, 1),
+        )
+        grid.add_column("condition", width=28, no_wrap=True, style="bold white")
+        grid.add_column("result", width=14, no_wrap=True)
+        grid.add_column("detail", style="dim")
+
+        if best:
+            ep = best.get("ema_periods", ["?", "?"])
+            ema1_p = ep[0] if isinstance(ep, (list, tuple)) and len(ep) > 0 else "?"
+            ema2_p = ep[1] if isinstance(ep, (list, tuple)) and len(ep) > 1 else "?"
+            tf = best.get("timeframe", "?")
+            scenario = best.get("scenario", "StochRSI")
+            grid.add_row("Stratégie active", "", f"[bold cyan]{scenario} EMA({ema1_p}/{ema2_p}) {tf}[/bold cyan]")
+
+        grid.add_row("Prix actuel",   "", f"[white]{current_price:.5f}[/white]")
+        grid.add_row("Prix d'entrée SHORT", "", f"{entry_price:.5f}")
+        grid.add_row("StochRSI < 20%", _ok_mark(stoch < 0.20), f"{stoch * 100:.1f}%")
+
+        _pnl_color = "bold green" if pnl_latent >= 0 else "bold red"
+        grid.add_row(
+            "PnL latent SHORT", "",
+            f"[{_pnl_color}]{pnl_latent:+.2f} € ({pnl_pct:+.2f}%)[/{_pnl_color}]",
+        )
+
+        panel_title = (
+            f"[bold magenta]SIGNAL COVER [{pair}] — CONDITIONS REMPLIES[/bold magenta]"
+            if cover_signal else
+            f"[bold yellow]SCAN SHORT [{pair}] — EN POSITION SHORT (pas de signal)[/bold yellow]"
+        )
+        con.print(Panel(
+            grid,
+            title=panel_title,
+            border_style="magenta" if cover_signal else "yellow",
+            padding=(1, 2),
+        ))
+    except Exception as _panel_err:
+        logger.debug("[IBKR] _display_ibkr_short_panel erreur : %s", _panel_err)
+
+
 # ─── Signal BUY/SELL partagé (60 min + 2 min) ────────────────────────────────
 
 def _execute_pair_signal(
@@ -685,14 +1032,19 @@ def _execute_pair_signal(
     client: "IBKRForexClient",
     ibkr_cfg: "IBKRConfig",
 ) -> None:
-    """Évalue le signal et exécute les ordres BUY/SELL.
+    """Évalue le signal et exécute les ordres BUY/SELL/SHORT/COVER.
 
     Appelée depuis _process_pair (cycle 60 min) ET _live_process_pair (cycle 2 min).
-    Identique au pattern execute_live_trading_only du bot Binance.
+    Branch A (Flat)  : évalue BUY ou SHORT entry selon ibkr_cfg.allow_short
+    Branch B (LONG)  : trailing + partiels + sell signal → SELL
+    Branch C (SHORT) : trailing + partiels + cover signal → COVER
     """
     with _ibkr_state_lock:
         pair_state = bot_state.get(pair, {})
-        in_position = (pair_state.get("last_order_side") == "BUY")
+        last_side = pair_state.get("last_order_side")
+        in_long = last_side in ("BUY", "LONG")
+        in_short = last_side == "SHORT"
+        in_position = in_long or in_short
 
     current_price = get_current_price(client, pair)
     if current_price <= 0:
@@ -700,13 +1052,11 @@ def _execute_pair_signal(
         return
 
     scenario = best.get("scenario", "StochRSI")
+    atr = float(last.get("atr", 0.0) or 0.0)
 
-    # ── BUY ──────────────────────────────────────────────────────────────────
+    # ── Branch A : Flat — évaluation entrée ──────────────────────────────────
     if not in_position and not pair_state.get("oos_blocked", False):
-        # 1. Évaluer le signal en premier (pour affichage systématique)
-        buy_signal, buy_reason = _check_ibkr_buy_signal(last, scenario, current_price)
-
-        # 2. Vérification limite perte journalière
+        # Limite perte journalière
         _today_str = datetime.utcnow().strftime("%Y-%m-%d")
         with _ibkr_state_lock:
             if bot_state.get("daily_pnl_date") != _today_str:
@@ -715,37 +1065,41 @@ def _execute_pair_signal(
             _daily_pnl = bot_state.get("daily_pnl", 0.0)
         _daily_loss_limit = -ibkr_cfg.daily_loss_limit_pct * ibkr_cfg.initial_capital
         _daily_blocked = _daily_pnl <= _daily_loss_limit
-        if _daily_blocked:
-            logger.warning(
-                "[IBKR] %s — daily loss limit atteint (PnL=%.2f \u2264 %.2f), BUY bloqué",
-                pair, _daily_pnl, _daily_loss_limit,
-            )
-            buy_reason = f"\u26a0 Daily loss limit ({_daily_pnl:.2f}\u20ac \u2264 {_daily_loss_limit:.2f}\u20ac)"
-            buy_signal = False
 
-        # 3. Panneau Rich — affiché à chaque cycle (signal ou non)
+        # Évaluer signaux BUY et SHORT
+        buy_signal, buy_reason = _check_ibkr_buy_signal(last, scenario, current_price)
+        short_signal, short_reason = (
+            _check_ibkr_short_signal(last, scenario, current_price, ibkr_cfg)
+            if ibkr_cfg.allow_short else (False, "SHORT désactivé")
+        )
+
+        if _daily_blocked:
+            buy_signal = False
+            short_signal = False
+            buy_reason = f"⚠ Daily loss limit ({_daily_pnl:.2f}€ ≤ {_daily_loss_limit:.2f}€)"
+            short_reason = buy_reason
+
         _display_ibkr_buy_panel(pair, current_price, last, best, buy_signal, buy_reason, console)
 
         if _daily_blocked:
             return
 
-        # 4. Exécuter l'achat si signal valide
+        # ── Entrée LONG ──────────────────────────────────────────────────────
         if buy_signal:
             nav = get_account_nav(client)
             if nav <= 0:
                 logger.error("[IBKR] %s — NAV invalide (%.2f), BUY annulé", pair, nav)
                 return
-            atr = last.get("atr", 0.0)
             qty = _compute_position_size(
-                nav, ibkr_cfg.risk_per_trade, float(atr) if atr else 0.0, current_price,
+                nav, ibkr_cfg.risk_per_trade, atr, current_price,
+                atr_stop_multiplier=ibkr_cfg.atr_multiplier_sl,
             )
             quote_qty = qty * current_price
             buy_result = safe_forex_buy(client, pair, quote_qty, current_price=current_price)
             if buy_result:
                 entry_price = buy_result["entry_price"]
                 real_qty = buy_result["quantity"]
-                sl_price = entry_price - 3.0 * float(atr) if atr else entry_price * 0.98
-                sl_price = max(sl_price, 0.0)
+                sl_price = max(entry_price - ibkr_cfg.atr_multiplier_sl * atr, 0.0) if atr else entry_price * 0.98
                 sl_result = place_forex_stop_loss(client, pair, real_qty, sl_price)
                 with _ibkr_state_lock:
                     pair_state["last_order_side"] = "BUY"
@@ -755,51 +1109,91 @@ def _execute_pair_signal(
                     pair_state["sl_order_id"] = sl_result["sl_order_id"] if sl_result else None
                     pair_state["sl_exchange_placed"] = sl_result is not None
                     pair_state["max_price"] = entry_price
+                    pair_state["min_price"] = None
                     pair_state["buy_timestamp"] = time.time()
                     pair_state["partial_taken_1"] = False
                     pair_state["partial_taken_2"] = False
+                    pair_state["trailing_stop_activated"] = False
+                    pair_state["trailing_stop"] = None
+                    pair_state["breakeven_activated"] = False
                 _save_state(ibkr_cfg, force=True)
-                logger.info(
-                    "[IBKR] %s BUY exécuté : qty=%.0f @%.5f SL=%.5f",
-                    pair, real_qty, entry_price, sl_price,
-                )
+                logger.info("[IBKR] %s BUY exécuté : qty=%.0f @%.5f SL=%.5f", pair, real_qty, entry_price, sl_price)
                 try:
                     send_email_alert(
                         f"[IBKR-FOREX] BUY {pair} @{entry_price:.5f}",
-                        f"Quantité : {real_qty:.0f}\nStop-loss : {sl_price:.5f}\n"
-                        f"NAV : {nav:.2f} €",
+                        f"Quantité : {real_qty:.0f}\nStop-loss : {sl_price:.5f}\nNAV : {nav:.2f} €",
                     )
                 except Exception as mail_exc:
                     logger.warning("[IBKR] Email BUY %s ERREUR : %s", pair, mail_exc)
 
-    # ── SELL ─────────────────────────────────────────────────────────────────
-    elif in_position:
-        entry_price = pair_state.get("entry_price", 0.0) or 0.0
-        qty = pair_state.get("quantity", 0.0) or 0.0
-        max_price = pair_state.get("max_price", current_price)
-        atr = last.get("atr", 0.0)
+        # ── Entrée SHORT ─────────────────────────────────────────────────────
+        elif short_signal:
+            nav = get_account_nav(client)
+            if nav <= 0:
+                logger.error("[IBKR] %s — NAV invalide (%.2f), SHORT annulé", pair, nav)
+                return
+            qty = _compute_position_size(
+                nav, ibkr_cfg.risk_per_trade, atr, current_price,
+                atr_stop_multiplier=ibkr_cfg.atr_multiplier_sl,
+            )
+            quote_qty = qty * current_price
+            short_result = safe_forex_short_open(client, pair, quote_qty, current_price=current_price)
+            if short_result:
+                entry_price = short_result["entry_price"]
+                real_qty = short_result["quantity"]
+                sl_price = entry_price + ibkr_cfg.atr_multiplier_sl * atr if atr else entry_price * 1.02
+                sl_result = place_forex_stop_buy(client, pair, real_qty, sl_price)
+                with _ibkr_state_lock:
+                    pair_state["last_order_side"] = "SHORT"
+                    pair_state["entry_price"] = entry_price
+                    pair_state["quantity"] = real_qty
+                    pair_state["stop_loss"] = sl_price
+                    pair_state["sl_order_id"] = sl_result["sl_order_id"] if sl_result else None
+                    pair_state["sl_exchange_placed"] = sl_result is not None
+                    pair_state["max_price"] = None
+                    pair_state["min_price"] = entry_price
+                    pair_state["buy_timestamp"] = time.time()
+                    pair_state["partial_taken_1"] = False
+                    pair_state["partial_taken_2"] = False
+                    pair_state["trailing_stop_activated"] = False
+                    pair_state["trailing_stop"] = None
+                    pair_state["breakeven_activated"] = False
+                _save_state(ibkr_cfg, force=True)
+                logger.info("[IBKR] %s SHORT ouvert : qty=%.0f @%.5f SL=%.5f", pair, real_qty, entry_price, sl_price)
+                try:
+                    send_email_alert(
+                        f"[IBKR-FOREX] SHORT {pair} @{entry_price:.5f}",
+                        f"Quantité : {real_qty:.0f}\nStop-loss : {sl_price:.5f}\nNAV : {nav:.2f} €",
+                    )
+                except Exception as mail_exc:
+                    logger.warning("[IBKR] Email SHORT %s ERREUR : %s", pair, mail_exc)
 
-        if current_price > (max_price or 0):
-            with _ibkr_state_lock:
-                pair_state["max_price"] = current_price
+    # ── Branch B : En LONG ───────────────────────────────────────────────────
+    elif in_long:
+        entry_price = float(pair_state.get("entry_price") or 0.0)
+        qty = float(pair_state.get("quantity") or 0.0)
 
-        stoch_rsi_val = last.get("stoch_rsi", 0.0)
-        sell_signal = stoch_rsi_val > 0.4  # stoch_rsi_sell_exit
+        # Trailing stop + partiels
+        if atr > 0:
+            _update_ibkr_trailing_stop(pair, pair_state, current_price, atr, client, ibkr_cfg)
+        _execute_ibkr_partial_exit(pair, pair_state, current_price, client, ibkr_cfg)
 
-        # Panneau Rich — affiché à chaque cycle (signal ou non)
+        # Signal de sortie LONG
+        sell_signal, sell_reason = _check_ibkr_sell_signal(last, scenario, ibkr_cfg)
+
         _display_ibkr_sell_panel(
             pair, current_price, last, entry_price, qty, sell_signal, console, best=best
         )
 
         if sell_signal:
-            with _ibkr_state_lock:
-                sl_oid = pair_state.get("sl_order_id")
+            qty_now = float(pair_state.get("quantity") or 0.0)
+            sl_oid = pair_state.get("sl_order_id")
             if sl_oid:
                 cancel_forex_order(client, pair, sl_oid)
-            sell_result = safe_forex_sell(client, pair, qty, reason="SIGNAL")
+            sell_result = safe_forex_sell(client, pair, qty_now, reason="SIGNAL")
             if sell_result:
                 exit_price = sell_result["exit_price"]
-                pnl = (exit_price - entry_price) * qty
+                pnl = (exit_price - entry_price) * qty_now
                 with _ibkr_state_lock:
                     pair_state["last_order_side"] = "SELL"
                     pair_state["entry_price"] = None
@@ -808,7 +1202,8 @@ def _execute_pair_signal(
                     pair_state["sl_order_id"] = None
                     pair_state["sl_exchange_placed"] = False
                     pair_state["max_price"] = None
-                    # Mise à jour du PnL journalier (pour daily_loss_limit)
+                    pair_state["trailing_stop_activated"] = False
+                    pair_state["trailing_stop"] = None
                     _today_str = datetime.utcnow().strftime("%Y-%m-%d")
                     if bot_state.get("daily_pnl_date") != _today_str:
                         bot_state["daily_pnl"] = 0.0
@@ -823,6 +1218,57 @@ def _execute_pair_signal(
                     )
                 except Exception as mail_exc:
                     logger.warning("[IBKR] Email SELL %s ERREUR : %s", pair, mail_exc)
+
+    # ── Branch C : En SHORT ──────────────────────────────────────────────────
+    elif in_short:
+        entry_price = float(pair_state.get("entry_price") or 0.0)
+        qty = float(pair_state.get("quantity") or 0.0)
+
+        # Trailing stop + partiels
+        if atr > 0:
+            _update_ibkr_trailing_stop(pair, pair_state, current_price, atr, client, ibkr_cfg)
+        _execute_ibkr_partial_exit(pair, pair_state, current_price, client, ibkr_cfg)
+
+        # Signal de rachat SHORT
+        cover_signal, cover_reason = _check_ibkr_cover_signal(last, scenario, ibkr_cfg)
+
+        _display_ibkr_short_panel(
+            pair, current_price, last, entry_price, qty, cover_signal, console, best=best
+        )
+
+        if cover_signal:
+            qty_now = float(pair_state.get("quantity") or 0.0)
+            sl_oid = pair_state.get("sl_order_id")
+            if sl_oid:
+                cancel_forex_order(client, pair, sl_oid)
+            cover_result = safe_forex_cover(client, pair, qty_now, reason="SIGNAL")
+            if cover_result:
+                exit_price = cover_result["exit_price"]
+                pnl = (entry_price - exit_price) * qty_now  # SHORT: profit si prix baisse
+                with _ibkr_state_lock:
+                    pair_state["last_order_side"] = "COVER"
+                    pair_state["entry_price"] = None
+                    pair_state["quantity"] = None
+                    pair_state["stop_loss"] = None
+                    pair_state["sl_order_id"] = None
+                    pair_state["sl_exchange_placed"] = False
+                    pair_state["min_price"] = None
+                    pair_state["trailing_stop_activated"] = False
+                    pair_state["trailing_stop"] = None
+                    _today_str = datetime.utcnow().strftime("%Y-%m-%d")
+                    if bot_state.get("daily_pnl_date") != _today_str:
+                        bot_state["daily_pnl"] = 0.0
+                        bot_state["daily_pnl_date"] = _today_str
+                    bot_state["daily_pnl"] = bot_state.get("daily_pnl", 0.0) + pnl
+                _save_state(ibkr_cfg, force=True)
+                logger.info("[IBKR] %s COVER : @%.5f PnL=%.2f €", pair, exit_price, pnl)
+                try:
+                    send_email_alert(
+                        f"[IBKR-FOREX] COVER {pair} @{exit_price:.5f}",
+                        f"PnL estimé : {pnl:+.2f} €\nNAV : {get_account_nav(client):.2f} €",
+                    )
+                except Exception as mail_exc:
+                    logger.warning("[IBKR] Email COVER %s ERREUR : %s", pair, mail_exc)
 
 
 # ─── Core trading loop par paire ──────────────────────────────────────────────

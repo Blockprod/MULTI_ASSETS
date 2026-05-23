@@ -22,9 +22,11 @@ cdef struct TradeRecord:
 
 cdef struct PositionState:
     bint in_position
+    bint is_short           # True = position SHORT (entrée SELL, sortie BUY)
     double entry_price
     double entry_usd_invested
-    double max_price
+    double max_price        # LONG: high-water mark (trailing)
+    double min_price        # SHORT: low-water mark (trailing)
     double trailing_stop
     double stop_loss
     bint partial_taken_1
@@ -82,7 +84,8 @@ def backtest_from_dataframe_fast(
     int cooldown_candles=0,
     np.ndarray[DTYPE_t, ndim=1] mtf_bullish=None,
     bint use_mtf_filter=False,
-    double leverage=1.0         # Forex levier : max_affordable *= leverage (1.0 = crypto spot)
+    double leverage=1.0,        # Forex levier : max_affordable *= leverage (1.0 = crypto spot)
+    bint allow_short=False      # Activer les positions SHORT (IBKR uniquement)
 ) -> dict:
     """
     Moteur de backtest standard pour MULTI_SYMBOLS.py
@@ -127,6 +130,9 @@ def backtest_from_dataframe_fast(
     # A-3: cooldown post-stop-loss
     cdef int cooldown_remaining = 0
     cdef bint was_stop_loss_exit = False
+    # SHORT: variables supplémentaires
+    cdef bint short_entry_condition
+    cdef double short_fill_price
 
     if n == 0:
         return {
@@ -143,9 +149,11 @@ def backtest_from_dataframe_fast(
         atr_baseline = atr_sum / n
 
     position.in_position = False
+    position.is_short = False
     position.entry_price = 0.0
     position.entry_usd_invested = 0.0
     position.max_price = 0.0
+    position.min_price = 0.0
     position.trailing_stop = 0.0
     position.stop_loss = 0.0
     position.partial_taken_1 = False
@@ -160,75 +168,127 @@ def backtest_from_dataframe_fast(
 
         # === GESTION POSITION ACTIVE ===
         if position.in_position:
-            # Mise à jour trailing stop (B-1: delayed activation, ATR figé)
-            trailing_distance = atr_multiplier * position.atr_at_entry
-            if current_price > position.max_price:
-                position.max_price = current_price
-            if (not position.trailing_activated
-                    and current_price >= position.entry_price + trailing_distance):
-                position.trailing_activated = True
-                position.trailing_stop = position.max_price - trailing_distance
-            if position.trailing_activated:
-                new_trailing = position.max_price - trailing_distance
-                if new_trailing > position.trailing_stop:
-                    position.trailing_stop = new_trailing
+            if not position.is_short:
+                # LONG: Mise à jour trailing stop (B-1: delayed activation, ATR figé)
+                trailing_distance = atr_multiplier * position.atr_at_entry
+                if current_price > position.max_price:
+                    position.max_price = current_price
+                if (not position.trailing_activated
+                        and current_price >= position.entry_price + trailing_distance):
+                    position.trailing_activated = True
+                    position.trailing_stop = position.max_price - trailing_distance
+                if position.trailing_activated:
+                    new_trailing = position.max_price - trailing_distance
+                    if new_trailing > position.trailing_stop:
+                        position.trailing_stop = new_trailing
 
-            # === B-3: BREAK-EVEN STOP ===
-            if breakeven_enabled and not position.breakeven_triggered and position.entry_price > 0:
-                be_profit_pct = (current_price - position.entry_price) / position.entry_price
-                if be_profit_pct >= breakeven_trigger_pct:
-                    # Remonter le stop loss au prix d'entrée + slippage
-                    be_new_stop = position.entry_price * (1.0 + slippage_buy)
-                    if be_new_stop > position.stop_loss:
-                        position.stop_loss = be_new_stop
-                    position.breakeven_triggered = True
+                # LONG: Break-even stop (B-3)
+                if breakeven_enabled and not position.breakeven_triggered and position.entry_price > 0:
+                    be_profit_pct = (current_price - position.entry_price) / position.entry_price
+                    if be_profit_pct >= breakeven_trigger_pct:
+                        be_new_stop = position.entry_price * (1.0 + slippage_buy)
+                        if be_new_stop > position.stop_loss:
+                            position.stop_loss = be_new_stop
+                        position.breakeven_triggered = True
 
-            # === PARTIAL PROFIT TAKING (P4-CYTHON) ===
-            if partial_enabled and coin > 0 and position.entry_price > 0:
-                position_value = coin * current_price
-                # Guard: position assez grosse (3× min_notional)
-                if position_value >= min_notional * 3.0:
-                    profit_pct = (current_price - position.entry_price) / position.entry_price
+                # LONG: Partiels (P4-CYTHON)
+                if partial_enabled and coin > 0 and position.entry_price > 0:
+                    position_value = coin * current_price
+                    if position_value >= min_notional * 3.0:
+                        profit_pct = (current_price - position.entry_price) / position.entry_price
+                        if not position.partial_taken_1 and profit_pct >= partial_threshold_1:
+                            partial_qty = coin * partial_pct_1
+                            if partial_qty * current_price >= min_notional:
+                                if leverage > 1.0:
+                                    partial_proceeds = partial_qty * (current_price - position.entry_price) - partial_qty * current_price * taker_fee
+                                else:
+                                    partial_proceeds = partial_qty * current_price * (1.0 - taker_fee)
+                                usd = usd + partial_proceeds
+                                coin = coin - partial_qty
+                                trades.append({
+                                    'type': 'partial_sell_1',
+                                    'price': current_price,
+                                    'qty': partial_qty,
+                                    'proceeds': partial_proceeds,
+                                    'profit_pct': profit_pct,
+                                })
+                            position.partial_taken_1 = True
+                        if not position.partial_taken_2 and profit_pct >= partial_threshold_2 and coin > 0:
+                            partial_qty = coin * partial_pct_2
+                            if partial_qty * current_price >= min_notional:
+                                if leverage > 1.0:
+                                    partial_proceeds = partial_qty * (current_price - position.entry_price) - partial_qty * current_price * taker_fee
+                                else:
+                                    partial_proceeds = partial_qty * current_price * (1.0 - taker_fee)
+                                usd = usd + partial_proceeds
+                                coin = coin - partial_qty
+                                trades.append({
+                                    'type': 'partial_sell_2',
+                                    'price': current_price,
+                                    'qty': partial_qty,
+                                    'proceeds': partial_proceeds,
+                                    'profit_pct': profit_pct,
+                                })
+                            position.partial_taken_2 = True
 
-                    # Partial take 1
-                    if not position.partial_taken_1 and profit_pct >= partial_threshold_1:
-                        partial_qty = coin * partial_pct_1
-                        if partial_qty * current_price >= min_notional:
-                            if leverage > 1.0:
-                                partial_proceeds = partial_qty * (current_price - position.entry_price) - partial_qty * current_price * taker_fee
-                            else:
-                                partial_proceeds = partial_qty * current_price * (1.0 - taker_fee)
-                            usd = usd + partial_proceeds
-                            coin = coin - partial_qty
-                            trades.append({
-                                'type': 'partial_sell_1',
-                                'price': current_price,
-                                'qty': partial_qty,
-                                'proceeds': partial_proceeds,
-                                'profit_pct': profit_pct,
-                            })
-                        position.partial_taken_1 = True  # flag True even if blocked
+            else:
+                # SHORT: Mise à jour trailing stop
+                trailing_distance = atr_multiplier * position.atr_at_entry
+                if current_price < position.min_price or position.min_price == 0.0:
+                    position.min_price = current_price
+                if (not position.trailing_activated
+                        and current_price <= position.entry_price - trailing_distance):
+                    position.trailing_activated = True
+                    position.trailing_stop = position.min_price + trailing_distance
+                if position.trailing_activated:
+                    new_trailing = position.min_price + trailing_distance
+                    if new_trailing < position.trailing_stop:
+                        position.trailing_stop = new_trailing
 
-                    # Partial take 2
-                    if not position.partial_taken_2 and profit_pct >= partial_threshold_2 and coin > 0:
-                        partial_qty = coin * partial_pct_2
-                        if partial_qty * current_price >= min_notional:
-                            if leverage > 1.0:
-                                partial_proceeds = partial_qty * (current_price - position.entry_price) - partial_qty * current_price * taker_fee
-                            else:
-                                partial_proceeds = partial_qty * current_price * (1.0 - taker_fee)
-                            usd = usd + partial_proceeds
-                            coin = coin - partial_qty
-                            trades.append({
-                                'type': 'partial_sell_2',
-                                'price': current_price,
-                                'qty': partial_qty,
-                                'proceeds': partial_proceeds,
-                                'profit_pct': profit_pct,
-                            })
-                        position.partial_taken_2 = True  # flag True even if blocked
+                # SHORT: Break-even stop
+                if breakeven_enabled and not position.breakeven_triggered and position.entry_price > 0:
+                    be_profit_pct = (position.entry_price - current_price) / position.entry_price
+                    if be_profit_pct >= breakeven_trigger_pct:
+                        be_new_stop = position.entry_price * (1.0 + slippage_buy)
+                        if be_new_stop < position.stop_loss:
+                            position.stop_loss = be_new_stop
+                        position.breakeven_triggered = True
 
-            # Calcul drawdown
+                # SHORT: Partiels
+                if partial_enabled and coin > 0 and position.entry_price > 0:
+                    position_value = coin * current_price
+                    if position_value >= min_notional * 3.0:
+                        profit_pct = (position.entry_price - current_price) / position.entry_price
+                        if not position.partial_taken_1 and profit_pct >= partial_threshold_1:
+                            partial_qty = coin * partial_pct_1
+                            if partial_qty * current_price >= min_notional:
+                                partial_proceeds = partial_qty * (position.entry_price - current_price) - partial_qty * current_price * taker_fee
+                                usd = usd + partial_proceeds
+                                coin = coin - partial_qty
+                                trades.append({
+                                    'type': 'partial_cover_1',
+                                    'price': current_price,
+                                    'qty': partial_qty,
+                                    'proceeds': partial_proceeds,
+                                    'profit_pct': profit_pct,
+                                })
+                            position.partial_taken_1 = True
+                        if not position.partial_taken_2 and profit_pct >= partial_threshold_2 and coin > 0:
+                            partial_qty = coin * partial_pct_2
+                            if partial_qty * current_price >= min_notional:
+                                partial_proceeds = partial_qty * (position.entry_price - current_price) - partial_qty * current_price * taker_fee
+                                usd = usd + partial_proceeds
+                                coin = coin - partial_qty
+                                trades.append({
+                                    'type': 'partial_cover_2',
+                                    'price': current_price,
+                                    'qty': partial_qty,
+                                    'proceeds': partial_proceeds,
+                                    'profit_pct': profit_pct,
+                                })
+                            position.partial_taken_2 = True
+
+            # Calcul drawdown (commun LONG et SHORT)
             current_wallet = usd + (coin * current_price)
 
             if current_wallet > peak_wallet:
@@ -237,64 +297,105 @@ def backtest_from_dataframe_fast(
             drawdown = (peak_wallet - current_wallet) / peak_wallet if peak_wallet > 0 else 0.0
             max_drawdown = fmax(max_drawdown, drawdown)
 
-            # === CONDITIONS DE VENTE ===
-            stop_loss_hit = current_price < position.stop_loss
-            trailing_stop_hit = current_price < position.trailing_stop
-            ema_cross_down = ema2_values[i] > ema1_values[i]
-            stoch_high = stoch_rsi_values[i] > stoch_threshold_sell
+            # === CONDITIONS DE SORTIE LONG ===
+            if not position.is_short:
+                stop_loss_hit = current_price < position.stop_loss
+                trailing_stop_hit = current_price < position.trailing_stop
+                ema_cross_down = ema2_values[i] > ema1_values[i]
+                stoch_high = stoch_rsi_values[i] > stoch_threshold_sell
 
-            sell_condition = (stop_loss_hit or trailing_stop_hit or
-                            (ema_cross_down and stoch_high))
+                sell_condition = (stop_loss_hit or trailing_stop_hit or
+                                (ema_cross_down and stoch_high))
 
-            if sell_condition:
-                # VENTE au open[i+1] avec slippage (P1-02 + P1-03)
-                if open_prices is not None and i + 1 < n:
-                    fill_price = open_prices[i + 1] * (1.0 - slippage_sell)
-                else:
-                    fill_price = current_price * (1.0 - slippage_sell)
-                if leverage > 1.0:
-                    # Forex avec levier : usd = marge + P&L - fee
-                    # usd contient déjà les partial P&L éventuels (= 0 si aucun partial)
-                    pnl = coin * (fill_price - position.entry_price)
+                if sell_condition:
+                    # VENTE au open[i+1] avec slippage (P1-02 + P1-03)
+                    if open_prices is not None and i + 1 < n:
+                        fill_price = open_prices[i + 1] * (1.0 - slippage_sell)
+                    else:
+                        fill_price = current_price * (1.0 - slippage_sell)
+                    if leverage > 1.0:
+                        pnl = coin * (fill_price - position.entry_price)
+                        fee = coin * fill_price * taker_fee
+                        usd = position.entry_usd_invested + usd + pnl - fee
+                    else:
+                        gross_proceeds = coin * fill_price
+                        fee = gross_proceeds * taker_fee
+                        usd = usd + (gross_proceeds - fee)
+                    coin = 0.0
+
+                    trade_profit = usd - position.entry_usd_invested
+                    total_trades += 1
+                    is_winning = 1 if trade_profit > 0.0 else 0
+                    winning_trades += is_winning
+                    trades.append({'type': 'SELL', 'price': fill_price, 'profit': trade_profit})
+
+                    was_stop_loss_exit = stop_loss_hit
+                    if was_stop_loss_exit and cooldown_candles > 0:
+                        cooldown_remaining = cooldown_candles
+
+                    position.in_position = False
+                    position.is_short = False
+                    position.entry_price = 0.0
+                    position.entry_usd_invested = 0.0
+                    position.max_price = 0.0
+                    position.min_price = 0.0
+                    position.trailing_stop = 0.0
+                    position.stop_loss = 0.0
+                    position.partial_taken_1 = False
+                    position.partial_taken_2 = False
+                    position.trailing_activated = False
+                    position.atr_at_entry = 0.0
+                    position.breakeven_triggered = False
+                    continue
+
+            else:
+                # === CONDITIONS DE SORTIE SHORT (cover) ===
+                stop_loss_hit = (position.stop_loss > 0.0 and
+                                current_price > position.stop_loss)
+                trailing_stop_hit = (position.trailing_activated and
+                                    current_price > position.trailing_stop)
+                ema_cross_up = ema1_values[i] > ema2_values[i]
+                stoch_low = stoch_rsi_values[i] < stoch_threshold_sell
+
+                sell_condition = (stop_loss_hit or trailing_stop_hit or
+                                 (ema_cross_up and stoch_low))
+
+                if sell_condition:
+                    # COVER au open[i+1] avec slippage achat (rachat de la position)
+                    if open_prices is not None and i + 1 < n:
+                        fill_price = open_prices[i + 1] * (1.0 + slippage_buy)
+                    else:
+                        fill_price = current_price * (1.0 + slippage_buy)
+
+                    pnl = coin * (position.entry_price - fill_price)
                     fee = coin * fill_price * taker_fee
                     usd = position.entry_usd_invested + usd + pnl - fee
-                else:
-                    gross_proceeds = coin * fill_price
-                    fee = gross_proceeds * taker_fee
-                    usd = usd + (gross_proceeds - fee)
-                coin = 0.0
+                    coin = 0.0
 
-                trade_profit = usd - position.entry_usd_invested
+                    trade_profit = usd - position.entry_usd_invested
+                    total_trades += 1
+                    is_winning = 1 if trade_profit > 0.0 else 0
+                    winning_trades += is_winning
+                    trades.append({'type': 'COVER', 'price': fill_price, 'profit': trade_profit})
 
-                total_trades += 1
+                    was_stop_loss_exit = stop_loss_hit
+                    if was_stop_loss_exit and cooldown_candles > 0:
+                        cooldown_remaining = cooldown_candles
 
-                is_winning = 1 if trade_profit > 0.0 else 0
-                winning_trades += is_winning
-
-                trades.append({
-                    'type': 'SELL',
-                    'price': fill_price,
-                    'profit': trade_profit
-                })
-
-                # A-3: set cooldown after stop-loss or breakeven exit
-                was_stop_loss_exit = stop_loss_hit
-                if was_stop_loss_exit and cooldown_candles > 0:
-                    cooldown_remaining = cooldown_candles
-
-                # Reset position
-                position.in_position = False
-                position.entry_price = 0.0
-                position.entry_usd_invested = 0.0
-                position.max_price = 0.0
-                position.trailing_stop = 0.0
-                position.stop_loss = 0.0
-                position.partial_taken_1 = False
-                position.partial_taken_2 = False
-                position.trailing_activated = False
-                position.atr_at_entry = 0.0
-                position.breakeven_triggered = False
-                continue
+                    position.in_position = False
+                    position.is_short = False
+                    position.entry_price = 0.0
+                    position.entry_usd_invested = 0.0
+                    position.max_price = 0.0
+                    position.min_price = 0.0
+                    position.trailing_stop = 0.0
+                    position.stop_loss = 0.0
+                    position.partial_taken_1 = False
+                    position.partial_taken_2 = False
+                    position.trailing_activated = False
+                    position.atr_at_entry = 0.0
+                    position.breakeven_triggered = False
+                    continue
 
         # === A-3: COOLDOWN DECREMENT ===
         if not position.in_position and cooldown_remaining > 0:
@@ -381,8 +482,10 @@ def backtest_from_dataframe_fast(
 
                     if coin > 0:
                         position.in_position = True
+                        position.is_short = False
                         position.entry_price = fill_price
                         position.max_price = fill_price
+                        position.min_price = fill_price
                         position.trailing_stop = 0.0
                         position.trailing_activated = False
                         position.atr_at_entry = atr_values[i]
@@ -396,10 +499,91 @@ def backtest_from_dataframe_fast(
                             'price': fill_price
                         })
 
+            elif allow_short:
+                # === ENTRÉE SHORT ===
+                ema_cross_down = ema2_values[i] > ema1_values[i]
+                stoch_high = stoch_rsi_values[i] > stoch_threshold_buy
+                short_entry_condition = ema_cross_down and stoch_high
+
+                if short_entry_condition and cooldown_remaining > 0:
+                    short_entry_condition = False
+
+                if short_entry_condition:
+                    if isnan(atr_values[i]) or atr_values[i] <= 0:
+                        short_entry_condition = False
+
+                if short_entry_condition and use_sma and sma_long_values is not None:
+                    short_entry_condition = current_price < sma_long_values[i]
+
+                if short_entry_condition and use_adx and adx_values is not None:
+                    short_entry_condition = adx_values[i] > adx_threshold
+
+                if short_entry_condition and use_trix and trix_histo_values is not None:
+                    short_entry_condition = trix_histo_values[i] < 0.0
+
+                if short_entry_condition and use_vol_filter and volume_values is not None and vol_sma_values is not None:
+                    if isnan(volume_values[i]) or isnan(vol_sma_values[i]) or vol_sma_values[i] <= 0:
+                        short_entry_condition = False
+                    else:
+                        short_entry_condition = volume_values[i] > vol_sma_values[i]
+
+                if short_entry_condition and use_mtf_filter and mtf_bullish is not None:
+                    short_entry_condition = mtf_bullish[i] < 0.5
+
+                if short_entry_condition:
+                    # Fill au open[i+1] avec slippage vente (SHORT = on vend)
+                    if open_prices is not None and i + 1 < n:
+                        short_fill_price = open_prices[i + 1] * (1.0 - slippage_sell)
+                    else:
+                        short_fill_price = current_price * (1.0 - slippage_sell)
+
+                    if is_risk_mode and atr_values[i] > 0 and short_fill_price > 0:
+                        stop_distance = atr_stop_multiplier * atr_values[i]
+                        if stop_distance > 0:
+                            risk_amount = usd * risk_per_trade
+                            qty_by_risk = risk_amount / stop_distance
+                            if leverage > 1.0:
+                                max_affordable = (usd * leverage) / short_fill_price
+                            else:
+                                max_affordable = (usd * 0.98) / short_fill_price
+                            gross_coin = fmin(max_affordable, qty_by_risk)
+                        else:
+                            gross_coin = (usd * 0.98) / short_fill_price
+                    else:
+                        gross_coin = (usd * 0.98) / short_fill_price if short_fill_price > 0 else 0.0
+
+                    if gross_coin > 0:
+                        fee_in_coin = gross_coin * taker_fee
+                        coin = gross_coin - fee_in_coin
+                        actual_cost = gross_coin * short_fill_price
+                        if actual_cost > usd:
+                            actual_cost = usd
+                        position.entry_usd_invested = usd
+                        usd = usd - actual_cost
+
+                        if coin > 0:
+                            position.in_position = True
+                            position.is_short = True
+                            position.entry_price = short_fill_price
+                            position.max_price = short_fill_price
+                            position.min_price = short_fill_price
+                            position.trailing_stop = 0.0
+                            position.trailing_activated = False
+                            position.atr_at_entry = atr_values[i]
+                            position.stop_loss = short_fill_price + (atr_stop_multiplier * atr_values[i])
+                            position.partial_taken_1 = False
+                            position.partial_taken_2 = False
+                            position.breakeven_triggered = False
+                            trades.append({'type': 'SHORT', 'price': short_fill_price})
+
     # === CALCUL FINAL ===
     cdef double final_wallet
     if position.in_position:
-        final_wallet = usd + (coin * close_prices[n-1])
+        if not position.is_short:
+            final_wallet = usd + (coin * close_prices[n-1])
+        else:
+            # SHORT: mark-to-market unrealised P&L
+            final_wallet = position.entry_usd_invested + usd + coin * (position.entry_price - close_prices[n-1])
     else:
         final_wallet = usd
 
