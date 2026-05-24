@@ -26,7 +26,7 @@ class IBKRConfig:
         # ─── Connexion IB Gateway ─────────────────────────────────────────
         self.host: str = "127.0.0.1"
         self.port: int = 4002              # 4002=paper, 4001=live
-        self.client_id: int = 4            # Distinct: EDGECORE=1, AlphaEdge=2 ou 3, IBKR_FOREX=4
+        self.client_id: int = 4            # Distinct: EDGECORE=1, AlphaEdge=3, IBKR_FOREX=4
         self.account: str = ""             # DU1234567 (paper) / U1234567 (live)
         self.paper_mode: bool = True
 

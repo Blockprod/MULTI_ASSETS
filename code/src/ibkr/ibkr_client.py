@@ -13,6 +13,7 @@ import asyncio
 import datetime
 import logging
 import random
+import socket
 import sys
 import threading
 from typing import Any, Dict, List
@@ -39,7 +40,19 @@ _RECONNECT_MAX_DELAY: float = 60.0      # IB Gateway libère clientId en ~30-60s
 _RECONNECT_MAX_RETRIES: int = 6         # ~62s cumulés — suffit pour Error 326
 _RECONNECT_JITTER: float = 0.10         # ±10%
 _CLIENT_ID_IN_USE_CODE: int = 326       # IB Gateway error code : clientId déjà utilisé
+# ─── Probe TCP (identique AlphaEdge gw_manager) ──────────────────────────────
+_PORT_PROBE_TIMEOUT: float = 3.0          # timeout TCP (s)
+_RECONNECT_PORT_POLL_DELAY: float = 30.0  # attente entre probes port fermé
+_RECONNECT_PORT_POLL_MAX: int = 15        # 15 × 30s = 7.5 min (couvre restart 05:30)
 
+
+def _is_api_port_open(host: str, port: int) -> bool:
+    """Probe TCP — vérifie si IB Gateway écoute sur le port (pattern AlphaEdge)."""
+    try:
+        with socket.create_connection((host, port), timeout=_PORT_PROBE_TIMEOUT):
+            return True
+    except (ConnectionRefusedError, TimeoutError, OSError):
+        return False
 
 def _build_forex_contract(ibkr_pair: str) -> "Contract":
     """Construit le contrat IBKR CASH pour une paire Forex.
@@ -84,12 +97,15 @@ class IBKRForexClient:
         self._account = account
         self._lock = threading.Lock()
         self._connected = False
+        self._disconnect_time: float = 0.0  # horodatage derniere deconnexion
 
         # Boucle asyncio dédiée — doit être active AVANT d'instancier IB()
         # pour que les futures ib_insync soient liées à cette boucle.
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         self._ib = IB()
+        # Callback proactif — même pattern qu'AlphaEdge session_lifecycle._on_ib_disconnect
+        self._ib.disconnectedEvent += self._on_disconnect
 
     # ─── Connexion ───────────────────────────────────────────────────────────
 
@@ -97,7 +113,51 @@ class IBKRForexClient:
         """Connexion synchrone à IB Gateway. Retry exponentiel identique à AlphaEdge."""
         self._loop.run_until_complete(self._connect_async())
 
+    def is_connected(self) -> bool:
+        """Retourne True si la connexion IB Gateway est active."""
+        return self._ib.isConnected()
+
+    def _on_disconnect(self) -> None:
+        """Callback ib_insync disconnectedEvent — détection proactive (pattern AlphaEdge)."""
+        import time as _t
+        self._connected = False
+        self._disconnect_time = _t.time()
+        logger.warning(
+            "[IBKR-CLIENT] IB Gateway déconnecté (disconnectedEvent) — "
+            "reconnexion au prochain cycle"
+        )
+
     async def _connect_async(self) -> None:
+        # ─ 1. Probe TCP — attendre que le port soit ouvert (couvre restart 05:30) ─
+        # Pattern identique à AlphaEdge gw_manager.ensure_gateway_ready().
+        if not _is_api_port_open(self._host, self._port):
+            logger.warning(
+                "[IBKR-CLIENT] Port %d fermé — attente ouverture IB Gateway "
+                "(restart 05:30 ou démarrage tardif ?)",
+                self._port,
+            )
+            _port_open = False
+            for _probe in range(1, _RECONNECT_PORT_POLL_MAX + 1):
+                await asyncio.sleep(_RECONNECT_PORT_POLL_DELAY)
+                if _is_api_port_open(self._host, self._port):
+                    logger.info(
+                        "[IBKR-CLIENT] Port %d ouvert après %.0fs",
+                        self._port, _probe * _RECONNECT_PORT_POLL_DELAY,
+                    )
+                    _port_open = True
+                    break
+                logger.debug(
+                    "[IBKR-CLIENT] Port %d toujours fermé (%d/%d)",
+                    self._port, _probe, _RECONNECT_PORT_POLL_MAX,
+                )
+            if not _port_open:
+                raise ConnectionError(
+                    f"[IBKR-CLIENT] Port {self._port} toujours fermé après "
+                    f"{_RECONNECT_PORT_POLL_MAX * _RECONNECT_PORT_POLL_DELAY:.0f}s "
+                    f"— IB Gateway hors ligne ?"
+                )
+
+        # ─ 2. Connect ib_insync avec retry exponentiel ───────────────────────────
         delay = _RECONNECT_INITIAL_DELAY
         for attempt in range(1, _RECONNECT_MAX_RETRIES + 1):
             _err326 = False
@@ -133,8 +193,11 @@ class IBKRForexClient:
                                     self._account)
                     else:
                         logger.warning("[IBKR-CLIENT] Aucun compte détecté via managedAccounts()")
-                logger.info("[IBKR-CLIENT] Connecté à IB Gateway (paper=%s)",
-                            self._port == 4002)
+                logger.info(
+                    "[IBKR-CLIENT] Connecté à IB Gateway (paper=%s, clientId=%d) "
+                    "— allocation: EDGECORE=1, AlphaEdge=3, IBKR_FOREX=4",
+                    self._port == 4002, self._client_id,
+                )
                 return
             except Exception as exc:
                 self._ib.errorEvent -= _on_err

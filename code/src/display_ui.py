@@ -429,7 +429,7 @@ def display_market_changes(changes: Dict[str, Any], pair: str, console: Optional
 MAX_TABLE_ROWS = 15  # Show top N results in backtest tables
 
 
-def display_results_for_pair(backtest_pair: str, results: List[Dict], console: Optional[Console] = None, wf_config: Optional[Dict] = None):
+def display_results_for_pair(backtest_pair: str, results: List[Dict], console: Optional[Console] = None, wf_config: Optional[Dict] = None, start_date_override: Optional[str] = None):
     """Affiche les résultats d'une paire de façon claire et organisée."""
     _console = console or globals()['console']
 
@@ -439,9 +439,12 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict], console: O
 
     # Date range
     today = datetime.today()
-    start_date_obj = today - timedelta(days=config.backtest_days)
     end_date_str = today.strftime("%d %B %Y")
-    start_date_str = start_date_obj.strftime("%d %B %Y")
+    if start_date_override:
+        start_date_str = start_date_override
+    else:
+        start_date_obj = today - timedelta(days=config.backtest_days)
+        start_date_str = start_date_obj.strftime("%d %B %Y")
 
     # Sort results by profit descending
     sorted_results = sorted(results, key=lambda x: x['final_wallet'] - x['initial_wallet'], reverse=True)

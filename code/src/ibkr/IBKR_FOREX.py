@@ -39,8 +39,9 @@ _os.environ.setdefault("INITIAL_WALLET", _os.environ.get("IBKR_INITIAL_CAPITAL",
 _os.environ.setdefault("BACKTEST_TAKER_FEE", "0.00015")   # ~1.5 pip spread EUR/USD
 _os.environ.setdefault("BACKTEST_MAKER_FEE", "0.00005")   # ~0.5 pip (ordres limites)
 # OOS gates adaptés au forex (crypto : Sharpe ≥ 0.8, WR ≥ 30 % — trop strict).
-# Forex : Sharpe annualisé 0.3 est considéré correct. WR ≥ 25 % est réaliste.
-_os.environ.setdefault("OOS_SHARPE_MIN", "0.3")            # Forex (vs 0.8 crypto)
+# Forex : Sharpe ≥ 0.0 = rendement positif ajusté au risque (paper trading acceptable).
+# Fenêtre IS réduite à 2 ans pour plus de poids au régime récent.
+_os.environ.setdefault("OOS_SHARPE_MIN", "0.0")            # Forex : Sharpe ≥ 0 (vs 0.8 crypto)
 _os.environ.setdefault("OOS_WIN_RATE_MIN", "25.0")         # Forex (vs 30.0 crypto)
 # Aligner le risk/trade backtest sur le live IBKR (défaut Binance = 5%, IBKR = 5.5%)
 _os.environ.setdefault("RISK_PER_TRADE", "0.055")           # Alignement backtest ↔ live IBKR
@@ -146,12 +147,22 @@ _pair_last_indicators: Dict[str, Any] = {}                       # pd.Series.cop
 _save_failure_count = 0
 _MAX_SAVE_FAILURES = 3
 
+# ─── Throttle alertes email erreur prix (max 1/30 min par paire) ─────────────
+_price_error_last_sent: Dict[str, float] = {}
+
+# ─── Throttle alertes email reconnexion (max 1/5 min) ───────────────────────────
+_reconnect_alert_last_sent: Dict[str, float] = {}
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _fresh_start_date() -> str:
-    """Fenêtre glissante 1095 jours — jamais figée à l'import (règle absolue)."""
-    return (datetime.today() - timedelta(days=1095)).strftime("%d %b %Y")
+    """Fenêtre glissante 730 jours (2 ans) — jamais figée à l'import (règle absolue).
+
+    Réduit à 2 ans (vs 3 ans Binance) pour donner plus de poids au régime récent
+    et augmenter le ratio trades/fold OOS lors du Walk-Forward.
+    """
+    return (datetime.today() - timedelta(days=730)).strftime("%d %b %Y")
 
 
 def _get_pair_lock(pair: str) -> threading.Lock:
@@ -325,11 +336,13 @@ def _select_best_scenario(
         if _src_dir not in _sys.path:
             _sys.path.insert(0, _src_dir)
         from display_ui import display_results_for_pair
-        display_results_for_pair(pair, results)
+        display_results_for_pair(pair, results, start_date_override=start_date)
     except Exception as _disp_exc:
         logger.debug("[IBKR] Affichage tableau IS ignoré : %s", _disp_exc)
 
-    # 2. Walk-Forward OOS — même appel que MULTI_SYMBOLS
+    # 2. Walk-Forward OOS — informatif + gate prioritaire si validé
+    # Stratégie : WF valide → config WF retournée (OOS est la validation la plus robuste).
+    # WF échoue → fallback validation IS (folds ~15-20 trades → Sharpe trop bruité pour gater).
     import pandas as _pd
     wf_base: Dict[str, Any] = {}
     for _tf in timeframes:
@@ -345,25 +358,48 @@ def _select_best_scenario(
             sizing_mode="risk",
             leverage=ibkr_cfg.max_leverage,
             top_per_tf=4,   # IBKR Forex: 4 candidats/TF vs 2 par défaut (Binance)
-            n_folds=3,  # Folds plus larges (91j 4h) vs 4 (68j) — plus de trades/fold
+            n_folds=2,  # 2 folds × ~136j 4h ≈ 11-15 trades/fold (vs 3×90j ≈ 7 trades — trop bruité)
         )
+        if wf_result.get("any_passed"):
+            best = wf_result["best_wf_config"]
+            logger.info(
+                "[IBKR] %s — WF validé : %s EMA(%s,%s) Sharpe OOS=%.3f",
+                pair, best.get("scenario"), best.get("ema_periods", ["?", "?"])[0],
+                best.get("ema_periods", ["?", "?"])[1], best.get("avg_oos_sharpe", 0.0),
+            )
+            return best
+        else:
+            logger.info("[IBKR] %s — WF OOS non concluant — validation IS en cours", pair)
     except Exception as exc:
         logger.error("[IBKR] %s — run_walk_forward_validation ERREUR : %s", pair, exc)
-        return None
 
-    if not wf_result.get("any_passed"):
+    # 3. Validation IS — fallback quand WF OOS insuffisant (≤ 20 trades/fold)
+    # Critères : IS Profit > 0, IS WinRate ≥ 25%, IS Sharpe > 0
+    is_best = _is_sorted[0]
+    _is_profit = is_best.get("final_wallet", 0.0) - is_best.get("initial_wallet", 0.0)
+    _is_wr = is_best.get("win_rate", 0.0)       # pourcentage ex: 31.03 (pas décimal)
+    _is_sharpe = is_best.get("sharpe_ratio", 0.0)
+
+    if not (_is_profit > 0 and _is_wr >= 25.0 and _is_sharpe > 0.0):
+        _block_detail = "achat et SHORT bloqués" if ibkr_cfg.allow_short else "achat bloqué"
         logger.warning(
-            "[IBKR] %s — OOS gates FAIL : aucun scénario validé (Sharpe≥0.3, WR≥25%%) "
-            "— achat bloqué jusqu'au prochain cycle",
-            pair,
+            "[IBKR] %s — IS gates FAIL : profit=%.0f$, WR=%.1f%%, Sharpe=%.2f "
+            "— %s jusqu'au prochain cycle",
+            pair, _is_profit, _is_wr, _is_sharpe, _block_detail,
         )
         return None
 
-    best = wf_result["best_wf_config"]
+    best = {
+        "scenario": is_best.get("scenario", "StochRSI"),
+        "ema_periods": list(is_best.get("ema_periods", [18, 58])),
+        "timeframe": is_best.get("timeframe", "1h"),
+        "avg_oos_sharpe": _is_sharpe,
+        "validation_mode": "IS",
+    }
     logger.info(
-        "[IBKR] %s — meilleur scénario : %s EMA(%s,%s) Sharpe OOS=%.3f",
-        pair, best.get("scenario"), best.get("ema_periods", ["?", "?"])[0],
-        best.get("ema_periods", ["?", "?"])[1], best.get("avg_oos_sharpe", 0.0),
+        "[IBKR] %s — IS validé (WF non concluant) : %s EMA(%s,%s) Sharpe IS=%.3f WR=%.1f%%",
+        pair, best["scenario"], best["ema_periods"][0],
+        best["ema_periods"][1], _is_sharpe, _is_wr,
     )
     return best
 
@@ -725,6 +761,7 @@ def _display_ibkr_planning_panel(
     con: "Console",
     *,
     paper_mode: bool = False,
+    is_connected: bool = True,
 ) -> None:
     """Panneau Rich planification — analogue 'SUIVI D\u2019EXECUTION' du bot Binance.
 
@@ -741,19 +778,26 @@ def _display_ibkr_planning_panel(
         grid.add_column("label", width=32, no_wrap=True, style="dim")
         grid.add_column("value", style="bold white")
 
-        grid.add_row("Derni\u00e8re ex\u00e9cution", last_exec_dt.strftime("%Y-%m-%d %H:%M:%S"))
-        grid.add_row("Temps \u00e9coul\u00e9", elapsed_str)
+        _conn_str = (
+            "[bold green]Connecté[/bold green]"
+            if is_connected
+            else "[bold red]Déconnecté — reconnexion au prochain cycle[/bold red]"
+        )
+        grid.add_row("Statut IB Gateway", _conn_str)
+        grid.add_row("", "")
+        grid.add_row("Dernière exécution", last_exec_dt.strftime("%Y-%m-%d %H:%M:%S"))
+        grid.add_row("Temps écoulé", elapsed_str)
         grid.add_row("", "")
         _mode_tag = "Paper" if paper_mode else "Live"
         grid.add_row("Mode de planification", f"{_mode_tag}: 2 min | Backtest+WF: 60 min")
         grid.add_row(
-            "Prochaine ex\u00e9cution",
+            "Prochaine exécution",
             f"{_mode_tag} toutes les 2 min ({next_exec_dt.strftime('%H:%M:%S')})",
         )
 
         con.print(Panel(
             grid,
-            title="[bold white]SUIVI D\u2019EX\u00c9CUTION & PLANIFICATION AUTOMATIQUE[/bold white]",
+            title="[bold white]SUIVI D\u2019EXÉCUTION & PLANIFICATION AUTOMATIQUE[/bold white]",
             border_style="dim",
             padding=(1, 2),
         ))
@@ -817,6 +861,15 @@ def _update_ibkr_trailing_stop(
                     pair_state["sl_order_id"] = sl_result["sl_order_id"] if sl_result else None
                     pair_state["sl_exchange_placed"] = sl_result is not None
                 logger.info("[IBKR] %s Breakeven SL → %.5f", pair, new_sl)
+                try:
+                    send_email_alert(
+                        f"[IBKR-FOREX] Breakeven activé — {pair}",
+                        f"Stop-loss relevé au breakeven (prix d'entrée).\n"
+                        f"Nouveau SL : {new_sl:.5f}\n"
+                        f"Prix actuel : {current_price:.5f}",
+                    )
+                except Exception as _mail_exc:
+                    logger.warning("[IBKR] Email Breakeven %s ERREUR : %s", pair, _mail_exc)
 
         # Trailing activation
         if current_price >= entry_price + activation_dist:
@@ -834,6 +887,15 @@ def _update_ibkr_trailing_stop(
                     pair_state["sl_order_id"] = sl_result["sl_order_id"] if sl_result else None
                     pair_state["sl_exchange_placed"] = sl_result is not None
                 logger.info("[IBKR] %s Trailing LONG SL → %.5f", pair, new_trailing)
+                try:
+                    send_email_alert(
+                        f"[IBKR-FOREX] Trailing LONG activé — {pair}",
+                        f"Trailing stop LONG mis à jour.\n"
+                        f"Nouveau SL trailing : {new_trailing:.5f}\n"
+                        f"Prix actuel : {current_price:.5f}",
+                    )
+                except Exception as _mail_exc:
+                    logger.warning("[IBKR] Email Trailing LONG %s ERREUR : %s", pair, _mail_exc)
 
     else:
         # ── SHORT ─────────────────────────────────────────────────────────────
@@ -860,6 +922,15 @@ def _update_ibkr_trailing_stop(
                     pair_state["sl_order_id"] = sl_result["sl_order_id"] if sl_result else None
                     pair_state["sl_exchange_placed"] = sl_result is not None
                 logger.info("[IBKR] %s Trailing SHORT SL → %.5f", pair, new_trailing)
+                try:
+                    send_email_alert(
+                        f"[IBKR-FOREX] Trailing SHORT activé — {pair}",
+                        f"Trailing stop SHORT mis à jour.\n"
+                        f"Nouveau SL trailing : {new_trailing:.5f}\n"
+                        f"Prix actuel : {current_price:.5f}",
+                    )
+                except Exception as _mail_exc:
+                    logger.warning("[IBKR] Email Trailing SHORT %s ERREUR : %s", pair, _mail_exc)
 
 
 # ─── Partiels ─────────────────────────────────────────────────────────────────
@@ -919,6 +990,16 @@ def _execute_ibkr_partial_exit(
                     "[IBKR] %s PARTIAL-1 %.0f unités @%.5f (profit=%.2f%%)",
                     pair, partial_qty, current_price, profit_pct * 100,
                 )
+                try:
+                    send_email_alert(
+                        f"[IBKR-FOREX] PARTIAL-1 {pair} @{current_price:.5f}",
+                        f"Vente partielle 1 : {partial_qty:.0f} unités\n"
+                        f"Prix : {current_price:.5f}\n"
+                        f"Profit : {profit_pct * 100:.2f}%\n"
+                        f"Restant : {remaining_qty:.0f} unités",
+                    )
+                except Exception as _mail_exc:
+                    logger.warning("[IBKR] Email PARTIAL-1 %s ERREUR : %s", pair, _mail_exc)
 
     # 2e partiel
     if (not pair_state.get("partial_taken_2")
@@ -951,6 +1032,16 @@ def _execute_ibkr_partial_exit(
                     "[IBKR] %s PARTIAL-2 %.0f unités @%.5f (profit=%.2f%%)",
                     pair, partial_qty, current_price, profit_pct * 100,
                 )
+                try:
+                    send_email_alert(
+                        f"[IBKR-FOREX] PARTIAL-2 {pair} @{current_price:.5f}",
+                        f"Vente partielle 2 : {partial_qty:.0f} unités\n"
+                        f"Prix : {current_price:.5f}\n"
+                        f"Profit : {profit_pct * 100:.2f}%\n"
+                        f"Restant : {remaining_qty:.0f} unités",
+                    )
+                except Exception as _mail_exc:
+                    logger.warning("[IBKR] Email PARTIAL-2 %s ERREUR : %s", pair, _mail_exc)
 
 
 def _round_to_lot_ibkr(qty: float, lot_size: float = 20_000.0) -> float:
@@ -960,6 +1051,100 @@ def _round_to_lot_ibkr(qty: float, lot_size: float = 20_000.0) -> float:
 
 
 # ─── Panneau Rich SHORT ──────────────────────────────────────────────────────
+
+def _display_ibkr_short_entry_panel(
+    pair: str,
+    current_price: float,
+    last: "Any",
+    short_signal: bool,
+    short_reason: str,
+    con: "Console",
+    best: "Optional[Dict[str, Any]]" = None,
+) -> None:
+    """Panneau Rich des conditions d'ENTRÉE SHORT — affiché en mode informatif (OOS bloqué).
+
+    Symétrique de _display_ibkr_buy_panel : montre EMA1<EMA2, StochRSI>80%
+    et les filtres scénario inversés. NE PAS confondre avec _display_ibkr_short_panel
+    qui affiche les conditions de SORTIE (cover) d'une position déjà ouverte.
+    """
+    try:
+        ema_periods = best.get("ema_periods", ["?", "?"]) if best else ["?", "?"]
+        ema1_p = ema_periods[0] if isinstance(ema_periods, (list, tuple)) and len(ema_periods) > 0 else "?"
+        ema2_p = ema_periods[1] if isinstance(ema_periods, (list, tuple)) and len(ema_periods) > 1 else "?"
+        tf = best.get("timeframe", "?") if best else "?"
+        scenario = best.get("scenario", "StochRSI") if best else "StochRSI"
+        strategy_label = f"{scenario} EMA({ema1_p}/{ema2_p}) {tf}"
+
+        ema1 = float(last.get("ema1", 0.0) or 0.0)
+        ema2 = float(last.get("ema2", 0.0) or 0.0)
+        stoch = float(last.get("stoch_rsi", float("nan")) or float("nan"))
+        threshold = 0.80
+
+        grid = Table(
+            title="[bold white]Scan conditions d'entrée SHORT[/bold white]",
+            title_justify="left",
+            box=None, show_header=False, pad_edge=False,
+            show_edge=False, padding=(0, 1),
+        )
+        grid.add_column("condition", width=28, no_wrap=True, style="bold white")
+        grid.add_column("result", width=14, no_wrap=True)
+        grid.add_column("detail", style="dim")
+
+        grid.add_row("Stratégie active", "", f"[bold cyan]{strategy_label}[/bold cyan]")
+        grid.add_row("Prix actuel", "", f"[white]{current_price:.5f}[/white]")
+        grid.add_row(
+            f"EMA{ema1_p} < EMA{ema2_p}",
+            _ok_mark(ema1 < ema2),
+            f"EMA{ema1_p}={ema1:.5f}  EMA{ema2_p}={ema2:.5f}",
+        )
+        grid.add_row(
+            f"StochRSI > {threshold * 100:.0f}%",
+            _ok_mark(not (stoch != stoch) and stoch > threshold),
+            f"{stoch * 100:.1f}%",
+        )
+        grid.add_row("StochRSI actuel", "", f"[bold white]{stoch * 100:.2f}[/bold white]")
+
+        if scenario == "StochRSI_SMA":
+            sma = last.get("sma_long")
+            sma_f = float(sma) if sma is not None else None
+            grid.add_row(
+                "Prix < SMA200",
+                _ok_mark(sma_f is not None and current_price < sma_f),
+                f"SMA200={sma_f:.5f}" if sma_f is not None else "N/A",
+            )
+        if scenario == "StochRSI_ADX":
+            adx = float(last.get("adx", 0.0) or 0.0)
+            grid.add_row("ADX > 25", _ok_mark(adx > 25.0), f"ADX={adx:.2f}")
+        if scenario == "StochRSI_TRIX":
+            trix = last.get("TRIX_HISTO")
+            trix_f = float(trix) if trix is not None else None
+            grid.add_row(
+                "TRIX_HISTO < 0",
+                _ok_mark(trix_f is not None and trix_f < 0),
+                f"TRIX={trix_f:.5f}" if trix_f is not None else "N/A",
+            )
+
+        grid.add_row("", "", "")
+        grid.add_row(
+            "OOS gates",
+            "[bold red]✘ BLOQUÉ[/bold red]",
+            "Entrée SHORT suspendue — analyse IS (informatif)",
+        )
+
+        panel_title = (
+            f"[bold magenta]SIGNAL SHORT [{pair}] — ENTRÉE DÉTECTÉE (OOS bloqué)[/bold magenta]"
+            if short_signal else
+            f"[bold yellow]SCAN SHORT [{pair}] — OOS BLOQUÉ (informatif)[/bold yellow]"
+        )
+        con.print(Panel(
+            grid,
+            title=panel_title,
+            border_style="magenta" if short_signal else "yellow",
+            padding=(1, 2),
+        ))
+    except Exception as _panel_err:
+        logger.debug("[IBKR] _display_ibkr_short_entry_panel erreur : %s", _panel_err)
+
 
 def _display_ibkr_short_panel(
     pair: str,
@@ -1049,6 +1234,17 @@ def _execute_pair_signal(
     current_price = get_current_price(client, pair)
     if current_price <= 0:
         logger.error("[IBKR] %s — prix actuel invalide (%.5f)", pair, current_price)
+        _now = time.time()
+        if _now - _price_error_last_sent.get(pair, 0.0) >= 1800:  # throttle 30 min
+            _price_error_last_sent[pair] = _now
+            try:
+                send_email_alert(
+                    f"[IBKR-FOREX] Prix invalide {pair}",
+                    f"Prix actuel invalide ({current_price:.5f}) pour {pair}.\n"
+                    f"Vérifier la connexion IBKR ou les heures de marché.",
+                )
+            except Exception as _mail_exc:
+                logger.warning("[IBKR] Email prix invalide %s ERREUR : %s", pair, _mail_exc)
         return
 
     scenario = best.get("scenario", "StochRSI")
@@ -1298,7 +1494,10 @@ def _process_pair(
                 logger.warning("[IBKR] %s — EMERGENCY HALT actif, trading suspendu", pair)
                 return
             if pair_state.get("oos_blocked", False):
-                logger.warning("[IBKR] %s — OOS blocked, achat bloqué", pair)
+                logger.warning(
+                    "[IBKR] %s — OOS bloqué (session précédente) — recalcul en cours...",
+                    pair,
+                )
 
         # ── 1. Données OHLCV ──────────────────────────────────────────────
         try:
@@ -1400,6 +1599,10 @@ def _process_pair(
 
 def _trading_job(client: IBKRForexClient, ibkr_cfg: IBKRConfig) -> None:
     """Exécute un cycle de trading sur toutes les paires Forex."""
+    if datetime.now().weekday() >= 5:  # 5=samedi, 6=dimanche — marché Forex fermé
+        logger.info("[IBKR] Cycle backtest/WF ignoré — weekend (marché fermé)")
+        return
+
     logger.info("[IBKR] ─── Cycle trading démarré ───")
 
     if bot_state.get("emergency_halt", False):
@@ -1407,11 +1610,33 @@ def _trading_job(client: IBKRForexClient, ibkr_cfg: IBKRConfig) -> None:
         logger.critical("[IBKR] EMERGENCY HALT actif — reason: %s", reason)
         return
 
+    _was_disconnected = not client.is_connected()
     try:
         client.ensure_connected()
     except Exception as exc:
         logger.error("[IBKR] Reconnexion échouée : %s", exc)
+        _now = time.time()
+        if _now - _reconnect_alert_last_sent.get("fail", 0.0) >= 300:
+            _reconnect_alert_last_sent["fail"] = _now
+            try:
+                send_email_alert(
+                    "[IBKR-FOREX] Connexion IB Gateway impossible",
+                    f"Reconnexion échouée après plusieurs tentatives.\n"
+                    f"Détail : {exc}\n"
+                    f"Vérifier que IB Gateway est actif.",
+                )
+            except Exception as _mail_exc:
+                logger.debug("[IBKR] Email reconnexion ERREUR : %s", _mail_exc)
         return
+    if _was_disconnected:
+        logger.info("[IBKR] Reconnecté à IB Gateway")
+        try:
+            send_email_alert(
+                "[IBKR-FOREX] Reconnexion IB Gateway réussie",
+                "Connexion IB Gateway rétablie.\nLe bot reprend ses cycles normalement.",
+            )
+        except Exception as _mail_exc:
+            logger.debug("[IBKR] Email reconnexion réussie ERREUR : %s", _mail_exc)
 
     for pair_def in FOREX_PAIRS:
         try:
@@ -1424,6 +1649,91 @@ def _trading_job(client: IBKRForexClient, ibkr_cfg: IBKRConfig) -> None:
 
     write_heartbeat(ibkr_cfg.states_dir)
     logger.info("[IBKR] ─── Cycle terminé ───")
+
+
+# ─── Détection SL-FILL exchange-native ───────────────────────────────────────
+
+def _check_and_handle_sl_hit(
+    pair: str,
+    pair_state: "Dict[str, Any]",
+    client: "IBKRForexClient",
+    ibkr_cfg: "IBKRConfig",
+) -> bool:
+    """Vérifie si l'ordre SL exchange a été exécuté (FILLED) par IBKR.
+
+    Appelé à chaque cycle live (2 min). Si le SL est FILLED :
+      - Réinitialise pair_state (position fermée)
+      - Met à jour daily_pnl
+      - Envoie un email d'alerte
+      - Retourne True
+
+    Retourne False si aucun SL détecté ou si la vérification échoue.
+    """
+    sl_order_id = pair_state.get("sl_order_id")
+    sl_placed = pair_state.get("sl_exchange_placed", False)
+    last_side = pair_state.get("last_order_side")
+
+    if not sl_order_id or not sl_placed or last_side not in ("BUY", "SHORT"):
+        return False
+
+    try:
+        order = client.get_order(orderId=int(sl_order_id))
+        if order.get("status") != "FILLED":
+            return False
+
+        # SL exécuté — extraire les données de fill
+        entry_price = float(pair_state.get("entry_price") or 0.0)
+        sl_fill_price = float(order.get("price") or pair_state.get("stop_loss") or 0.0)
+        qty = float(order.get("executedQty") or pair_state.get("quantity") or 0.0)
+
+        if last_side == "BUY":
+            pnl = (sl_fill_price - entry_price) * qty
+        else:  # SHORT
+            pnl = (entry_price - sl_fill_price) * qty
+
+        _today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        with _ibkr_state_lock:
+            pair_state["last_order_side"] = "SL-FILL"
+            pair_state["entry_price"] = None
+            pair_state["quantity"] = None
+            pair_state["stop_loss"] = None
+            pair_state["sl_order_id"] = None
+            pair_state["sl_exchange_placed"] = False
+            pair_state["max_price"] = None
+            pair_state["min_price"] = None
+            pair_state["trailing_stop_activated"] = False
+            pair_state["trailing_stop"] = None
+            pair_state["breakeven_activated"] = False
+            pair_state["partial_taken_1"] = False
+            pair_state["partial_taken_2"] = False
+            if bot_state.get("daily_pnl_date") != _today_str:
+                bot_state["daily_pnl"] = 0.0
+                bot_state["daily_pnl_date"] = _today_str
+            bot_state["daily_pnl"] = float(bot_state.get("daily_pnl") or 0.0) + pnl
+
+        _save_state(ibkr_cfg, force=True)
+        logger.info(
+            "[IBKR] %s SL-FILL détecté : @%.5f PnL=%.2f € (side=%s)",
+            pair, sl_fill_price, pnl, last_side,
+        )
+        try:
+            send_email_alert(
+                f"[IBKR-FOREX] SL-FILL {pair} @{sl_fill_price:.5f}",
+                f"Stop-loss exécuté sur {pair}.\n"
+                f"Direction     : {last_side}\n"
+                f"Prix d'entrée : {entry_price:.5f}\n"
+                f"Prix SL fill  : {sl_fill_price:.5f}\n"
+                f"Quantité      : {qty:.0f}\n"
+                f"PnL estimé    : {pnl:+.2f} €",
+            )
+        except Exception as _mail_exc:
+            logger.warning("[IBKR] Email SL-FILL %s ERREUR : %s", pair, _mail_exc)
+
+        return True
+
+    except Exception as _sl_check_err:
+        logger.debug("[IBKR] %s — vérification SL-FILL ignorée : %s", pair, _sl_check_err)
+        return False
 
 
 # ─── Cycle live 2 minutes (signal uniquement, sans backtest) ─────────────────
@@ -1460,6 +1770,14 @@ def _live_process_pair(
             oos_blocked = pair_state.get("oos_blocked", False)
             best = _live_best_params.get(pair)
             last = _pair_last_indicators.get(pair)
+
+        # ─── Détection SL-FILL (ordre SL exchange exécuté par IBKR) ─────────────
+        # Si le SL a fire sur IBKR, on ferme la position côté état, on envoie
+        # l'email et on skip ce cycle pour éviter une ré-entrée immédiate.
+        if _check_and_handle_sl_hit(pair, pair_state, client, ibkr_cfg):
+            with _ibkr_state_lock:
+                in_position = (pair_state.get("last_order_side") == "BUY")
+            return  # skip panels + signal — prochain cycle = état propre
 
         # ─── IS best fallback + calcul indicateurs si cache absent ───────────────
         _best_disp = best if best is not None else _live_is_best_params.get(pair)
@@ -1514,7 +1832,12 @@ def _live_process_pair(
             _ep = _log_cfg.get("ema_periods", ["?", "?"])
             _ep0 = _ep[0] if isinstance(_ep, (list, tuple)) and len(_ep) > 0 else "?"
             _ep1 = _ep[1] if isinstance(_ep, (list, tuple)) and len(_ep) > 1 else "?"
-            _oos_tag = "" if best is not None else " [IS \u2014 OOS non valid\u00e9]"
+            if best is None:
+                _oos_tag = " [IS \u2014 OOS non valid\u00e9]"
+            elif best.get("validation_mode") == "IS":
+                _oos_tag = " [IS valid\u00e9]"
+            else:
+                _oos_tag = ""
             logger.info(
                 "[LIVE-ONLY] %s @ %s \u2014 %s EMA(%s/%s) %s%s",
                 pair, _now_str,
@@ -1565,14 +1888,27 @@ def _live_process_pair(
                         pair, _disp_price, last, _best_disp, _buy_sig, _buy_reason, console,
                         oos_blocked=_is_disp_only,
                     )
+                    # Afficher aussi les conditions SHORT en mode informatif
+                    if _is_disp_only and ibkr_cfg.allow_short:
+                        _short_sig, _short_reason = _check_ibkr_short_signal(
+                            last, _scenario, _disp_price, ibkr_cfg
+                        )
+                        _display_ibkr_short_entry_panel(
+                            pair, _disp_price, last,
+                            short_signal=_short_sig,
+                            short_reason=_short_reason,
+                            con=console,
+                            best=_best_disp,
+                        )
             except Exception as _cond_err:
                 logger.debug("[IBKR-LIVE] %s \u2014 affichage conditions ignor\u00e9 : %s", pair, _cond_err)
         _run_signal = True
         # oos_blocked bloque les nouveaux achats mais pas le monitoring d'une
         # position déjà ouverte (les exits restent actifs).
         if oos_blocked and not in_position:
+            _oos_block_detail = "achat et SHORT bloqués" if ibkr_cfg.allow_short else "achat bloqué"
             logger.info(
-                "[IBKR-LIVE] %s \u2014 OOS gates non valid\u00e9es, achat bloqu\u00e9 (2 min)", pair,
+                "[IBKR-LIVE] %s \u2014 OOS gates non valid\u00e9es, %s (2 min)", pair, _oos_block_detail,
             )
             _run_signal = False
 
@@ -1640,7 +1976,11 @@ def _live_process_pair(
         # ─── Panneau planification (affiché à chaque cycle) ──────────────────
         _now_exec = datetime.now()
         _next_exec = _now_exec + timedelta(minutes=2)
-        _display_ibkr_planning_panel(_now_exec, _next_exec, console, paper_mode=ibkr_cfg.paper_mode)
+        _display_ibkr_planning_panel(
+            _now_exec, _next_exec, console,
+            paper_mode=ibkr_cfg.paper_mode,
+            is_connected=client.is_connected(),
+        )
 
         with _ibkr_state_lock:
             bot_state[pair]["last_live_time"] = datetime.utcnow().isoformat() + "Z"
@@ -1654,6 +1994,10 @@ def _live_trading_job(client: "IBKRForexClient", ibkr_cfg: "IBKRConfig") -> None
 
     Identique à _dispatch_live_parallel du bot Binance (execute_live_trading_only).
     """
+    if datetime.now().weekday() >= 5:  # 5=samedi, 6=dimanche — marché Forex fermé
+        logger.debug("[IBKR] Cycle signal ignoré — weekend (marché fermé)")
+        return
+
     logger.info("[IBKR] ─── Cycle signal (2 min) ───")
 
     if bot_state.get("emergency_halt", False):
@@ -1661,11 +2005,33 @@ def _live_trading_job(client: "IBKRForexClient", ibkr_cfg: "IBKRConfig") -> None
         logger.critical("[IBKR] EMERGENCY HALT actif — reason: %s", reason)
         return
 
+    _was_disconnected = not client.is_connected()
     try:
         client.ensure_connected()
     except Exception as exc:
         logger.error("[IBKR] Reconnexion échouée (live) : %s", exc)
+        _now = time.time()
+        if _now - _reconnect_alert_last_sent.get("fail", 0.0) >= 300:
+            _reconnect_alert_last_sent["fail"] = _now
+            try:
+                send_email_alert(
+                    "[IBKR-FOREX] Connexion IB Gateway impossible",
+                    f"Reconnexion échouée après plusieurs tentatives.\n"
+                    f"Détail : {exc}\n"
+                    f"Vérifier que IB Gateway est actif.",
+                )
+            except Exception as _mail_exc:
+                logger.debug("[IBKR] Email reconnexion ERREUR : %s", _mail_exc)
         return
+    if _was_disconnected:
+        logger.info("[IBKR] Reconnecté à IB Gateway (cycle live)")
+        try:
+            send_email_alert(
+                "[IBKR-FOREX] Reconnexion IB Gateway réussie",
+                "Connexion IB Gateway rétablie.\nLe bot reprend ses cycles normalement.",
+            )
+        except Exception as _mail_exc:
+            logger.debug("[IBKR] Email reconnexion réussie ERREUR : %s", _mail_exc)
 
     for pair_def in FOREX_PAIRS:
         try:
@@ -1732,23 +2098,48 @@ def main() -> None:
     # Chargement état + init paires
     _init_bot(ibkr_cfg)
 
+    # Email de démarrage — permet de vérifier que le SMTP fonctionne
+    try:
+        _mode_str = "PAPER" if ibkr_cfg.paper_mode else "LIVE"
+        send_email_alert(
+            f"[IBKR-FOREX] Bot démarré — mode {_mode_str}",
+            f"Connexion IB Gateway OK (port {ibkr_cfg.port})\n"
+            f"Mode : {_mode_str}\n"
+            f"Capital : {ibkr_cfg.initial_capital:.0f} €\n"
+            f"allow_short : {ibkr_cfg.allow_short}\n"
+            f"Scheduler : {ibkr_cfg.schedule_interval_minutes} min (WF+backtest) / 2 min (signal)",
+        )
+    except Exception as _mail_exc:
+        logger.warning("[IBKR] Email démarrage ERREUR : %s", _mail_exc)
+
     # Planifier le job
     interval = ibkr_cfg.schedule_interval_minutes
     logger.info("[IBKR] Scheduler : toutes les %d minutes (backtest+WF) + toutes les 2 minutes (live)", interval)
-    # Tâche 1 : backtest + WF + signal → toutes les 60 minutes (identique _dispatch_scheduled_parallel Binance)
-    schedule.every(interval).minutes.do(_trading_job, client=client, ibkr_cfg=ibkr_cfg)
-    # Tâche 2 : signal live uniquement → toutes les 2 minutes (identique _dispatch_live_parallel Binance)
-    schedule.every(2).minutes.do(_live_trading_job, client=client, ibkr_cfg=ibkr_cfg)
 
-    # Exécuter immédiatement au démarrage
+    # Exécuter immédiatement au démarrage (avant d'enregistrer le scheduler,
+    # pour éviter que le job 2-min soit déjà "en retard" si _trading_job dépasse 2 min)
     _trading_job(client, ibkr_cfg)
     _live_trading_job(client, ibkr_cfg)  # premier cycle live sans attendre 2 min
+
+    # Enregistrer les tâches planifiées APRÈS les appels initiaux,
+    # de sorte que next_run = now + interval (pas de double déclenchement)
+    # Tâche 1 : backtest + WF + signal → toutes les 60 minutes
+    schedule.every(interval).minutes.do(_trading_job, client=client, ibkr_cfg=ibkr_cfg)
+    # Tâche 2 : signal live uniquement → toutes les 2 minutes
+    schedule.every(2).minutes.do(_live_trading_job, client=client, ibkr_cfg=ibkr_cfg)
 
     # Boucle infinie
     try:
         while True:
             if bot_state.get("emergency_halt", False):
                 logger.critical("[IBKR] EMERGENCY HALT — arrêt du scheduler")
+                try:
+                    send_email_alert(
+                        "[IBKR-FOREX] EMERGENCY HALT",
+                        "Le bot s'est arrêté en urgence (emergency_halt=True).\nVérifier les logs.",
+                    )
+                except Exception:
+                    pass
                 break
             schedule.run_pending()
             time.sleep(30)

@@ -60,6 +60,8 @@ test_run.txt
 
 # Logs bot générés à la racine
 log_bot.md
+erreur_github.md
+test_out.txt
 
 # Caches d'outils d'analyse statique
 .mypy_cache/
