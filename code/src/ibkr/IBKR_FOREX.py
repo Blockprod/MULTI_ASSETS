@@ -49,9 +49,7 @@ _os.environ.setdefault("RISK_PER_TRADE", "0.055")           # Alignement backtes
 # SENDER_EMAIL, RECEIVER_EMAIL, GOOGLE_MAIL_PASSWORD doivent être dans .env.ibkr
 
 # ─── Imports standard ─────────────────────────────────────────────────────────
-import json
 import logging
-import math
 import os
 import sys
 import threading
@@ -1273,7 +1271,6 @@ def _execute_pair_signal(
             buy_signal = False
             short_signal = False
             buy_reason = f"⚠ Daily loss limit ({_daily_pnl:.2f}€ ≤ {_daily_loss_limit:.2f}€)"
-            short_reason = buy_reason
 
         _display_ibkr_buy_panel(pair, current_price, last, best, buy_signal, buy_reason, console)
 
@@ -1518,7 +1515,6 @@ def _process_pair(
 
         # ── 1b. Resampling 4h depuis le 1h (zéro requête IBKR supplémentaire) ─
         # Lève le plafond bucket WF : top-2/tf × 2 timeframes = 4 candidats WF.
-        import pandas as _pd
         try:
             _df_4h = (
                 df
@@ -1537,9 +1533,6 @@ def _process_pair(
 
         # ── 2. Walk-Forward + sélection scénario ─────────────────────────
         best = _select_best_scenario(pair, df_by_tf, ibkr_cfg, periods_per_year)
-
-        with _ibkr_state_lock:
-            oos_blocked_before = pair_state.get("oos_blocked", False)
 
         if best is None:
             with _ibkr_state_lock:
@@ -1939,7 +1932,6 @@ def _live_process_pair(
                     params = _scenario_params(best.get("scenario", ""))
                     best_tf = best.get("timeframe", "1h")
                     if best_tf == "4h":
-                        import pandas as _pd
                         df_signal: Any = (
                             df_fresh
                             .resample("4h")

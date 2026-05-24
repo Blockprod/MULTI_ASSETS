@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -90,8 +90,8 @@ class TestIBKRConfig:
         old_secret  = os.environ.pop("IBKR_SECRET", None)
         old_account = os.environ.pop("IBKR_ACCOUNT", None)
         try:
-            from ibkr_config import IBKRConfig
-            import importlib, ibkr_config
+            import importlib
+            import ibkr_config
             # Force reload pour recharger avec les nouvelles env vars
             mod = importlib.reload(ibkr_config)
             with pytest.raises(EnvironmentError):
@@ -102,7 +102,8 @@ class TestIBKRConfig:
             if old_account:
                 os.environ["IBKR_ACCOUNT"] = old_account
             # Recharger le module avec les vars remises
-            import importlib, ibkr_config
+            import importlib
+            import ibkr_config
             importlib.reload(ibkr_config)
 
 

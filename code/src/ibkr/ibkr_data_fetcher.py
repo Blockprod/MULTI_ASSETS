@@ -10,7 +10,7 @@ import logging
 import os
 import pickle
 import time
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 
