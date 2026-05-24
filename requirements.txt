@@ -16,6 +16,7 @@ joblib==1.5.3
 
 # === EXCHANGE CLIENT ===
 python-binance==1.0.35
+ib-insync==0.9.86
 
 # === CONFIGURATION ===
 python-dotenv==1.2.1

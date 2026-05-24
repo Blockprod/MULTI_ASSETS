@@ -284,7 +284,7 @@ class IBKRForexClient:
         """Retourne l'heure serveur IBKR."""
         self.ensure_connected()
         t = self._ib.reqCurrentTime()
-        ts = t.timestamp() if isinstance(t, (datetime.date, datetime.datetime)) else float(t)
+        ts = t.timestamp() if isinstance(t, datetime.datetime) else float(t)
         return {"serverTime": int(ts)}
 
     def get_order(self, **kwargs: Any) -> Dict[str, Any]:
