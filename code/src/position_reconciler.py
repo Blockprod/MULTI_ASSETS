@@ -296,12 +296,14 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
                     sl_order_id=None, sl_exchange_placed=False,
                 )
                 # A-3: cooldown post-SL si configuré
-                _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
-                if _cd_candles > 0 and _sl_was_filled:
+                _cd_candles_default = getattr(config, 'stop_loss_cooldown_candles', 0)
+                if _cd_candles_default > 0 and _sl_was_filled:
                     _tf = _saved_entry_tf or '1h'
+                    # P3.2: override TF-aware (ex: stop_loss_cooldown_candles_1d pour éviter 12j sur 1d)
+                    _cd_candles = getattr(config, f'stop_loss_cooldown_candles_{_tf}', _cd_candles_default)
                     _TF_SEC: dict[str, int] = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800,
                                '1h': 3600, '4h': 14400, '1d': 86400}
-                    _candle_sec = _TF_SEC.get(_tf, 3600)
+                    _candle_sec = _TF_SEC.get(_tf, 3600)  # noqa: F821 — _tf défini ci-dessus
                     # Use actual SL fill timestamp from Binance, not current time
                     _cd_base = _sl_fill_ts if _sl_fill_ts > 0 else time.time()
                     _cd_until = _cd_base + (_cd_candles * _candle_sec)

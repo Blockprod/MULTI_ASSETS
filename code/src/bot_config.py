@@ -92,7 +92,8 @@ class Config:
     volume_sma_period: int = 20        # A-1: période SMA pour filtre volume
     breakeven_enabled: bool = True     # B-3: break-even stop
     breakeven_trigger_pct: float = 0.01   # B-3: seuil d'activation (1% → risk-free avant Partial-1 à 2%)
-    stop_loss_cooldown_candles: int = 12   # A-3: cooldown post-stop/breakeven (12h, bench optimal)
+    stop_loss_cooldown_candles: int = 12   # A-3: cooldown post-stop/breakeven (défaut: 12 candles)
+    stop_loss_cooldown_candles_1d: int = 5   # A-3: override TF 1d — 5 jours (au lieu de 12j avec 12 candles × 86400s)
     mtf_filter_enabled: bool = True    # A-2: filtre multi-timeframe 4h (EMA fast > EMA slow sur 4h)
     mtf_ema_fast: int = 18             # A-2: période EMA rapide sur 4h
     mtf_ema_slow: int = 58             # A-2: période EMA lente sur 4h

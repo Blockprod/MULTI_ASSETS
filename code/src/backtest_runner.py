@@ -1171,7 +1171,8 @@ def run_parallel_backtests(
     total_tasks = 0
     for tf in timeframes:
         ema_list = ema_periods_by_tf.get(tf, [(26, 50)])
-        total_tasks += len(crypto_pairs) * len(ema_list) * len(scenarios)
+        # +1 pour StochRSI_DipBuy ajouté dynamiquement dans run_all_backtests
+        total_tasks += len(crypto_pairs) * len(ema_list) * (len(scenarios) + 1)
 
     console.print(
         f"\n[bold cyan]Lancement de {total_tasks} backtests "

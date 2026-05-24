@@ -1642,6 +1642,25 @@ if __name__ == "__main__":
                 _runtime.taker_fee, _runtime.maker_fee,
                 real_taker, real_maker,
             )
+            # P2.1: alerte si écart > 30% sur le taker (remise BNB potentiellement expirée)
+            if real_taker > _runtime.taker_fee * 1.3:
+                logger.warning(
+                    "[P0-01] ⚠ Frais taker réels (%.4f%%) supérieurs de >30%% aux frais config (%.4f%%) — remise BNB expirée ?",
+                    real_taker * 100, _runtime.taker_fee * 100,
+                )
+                try:
+                    send_email_alert(
+                        subject="[BOT] ⚠ Frais Binance supérieurs aux frais config",
+                        body=(
+                            f"Frais taker API Binance : {real_taker * 100:.4f}%\n"
+                            f"Frais taker config      : {_runtime.taker_fee * 100:.4f}%\n"
+                            f"Écart : +{(real_taker / _runtime.taker_fee - 1) * 100:.1f}%\n\n"
+                            f"La remise BNB ou promo est peut-être expirée.\n"
+                            f"Mettre à jour TAKER_FEE dans .env si nécessaire."
+                        ),
+                    )
+                except Exception as _mail_err:
+                    logger.warning("[P0-01] Email frais non envoyé: %s", _mail_err)
         else:
             logger.info(
                 "[P0-01] Frais live utilisés: taker=%.5f maker=%.5f (source: config, alignes API Binance)",
@@ -1921,20 +1940,31 @@ if __name__ == "__main__":
                 }
                 best_params.update(SCENARIO_DEFAULT_PARAMS.get(_startup_wf_best['scenario'], {}))
             else:
+                # P1.1: defaults conservatifs identiques au main-loop (backtest_orchestrator.py)
+                # Ne jamais utiliser la meilleure config IS (overfitting garanti).
                 best_params = {
-                    'timeframe': best_result.get('timeframe', '1d'),
-                    'ema1_period': best_result.get('ema_periods', [26, 50])[0],
-                    'ema2_period': best_result.get('ema_periods', [26, 50])[1],
-                    'scenario': best_result.get('scenario', 'StochRSI'),
+                    'timeframe': '1d',
+                    'ema1_period': 26,
+                    'ema2_period': 50,
+                    'scenario': 'StochRSI',
                 }
-                best_params.update(SCENARIO_DEFAULT_PARAMS.get(best_params['scenario'], {}))
+                best_params.update(SCENARIO_DEFAULT_PARAMS.get('StochRSI', {}))
                 logger.warning(
-                    "[STARTUP F-BUG2] Aucun WF valide — fallback best IS Calmar: %s EMA(%s/%s) %s.",
-                    best_params['scenario'],
-                    best_params['ema1_period'],
-                    best_params['ema2_period'],
-                    best_params['timeframe'],
+                    "[STARTUP F-BUG2] Aucun WF valide — fallback conservatif: StochRSI EMA(26/50) 1d.",
                 )
+                # P1.2: email alert — capital réel sur config non validée OOS
+                try:
+                    send_email_alert(
+                        subject=f"[{backtest_pair}] ⚠ Bot démarré en mode fallback conservatif",
+                        body=(
+                            f"Paire : {backtest_pair}\n"
+                            f"Aucune configuration OOS validée lors du démarrage.\n"
+                            f"Stratégie active : StochRSI EMA(26/50) 1d (defaults conservatifs).\n\n"
+                            f"Action recommandée : vérifier les OOS gates (walk_forward.py)."
+                        ),
+                    )
+                except Exception as _mail_err:
+                    logger.warning("[STARTUP F-BUG2] Email alert non envoyé: %s", _mail_err)
 
             # Initialiser l'état du bot pour cette paire
             if backtest_pair not in bot_state:
@@ -1979,6 +2009,12 @@ if __name__ == "__main__":
             # === AFFICHAGE DATE/HEURE ET PLANIFICATION ===
             current_run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+            # Afficher le panel de suivi (avant la mise à jour last_run_time — P4.2: fix "Temps écoulé 0:00:00")
+            console.print(build_tracking_panel(pair_state, current_run_time))
+            console.print("\n")
+
+            # P4.2: mettre à jour last_run_time APRES le panel pour que le prochain cycle
+            # affiche le vrai delta écoulé (current_run_time - last_run_time_cycle_précédent)
             pair_state['last_run_time'] = current_run_time
             pair_state['last_execution'] = current_run_time  # D-10: dashboard Last Cycle
             pair_state['last_best_params'] = best_params
@@ -1998,10 +2034,6 @@ if __name__ == "__main__":
                     "[MAIN-LOOP P1-04] %s: _live_best_params GELÉS — params full-sample non propagés.",
                     backtest_pair,
                 )
-
-            # Afficher le panel de suivi
-            console.print(build_tracking_panel(pair_state, current_run_time))
-            console.print("\n")
 
             save_bot_state(force=True)
 

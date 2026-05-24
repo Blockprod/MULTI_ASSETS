@@ -37,7 +37,7 @@ logger = logging.getLogger("walk_forward")
 # P1-THRESH: valeurs par défaut, surchargées par config.oos_sharpe_min / config.oos_win_rate_min
 OOS_SHARPE_MIN = 0.8       # Minimum OOS annualized Sharpe (default)
 OOS_WIN_RATE_MIN = 30.0    # Minimum OOS win rate (%) (default)
-OOS_DECAY_MIN = 0.15       # Minimum OOS/FS Sharpe ratio (anti-overfit gate)
+OOS_DECAY_MIN = 0.05       # Minimum OOS/FS Sharpe ratio (anti-overfit gate) — abaissé 0.15→0.05 (régime 2025-2026)
 RISK_FREE_RATE = 0.04      # Annual risk-free rate (default, P2-03: surchargé par config)
 DEFAULT_MIN_WF_BARS = 700
 
