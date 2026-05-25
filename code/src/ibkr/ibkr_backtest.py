@@ -82,7 +82,6 @@ WF_SCENARIOS: List[Dict[str, Any]] = [
     {"name": "StochRSI_SMA",  "params": {"stoch_period": 14, "sma_long": 200}},
     {"name": "StochRSI_ADX",  "params": {"stoch_period": 14, "adx_period": 14}},
     {"name": "StochRSI_TRIX", "params": {"stoch_period": 14, "trix_length": 7, "trix_signal": 15}},
-    {"name": "StochRSI_DipBuy", "params": {"stoch_period": 14, "stoch_buy_max": 0.30}},
 ]
 
 
