@@ -377,7 +377,7 @@ def _select_best_scenario(
     _is_wr = is_best.get("win_rate", 0.0)       # pourcentage ex: 31.03 (pas décimal)
     _is_sharpe = is_best.get("sharpe_ratio", 0.0)
 
-    if not (_is_profit > 0 and _is_wr >= 25.0 and _is_sharpe > 0.0):
+    if not (_is_profit > 0 and _is_wr >= 35.0 and _is_sharpe >= 0.5):
         _block_detail = "achat et SHORT bloqués" if ibkr_cfg.allow_short else "achat bloqué"
         logger.warning(
             "[IBKR] %s — IS gates FAIL : profit=%.0f$, WR=%.1f%%, Sharpe=%.2f "
@@ -1281,6 +1281,7 @@ def _execute_pair_signal(
                 atr_stop_multiplier=ibkr_cfg.atr_multiplier_sl,
             )
             quote_qty = qty * current_price
+            quote_qty = min(quote_qty, ibkr_cfg.max_position_usd)
             buy_result = safe_forex_buy(client, pair, quote_qty, current_price=current_price)
             if buy_result:
                 entry_price = buy_result["entry_price"]
@@ -1323,6 +1324,7 @@ def _execute_pair_signal(
                 atr_stop_multiplier=ibkr_cfg.atr_multiplier_sl,
             )
             quote_qty = qty * current_price
+            quote_qty = min(quote_qty, ibkr_cfg.max_position_usd)
             short_result = safe_forex_short_open(client, pair, quote_qty, current_price=current_price)
             if short_result:
                 entry_price = short_result["entry_price"]

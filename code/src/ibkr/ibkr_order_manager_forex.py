@@ -68,6 +68,16 @@ def safe_forex_buy(
         result = client.order_market_buy(symbol=pair, quantity=quantity)
         time.sleep(_ORDER_WAIT_SECONDS)
 
+        # Vérifier que l'ordre a bien été exécuté (status=FILLED, executedQty > 0)
+        order_status = result.get("status", "UNKNOWN")
+        filled_qty = float(result.get("executedQty", "0") or "0")
+        if order_status == "CANCELED" and filled_qty == 0:
+            logger.error(
+                "[IBKR-OM] safe_forex_buy: ordre rejeté %s status=%s filled=0 → BUY annulé",
+                pair, order_status,
+            )
+            return None
+
         # Récupérer le prix de remplissage réel
         fill_price = _extract_fill_price(result, current_price)
         order_id = result.get("orderId", 0)
@@ -115,6 +125,15 @@ def safe_forex_sell(
         result = client.order_market_sell(symbol=pair, quantity=quantity)
         time.sleep(_ORDER_WAIT_SECONDS)
 
+        order_status = result.get("status", "UNKNOWN")
+        filled_qty = float(result.get("executedQty", "0") or "0")
+        if order_status == "CANCELED" and filled_qty == 0:
+            logger.error(
+                "[IBKR-OM] safe_forex_sell: ordre rejeté %s status=%s filled=0 → SELL annulé",
+                pair, order_status,
+            )
+            return None
+
         fill_price = _extract_fill_price(result, 0.0)
         order_id = result.get("orderId", 0)
 
@@ -154,6 +173,7 @@ def place_forex_stop_loss(
         )
         return None
 
+    stop_price = round(stop_price, 5)
     logger.info(
         "[IBKR-OM] Placement SL %s qty=%.0f stop=%.5f",
         pair, quantity, stop_price,
@@ -271,6 +291,15 @@ def safe_forex_short_open(
         result = client.order_market_sell(symbol=pair, quantity=quantity)
         time.sleep(_ORDER_WAIT_SECONDS)
 
+        order_status = result.get("status", "UNKNOWN")
+        filled_qty = float(result.get("executedQty", "0") or "0")
+        if order_status == "CANCELED" and filled_qty == 0:
+            logger.error(
+                "[IBKR-OM] safe_forex_short_open: ordre rejeté %s status=%s filled=0 → SHORT annulé",
+                pair, order_status,
+            )
+            return None
+
         fill_price = _extract_fill_price(result, current_price)
         order_id = result.get("orderId", 0)
 
@@ -310,6 +339,7 @@ def place_forex_stop_buy(
         )
         return None
 
+    stop_price = round(stop_price, 5)
     logger.info(
         "[IBKR-OM] Placement SL SHORT %s qty=%.0f stop=%.5f",
         pair, quantity, stop_price,
@@ -367,6 +397,15 @@ def safe_forex_cover(
     try:
         result = client.order_market_buy(symbol=pair, quantity=quantity)
         time.sleep(_ORDER_WAIT_SECONDS)
+
+        order_status = result.get("status", "UNKNOWN")
+        filled_qty = float(result.get("executedQty", "0") or "0")
+        if order_status == "CANCELED" and filled_qty == 0:
+            logger.error(
+                "[IBKR-OM] safe_forex_cover: ordre rejeté %s status=%s filled=0 → COVER annulé",
+                pair, order_status,
+            )
+            return None
 
         fill_price = _extract_fill_price(result, 0.0)
         order_id = result.get("orderId", 0)

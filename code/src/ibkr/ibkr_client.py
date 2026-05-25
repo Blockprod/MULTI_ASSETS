@@ -319,6 +319,7 @@ class IBKRForexClient:
         quantity: float = float(kwargs.get("quantity", kwargs.get("quoteOrderQty", 0.0)))
         contract = _build_forex_contract(symbol)
         order = MarketOrder("BUY", quantity)
+        order.tif = "IOC"
         trade = self._ib.placeOrder(contract, order)
         self._ib.sleep(1)
         return self._trade_to_dict(trade)
@@ -330,6 +331,7 @@ class IBKRForexClient:
         quantity: float = float(kwargs.get("quantity", 0.0))
         contract = _build_forex_contract(symbol)
         order = MarketOrder("SELL", quantity)
+        order.tif = "IOC"
         trade = self._ib.placeOrder(contract, order)
         self._ib.sleep(1)
         return self._trade_to_dict(trade)

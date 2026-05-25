@@ -44,6 +44,7 @@ class IBKRConfig:
         self.initial_capital: float = 10_000.0   # 10 000€ paper
         self.risk_per_trade: float = 0.055        # 5.5% = ~550€/trade
         self.max_leverage: float = 20.0           # IBKR Forex retail (20:1 EUR/USD)
+        self.max_position_usd: float = 500_000.0  # Cap notionnel max par trade (USD)
         self.daily_loss_limit_pct: float = 0.05   # 5% = 500€/j
 
         # ─── Trailing stop & partials ─────────────────────────────────────
@@ -126,6 +127,7 @@ class IBKRConfig:
         cfg.initial_capital = float(os.environ.get("IBKR_INITIAL_CAPITAL", "10000.0"))
         cfg.risk_per_trade = float(os.environ.get("IBKR_RISK_PER_TRADE", "0.02"))
         cfg.max_leverage = float(os.environ.get("IBKR_MAX_LEVERAGE", "5.0"))
+        cfg.max_position_usd = float(os.environ.get("IBKR_MAX_POSITION_USD", "500000.0"))
         cfg.daily_loss_limit_pct = float(
             os.environ.get("IBKR_DAILY_LOSS_LIMIT_PCT", "0.05")
         )
