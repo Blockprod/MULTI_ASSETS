@@ -84,11 +84,13 @@ def display_buy_signal_panel(
 
     cond_grid.add_row("Stratégie active", "", f"[bold cyan]{_strategy_label}[/bold cyan]")
     cond_grid.add_row(f"Solde {quote_currency} > 0", _ok(usdc_balance > 0), f"{usdc_balance:.2f} {quote_currency}")
-    cond_grid.add_row("EMA1 > EMA2", _ok(row['ema1'] > row['ema2']), f"EMA{_ema1_p}={row['ema1']:.8f}  EMA{_ema2_p}={row['ema2']:.8f}")
+    def _fmt_ema(v: float) -> str:
+        return f"{v:.12f}" if v < 0.01 else f"{v:.8f}"
+    cond_grid.add_row("EMA1 > EMA2", _ok(row['ema1'] > row['ema2']), f"EMA{_ema1_p}={_fmt_ema(row['ema1'])}  EMA{_ema2_p}={_fmt_ema(row['ema2'])}")
     _ps_buy_max = pair_state.get('stoch_buy_max') if pair_state else None
     _buy_max = _ps_buy_max if _ps_buy_max is not None else getattr(config, 'stoch_rsi_buy_max', 0.8)
     _srsi_val = row['stoch_rsi'] * 100
-    _srsi_display = f"{_srsi_val:.2f}"
+    _srsi_display = f"{_srsi_val:.2f}%"
     _srsi_color = "bold green" if _srsi_val < _buy_max * 100 else "bold red"
     cond_grid.add_row(f"StochRSI < {_buy_max*100:.0f}%", _ok(row['stoch_rsi'] < _buy_max), "")
     _ps_buy_min = pair_state.get('stoch_buy_min') if pair_state else None
@@ -186,7 +188,9 @@ def display_sell_signal_panel(
         _scenario = best_params.get('scenario', '?')
         sell_grid.add_row("Stratégie active", "", f"[bold cyan]{_scenario} EMA({_ema1_p}/{_ema2_p}) {_tf}[/bold cyan]")
 
-    sell_grid.add_row("EMA2 > EMA1", _ok(row['ema2'] > row['ema1']), f"EMA1={row['ema1']:.8f}  EMA2={row['ema2']:.8f}")
+    def _fmt_ema(v: float) -> str:
+        return f"{v:.12f}" if v < 0.01 else f"{v:.8f}"
+    sell_grid.add_row("EMA2 > EMA1", _ok(row['ema2'] > row['ema1']), f"EMA1={_fmt_ema(row['ema1'])}  EMA2={_fmt_ema(row['ema2'])}")
     _ps_sell_exit = pair_state.get('stoch_sell_exit') if pair_state else None
     _stoch_exit = _ps_sell_exit if _ps_sell_exit is not None else getattr(config, 'stoch_rsi_sell_exit', 0.4)
     sell_grid.add_row(f"StochRSI > {_stoch_exit * 100:.0f}%", _ok(row['stoch_rsi'] > _stoch_exit), f"{row['stoch_rsi']*100:.1f}%")
@@ -516,15 +520,24 @@ def display_results_for_pair(backtest_pair: str, results: List[Dict], console: O
         profit_color = "bold bright_green" if profit > 0 else "bold red"
         rank = "\u2605" if i == 1 else str(i)
         row_style = "on dark_green" if i == 1 else ""
+        _is_degenerate = result.get('win_rate', 0.0) >= 100.0 and result.get('max_drawdown', 1.0) == 0.0
         table.add_row(
             f"[bold yellow]{rank}[/bold yellow]" if i == 1 else rank,
             result['timeframe'],
             f"{result['ema_periods'][0]}/{result['ema_periods'][1]}",
-            result['scenario'],
+            f"[dim]{result['scenario']} [red][EXCLU][/red][/dim]" if _is_degenerate else result['scenario'],
             f"[{profit_color}]{profit:,.2f}[/{profit_color}]",
             f"[bold yellow]⚠[/bold yellow] {len(result['trades'])}" if len(result['trades']) < 10 else str(len(result['trades'])),
             f"[red]{result['max_drawdown']*100:.2f}%[/red]",
-            f"[cyan]{result['win_rate']:.2f}%[/cyan]",
+            (
+                f"[bold red]{result['win_rate']:.2f}%[/bold red]"
+                if _is_degenerate
+                else (
+                    f"[bold yellow]⚠[/bold yellow] [cyan]{result['win_rate']:.2f}%[/cyan]"
+                    if result['win_rate'] > 95.0 and len(result['trades']) < 30
+                    else f"[cyan]{result['win_rate']:.2f}%[/cyan]"
+                )
+            ),
             style=row_style,
         )
 
@@ -673,6 +686,11 @@ def build_tracking_panel(pair_state: Mapping[str, Any], current_run_time: str) -
     tracking_grid.add_row("", "")
     tracking_grid.add_row("Mode de planification", "[dim]Live: 2 min | Backtest+WF: 1 heure[/dim]")
     tracking_grid.add_row("Prochaine execution", "[bright_green]Live toutes les 2 min (720 exec/jour)[/bright_green]")
+
+    # I-3: alerte visuelle si aucune config OOS validée au démarrage
+    if pair_state.get('wf_fallback'):
+        tracking_grid.add_row("", "")
+        tracking_grid.add_row("[bold yellow]\u26a0 Mode WF[/bold yellow]", "[bold yellow]FALLBACK — aucune config OOS valide[/bold yellow]")
 
     return Panel(
         tracking_grid,

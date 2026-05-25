@@ -106,9 +106,9 @@ def sample_config():
         trailing_activation_pct = 0.03
         target_volatility_pct = 0.02
         backtest_min_notional = 5.0
-        oos_sharpe_min = 0.8
+        oos_sharpe_min = 0.15
         oos_win_rate_min = 30.0
-        oos_decay_min = 0.15
+        oos_decay_min = 0.05
         schedule_interval_minutes = 2
         risk_free_rate = 0.04
         email_cooldown_seconds = 300

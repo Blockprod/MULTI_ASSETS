@@ -82,9 +82,12 @@ _KNOWN_PAIR_KEYS: Set[str] = {
     '_stop_loss_cooldown_until',
     '_sl_cooldown_timeframe',                  # TF stratégie au moment du SL (A-3 restart fix)
     'oos_blocked', 'oos_blocked_since',
+    'oos_alert_sent_ts',                        # timestamp dernier email OOS (cooldown post-restart)
     'drawdown_halted',                         # ST-P2-02
     'quote_currency', 'ticker_spot_price', 'latest_best_params',
     'stoch_buy_min', 'stoch_buy_max', 'stoch_sell_exit',  # STOCH-OPT per-pair
+    'wf_fallback',  # I-3: WF validation status pour affichage panel
+    'wf_fallback_consecutive',  # S1: compteur cycles fallback consécutifs
 }
 
 # Clés globales connues de BotStateDict (C-16).

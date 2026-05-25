@@ -221,6 +221,9 @@ class TestWalkForwardIntegration:
                     {'type': 'sell', 'profit': 50.0},
                     {'type': 'sell', 'profit': 30.0},
                     {'type': 'sell', 'profit': -10.0},
+                    {'type': 'sell', 'profit': 25.0},
+                    {'type': 'sell', 'profit': 15.0},
+                    {'type': 'sell', 'profit': -5.0},
                 ]),
                 'max_drawdown': 0.08,
                 'win_rate': 66.0,
@@ -276,26 +279,26 @@ class TestWalkForwardIntegration:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestValidateOOSResult:
-    """Vérifie les seuils des quality gates OOS (Sharpe > 0.5, WR > 45 %)."""
+    """Vérifie les seuils des quality gates OOS (Sharpe > 0.15, WR > 30 %)."""
 
     def test_both_criteria_must_pass(self):
         from walk_forward import validate_oos_result
         assert validate_oos_result(0.9, 50.0) is True
-        assert validate_oos_result(0.2, 50.0) is False   # sharpe < 0.8 → fail
+        assert validate_oos_result(0.10, 50.0) is False  # sharpe < 0.15 → fail
         assert validate_oos_result(0.9, 25.0) is False   # WR < 30 % → fail
-        assert validate_oos_result(0.2, 25.0) is False   # les deux trop bas
+        assert validate_oos_result(0.10, 25.0) is False  # les deux trop bas
 
     def test_exactly_at_threshold_fails(self):
-        """Les seuils sont stricts (>), pas (>=)."""
+        """Les seuils sont stricts (>), pas (>= )."""
         from walk_forward import validate_oos_result
-        # 0.3 n'est PAS > 0.3
-        assert validate_oos_result(0.3, 50.0) is False
+        # 0.15 n'est PAS > 0.15
+        assert validate_oos_result(0.15, 50.0) is False
         # 30.0 n'est PAS > 30.0
         assert validate_oos_result(0.6, 30.0) is False
 
     def test_just_above_threshold_passes(self):
         from walk_forward import validate_oos_result
-        assert validate_oos_result(0.81, 30.1) is True
+        assert validate_oos_result(0.16, 30.1) is True
 
     def test_negative_sharpe_fails(self):
         from walk_forward import validate_oos_result

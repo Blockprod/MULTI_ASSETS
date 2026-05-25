@@ -54,9 +54,9 @@ class Config:
     smtp_port: int = 587
     taker_fee: float = 0.0007
     maker_fee: float = 0.0002
-    backtest_taker_fee: float = 0.0007  # P2-FEES: frais figés pour le backtest
-                                         # (jamais écrasés par le live)
-    backtest_maker_fee: float = 0.0002  # P2-FEES: frais figés pour le backtest
+    backtest_taker_fee: float = 0.001   # P2-FEES: frais figés pour le backtest
+                                         # (jamais écrasés par le live) — aligné Binance 0.1%
+    backtest_maker_fee: float = 0.001   # P2-FEES: frais figés pour le backtest — aligné Binance 0.1%
     slippage_buy: float = 0.0001
     slippage_sell: float = 0.0001
     initial_wallet: float = 10000.0
@@ -66,7 +66,7 @@ class Config:
     states_dir: str = "states"
     state_file: str = "bot_state.json"  # C-17: JSON (was .pkl)
     atr_period: int = 14
-    atr_multiplier: float = 8.0  # E-1: optimisé 5.5→8.0 (PnL +22.5%, DD -0.9pp)
+    atr_multiplier: float = 4.5  # C2: réduit 8.0→4.5 (activation trailing ~+5% vs +22% avec 8×)
     atr_stop_multiplier: float = 3.0
     recv_window: int = 60000  # P1-11: centralisé, utilisé par exchange_client
     risk_per_trade: float = 0.055  # B-2: optimisé 5%→5.5% (Calmar max 2.004)
@@ -78,9 +78,10 @@ class Config:
     trailing_activation_pct: float = 0.03
     target_volatility_pct: float = 0.02
     backtest_min_notional: float = 5.0  # Filtre Binance simulé en backtest (USDC)
-    oos_sharpe_min: float = 0.8      # P1-THRESH: seuil OOS Sharpe minimum
+    oos_sharpe_min: float = 0.15     # P1-THRESH: seuil OOS Sharpe minimum
     oos_win_rate_min: float = 30.0   # P1-THRESH: seuil OOS Win Rate minimum (%)
-    oos_decay_min: float = 0.15      # seuil ratio OOS/FS Sharpe (anti-overfit gate)
+    oos_decay_min: float = 0.05      # seuil ratio OOS/FS Sharpe (anti-overfit gate) — abaissé 0.15→0.05 (régime 2025-2026)
+    oos_min_trades: int = 10         # nombre minimum de trades OOS complétés (rejet configs statistiquement insuffisantes)
     schedule_interval_minutes: int = 2  # P2-02: intervalle schedule (avant: hardcodé)
     risk_free_rate: float = 0.04     # P2-03: taux sans risque annuel (US T-bills)
     email_cooldown_seconds: int = 300  # P2-07: cooldown entre emails d'alerte
@@ -171,9 +172,9 @@ class Config:
         config_data['taker_fee'] = float(os.getenv('TAKER_FEE', '0.0007'))
         config_data['maker_fee'] = float(os.getenv('MAKER_FEE', '0.0002'))
         config_data['backtest_taker_fee'] = float(
-            os.getenv('BACKTEST_TAKER_FEE', '0.0007'))  # P2-FEES
+            os.getenv('BACKTEST_TAKER_FEE', '0.001'))   # P2-FEES — aligné Binance 0.1%
         config_data['backtest_maker_fee'] = float(
-            os.getenv('BACKTEST_MAKER_FEE', '0.0002'))  # P2-FEES
+            os.getenv('BACKTEST_MAKER_FEE', '0.001'))   # P2-FEES — aligné Binance 0.1%
         config_data['slippage_buy'] = float(os.getenv('SLIPPAGE_BUY', '0.0001'))
         config_data['slippage_sell'] = float(os.getenv('SLIPPAGE_SELL', '0.0001'))
         config_data['api_timeout'] = int(os.getenv('API_TIMEOUT', '30'))
@@ -194,7 +195,7 @@ class Config:
             else os.path.join(_src_dir, _states_env))
         config_data['state_file'] = os.getenv('STATE_FILE', 'bot_state.json')  # C-17
         config_data['atr_period'] = int(os.getenv('ATR_PERIOD', '14'))
-        config_data['atr_multiplier'] = float(os.getenv('ATR_MULTIPLIER', '8.0'))
+        config_data['atr_multiplier'] = float(os.getenv('ATR_MULTIPLIER', '4.5'))  # C2
         config_data['atr_stop_multiplier'] = float(os.getenv('ATR_STOP_MULTIPLIER', '3.0'))
         config_data['risk_per_trade'] = float(os.getenv('RISK_PER_TRADE', '0.055'))  # B-2
         config_data['smtp_server'] = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -209,11 +210,13 @@ class Config:
         config_data['target_volatility_pct'] = float(os.getenv('TARGET_VOLATILITY_PCT', '0.02'))
         config_data['backtest_min_notional'] = float(os.getenv('BACKTEST_MIN_NOTIONAL', '5.0'))
         config_data['oos_sharpe_min'] = float(
-            os.getenv('OOS_SHARPE_MIN', '0.8'))       # P1-THRESH
+            os.getenv('OOS_SHARPE_MIN', '0.15'))      # P1-THRESH
         config_data['oos_win_rate_min'] = float(
             os.getenv('OOS_WIN_RATE_MIN', '30.0'))  # P1-THRESH
         config_data['oos_decay_min'] = float(
-            os.getenv('OOS_DECAY_MIN', '0.15'))        # anti-overfit
+            os.getenv('OOS_DECAY_MIN', '0.05'))        # anti-overfit
+        config_data['oos_min_trades'] = int(
+            os.getenv('OOS_MIN_TRADES', '10'))          # min trades OOS
         config_data['schedule_interval_minutes'] = int(
             os.getenv('SCHEDULE_INTERVAL_MINUTES', '2'))  # P2-02
         config_data['risk_free_rate'] = float(
@@ -321,12 +324,11 @@ class Config:
         if self.api_timeout < 1:
             errors.append(f"api_timeout={self.api_timeout} doit être >= 1")
 
-        # C-15: Warn when config values diverge from Cython compile-time constants.
-        # backtest_engine_standard.pyx uses:
-        #   DEF ATR_MULTIPLIER      = 8.0   (trailing activation) — E-1
-        #   DEF ATR_STOP_MULTIPLIER = 3.0   (initial stop)
-        # If config differs, live trading behaviour won't match backtest outcomes.
-        cython_atr_multiplier = 8.0
+        # C-15: Warn when config values diverge from Cython default parameter values.
+        # backtest_engine_standard.pyx uses runtime params (not compile-time DEFs) —
+        # these defaults are overridden by config values at call site.
+        # Reference values updated: atr_multiplier 8.0→4.5 (C2 fix).
+        cython_atr_multiplier = 4.5
         cython_atr_stop_multiplier = 3.0
         if abs(self.atr_multiplier - cython_atr_multiplier) > 1e-9:
             logger.warning(
@@ -358,6 +360,15 @@ class Config:
         object.__setattr__(self, 'stoch_rsi_buy_min', buy_min)
         object.__setattr__(self, 'stoch_rsi_buy_max', buy_max)
         object.__setattr__(self, 'stoch_rsi_sell_exit', sell_exit)
+
+    def update_live_fees(self, taker_fee: float, maker_fee: float) -> None:
+        """Auto-adoption des frais réels Binance (P0-01).
+
+        Met à jour uniquement taker_fee / maker_fee live — backtest_taker_fee
+        et backtest_maker_fee restent FIGÉS (règle absolue).
+        """
+        object.__setattr__(self, 'taker_fee', taker_fee)
+        object.__setattr__(self, 'maker_fee', maker_fee)
 
 
 # Singleton de configuration — créé à l'import

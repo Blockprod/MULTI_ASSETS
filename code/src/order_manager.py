@@ -247,6 +247,19 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
         ps['trailing_activation_price'] = trailing_activation_price
         deps.save_fn()
         logger.info(f"[TRAILING] Prix d'activation recalculé: {trailing_activation_price:.4f}")
+    # Protection : si trailing_activation_price est stale (calculé avec un ancien multiplier)
+    elif (trailing_activation_price is not None and entry_price and atr_at_entry
+            and not ps.get('trailing_stop_activated', False)):
+        _expected = entry_price + deps.config.atr_multiplier * atr_at_entry
+        if trailing_activation_price > _expected * 1.02:
+            trailing_activation_price = _expected
+            ps['trailing_activation_price_at_entry'] = trailing_activation_price
+            ps['trailing_activation_price'] = trailing_activation_price
+            deps.save_fn()
+            logger.warning(
+                f"[TRAILING] Prix d'activation recalculé (multiplier changé): "
+                f"{trailing_activation_price:.4f}"
+            )
 
     # Mise à jour du max_price
     if max_price is None:
@@ -254,7 +267,7 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
     if max_price is not None and ctx.current_price is not None and ctx.current_price > max_price:
         max_price = ctx.current_price
 
-    # === ACTIVATION DU TRAILING (quand prix >= entry + 8×ATR, cf. atr_multiplier E-1) ===
+    # === ACTIVATION DU TRAILING (quand prix >= entry + atr_multiplier×ATR) ===
     if not trailing_activated and trailing_activation_price:
         if trailing_activation_price is not None and ctx.current_price is not None and ctx.current_price >= trailing_activation_price:
             trailing_activated = True
@@ -829,6 +842,9 @@ def _handle_exchange_sl_fill(
 
     # A-3: cooldown post-stop-loss
     _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
+    # S2: override 1d — sans ça 12 candles × 86400s = 12 jours au lieu de 5
+    if ctx.time_interval == '1d':
+        _cd_candles = getattr(config, 'stop_loss_cooldown_candles_1d', _cd_candles)
     if _cd_candles > 0:
         _candle_sec = TIMEFRAME_SECONDS.get(ctx.time_interval, 3600)
         ps['_stop_loss_cooldown_until'] = time.time() + (_cd_candles * _candle_sec)
@@ -989,6 +1005,9 @@ def _handle_manual_sl_trigger(
 
             # A-3: cooldown post-stop-loss
             _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
+            # S2: override 1d — sans ça 12 candles × 86400s = 12 jours au lieu de 5
+            if ctx.time_interval == '1d':
+                _cd_candles = getattr(config, 'stop_loss_cooldown_candles_1d', _cd_candles)
             if _cd_candles > 0:
                 _candle_sec = TIMEFRAME_SECONDS.get(ctx.time_interval, 3600)
                 ps['_stop_loss_cooldown_until'] = time.time() + (_cd_candles * _candle_sec)
@@ -1170,6 +1189,9 @@ def _reconcile_zero_balance_sl(ctx: '_TradeCtx', deps: '_TradingDeps') -> bool:
 
     # A-3: cooldown post-stop-loss (use actual fill time, not current time)
     _cd_candles = getattr(config, 'stop_loss_cooldown_candles', 0)
+    # S2: override 1d — sans ça 12 candles × 86400s = 12 jours au lieu de 5
+    if ctx.time_interval == '1d':
+        _cd_candles = getattr(config, 'stop_loss_cooldown_candles_1d', _cd_candles)
     if _cd_candles > 0:
         _candle_sec = TIMEFRAME_SECONDS.get(ctx.time_interval, 3600)
         _cd_base = _sl_fill_ts if _sl_fill_ts > 0 else time.time()

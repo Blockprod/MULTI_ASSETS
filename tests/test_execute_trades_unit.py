@@ -51,7 +51,7 @@ def _make_config(**overrides):
         backtest_days=1095, max_workers=4,
         smtp_server='smtp.gmail.com', smtp_port=587,
         api_timeout=30,
-        oos_sharpe_min=0.8, oos_win_rate_min=30.0, oos_decay_min=0.15,
+        oos_sharpe_min=0.15, oos_win_rate_min=30.0, oos_decay_min=0.05,
     )
     defaults.update(overrides)
     for k, v in defaults.items():

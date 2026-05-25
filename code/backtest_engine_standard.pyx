@@ -65,7 +65,7 @@ def backtest_from_dataframe_fast(
     double taker_fee=0.0007,
     double slippage_buy=0.0001,
     double slippage_sell=0.0001,
-    double atr_multiplier=8.0,  # E-1: trailing activation optimisé
+    double atr_multiplier=4.5,  # C2: réduit 8.0→4.5 (activation trailing plus proche entrée)
     double atr_stop_multiplier=3.0,
     double stoch_threshold_buy=0.8,
     double stoch_threshold_sell=0.2,

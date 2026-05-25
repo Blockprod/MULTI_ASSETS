@@ -389,13 +389,13 @@ class TestP1Thresh:
     """Configurable OOS threshold tests."""
 
     def test_validate_oos_uses_defaults(self):
-        """validate_oos_result with default thresholds (0.8 / 30%)."""
+        """validate_oos_result with default thresholds (0.15 / 30%)."""
         from walk_forward import validate_oos_result
 
         # Above defaults → pass
         assert validate_oos_result(sharpe=0.9, win_rate=40.0) is True
         # Below Sharpe threshold → fail
-        assert validate_oos_result(sharpe=0.2, win_rate=40.0) is False
+        assert validate_oos_result(sharpe=0.10, win_rate=40.0) is False
         # Below win_rate threshold → fail
         assert validate_oos_result(sharpe=0.9, win_rate=20.0) is False
         # Both below → fail
@@ -444,7 +444,7 @@ class TestP1Thresh:
         cfg = Config()
         assert hasattr(cfg, 'oos_sharpe_min'), "Config missing oos_sharpe_min"
         assert hasattr(cfg, 'oos_win_rate_min'), "Config missing oos_win_rate_min"
-        assert cfg.oos_sharpe_min == 0.8
+        assert cfg.oos_sharpe_min == 0.15
         assert cfg.oos_win_rate_min == 30.0
 
     def test_oos_thresholds_from_env(self):

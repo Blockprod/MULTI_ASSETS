@@ -180,14 +180,14 @@ class TestOOSBlockPreventsNewBuys:
         except ImportError:
             pytest.skip("walk_forward.validate_oos_result non disponible")
 
-        # Simuler des résultats tous en dessous des seuils (sharpe < 0.5 ou WR < 45%)
+        # Simuler des résultats tous en dessous des seuils (sharpe < 0.15 ou WR < 30%)
         bad_results = [
-            {'sharpe_ratio': 0.1, 'win_rate': 30.0, 'final_wallet': 9000, 'initial_wallet': 10000},
-            {'sharpe_ratio': 0.3, 'win_rate': 40.0, 'final_wallet': 9500, 'initial_wallet': 10000},
+            {'sharpe_ratio': 0.05, 'win_rate': 30.0, 'final_wallet': 9000, 'initial_wallet': 10000},
+            {'sharpe_ratio': 0.12, 'win_rate': 40.0, 'final_wallet': 9500, 'initial_wallet': 10000},
         ]
 
         oos_valid = [r for r in bad_results if validate_oos_result(r.get('sharpe_ratio', 0.0), r.get('win_rate', 0.0))]
-        assert len(oos_valid) == 0, "Aucun résultat ne devrait passer avec sharpe < 0.5"
+        assert len(oos_valid) == 0, "Aucun résultat ne devrait passer avec sharpe < 0.15"
 
         # oos_blocked doit être mis à True dans ce cas
         pair_state: dict = {}
@@ -381,11 +381,13 @@ class TestOOSAlertCooldown:
 
     @pytest.fixture(autouse=True)
     def _setup(self):
-        """Reset du module-level cooldown dict avant chaque test."""
+        """Reset du module-level cooldown dict + bot_state OOS key avant chaque test."""
         import MULTI_SYMBOLS as ms
         ms._oos_alert_last_sent.clear()
+        ms.bot_state.get('SOLUSDT', {}).pop('oos_alert_sent_ts', None)
         yield
         ms._oos_alert_last_sent.clear()
+        ms.bot_state.get('SOLUSDT', {}).pop('oos_alert_sent_ts', None)
 
     def _bad_results(self):
         """Résultats qui ne passent jamais les OOS gates."""
@@ -439,8 +441,9 @@ class TestOOSAlertCooldown:
         )
         assert mock_email.call_count == 1
 
-        # Simuler que le cooldown est expiré
+        # Simuler que le cooldown est expiré (mémoire + état persisté)
         ms._oos_alert_last_sent['SOLUSDT'] = _time.time() - 7200  # 2h ago
+        ms.bot_state.setdefault('SOLUSDT', {})['oos_alert_sent_ts'] = _time.time() - 7200
 
         ms.apply_oos_quality_gate(
             self._bad_results(), 'SOLUSDT',

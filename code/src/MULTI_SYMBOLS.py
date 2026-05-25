@@ -313,6 +313,12 @@ class PairState(TypedDict, total=False):
     oos_blocked_since: float               # time.time()
     # --- Drawdown kill-switch (ST-P2-02) ---
     drawdown_halted: Optional[bool]        # True si drawdown > max_drawdown_pct enété détecté
+    # --- StochRSI seuils optimisés par paire (STOCH-OPT) ---
+    stoch_buy_min: float
+    stoch_buy_max: float
+    stoch_sell_exit: float
+    # --- WF validation status (I-3) ---
+    wf_fallback: bool                          # True si aucune config OOS validée au démarrage
     # --- Display / info (écriture externe) ---
     quote_currency: str
     ticker_spot_price: float
@@ -1632,35 +1638,41 @@ if __name__ == "__main__":
             logger.error("Impossible de valider la connexion API. Arret du programme.")
             exit(1)
 
-        # Récupération des frais réels depuis l'API Binance (P0-01: log only)
-        # Note: l'API retourne les frais VIP nominaux (sans remise BNB/promo).
-        # Les valeurs config (taker_fee/maker_fee) sont autoritatives.
+        # Récupération des frais réels depuis l'API Binance (P0-01).
+        # Si l'écart taker > 30%, auto-adoption des frais réels pour l'exécution live.
+        # backtest_taker_fee / backtest_maker_fee restent FIGÉS (règle absolue).
         real_taker, real_maker = get_binance_trading_fees(client)
         if abs(real_taker - _runtime.taker_fee) > 1e-6 or abs(real_maker - _runtime.maker_fee) > 1e-6:
-            logger.info(
-                "[P0-01] Frais live utilisés: taker=%.5f maker=%.5f (source: config; API Binance=%.5f/%.5f, ecart attendu avec remise BNB/promo)",
-                _runtime.taker_fee, _runtime.maker_fee,
-                real_taker, real_maker,
-            )
-            # P2.1: alerte si écart > 30% sur le taker (remise BNB potentiellement expirée)
+            # P2.1 + auto-adoption: si écart > 30%, utiliser les frais réels API
             if real_taker > _runtime.taker_fee * 1.3:
+                _old_taker = _runtime.taker_fee
+                config.update_live_fees(real_taker, real_maker)
                 logger.warning(
-                    "[P0-01] ⚠ Frais taker réels (%.4f%%) supérieurs de >30%% aux frais config (%.4f%%) — remise BNB expirée ?",
-                    real_taker * 100, _runtime.taker_fee * 100,
+                    "[P0-01] ⚠ Frais taker réels (%.4f%%) supérieurs de >30%% aux frais config (%.4f%%) "
+                    "— remise BNB expirée ? Frais live mis à jour: taker=%.5f maker=%.5f (source: API Binance, auto-adopté)",
+                    real_taker * 100, _old_taker * 100,
+                    real_taker, real_maker,
                 )
                 try:
                     send_email_alert(
-                        subject="[BOT] ⚠ Frais Binance supérieurs aux frais config",
+                        subject="[BOT] ⚠ Frais Binance auto-adoptés (remise expirée ?)",
                         body=(
                             f"Frais taker API Binance : {real_taker * 100:.4f}%\n"
-                            f"Frais taker config      : {_runtime.taker_fee * 100:.4f}%\n"
-                            f"Écart : +{(real_taker / _runtime.taker_fee - 1) * 100:.1f}%\n\n"
+                            f"Frais taker config      : {_old_taker * 100:.4f}%\n"
+                            f"Écart : +{(real_taker / _old_taker - 1) * 100:.1f}%\n\n"
                             f"La remise BNB ou promo est peut-être expirée.\n"
-                            f"Mettre à jour TAKER_FEE dans .env si nécessaire."
+                            f"Les frais live ont été mis à jour automatiquement pour cette session.\n"
+                            f"Mettre à jour TAKER_FEE dans .env pour rendre la correction permanente."
                         ),
                     )
                 except Exception as _mail_err:
                     logger.warning("[P0-01] Email frais non envoyé: %s", _mail_err)
+            else:
+                logger.info(
+                    "[P0-01] Frais live utilisés: taker=%.5f maker=%.5f (source: config; API Binance=%.5f/%.5f, écart mineur)",
+                    _runtime.taker_fee, _runtime.maker_fee,
+                    real_taker, real_maker,
+                )
         else:
             logger.info(
                 "[P0-01] Frais live utilisés: taker=%.5f maker=%.5f (source: config, alignes API Binance)",
@@ -1920,7 +1932,7 @@ if __name__ == "__main__":
                         _startup_wf_best.get('avg_oos_sharpe', 0.0),
                     )
                 else:
-                    logger.warning("[STARTUP F-BUG2] WF: aucune config OOS validée — fallback best IS Calmar.")
+                    logger.warning("[STARTUP F-BUG2] WF: aucune config OOS validée — fallback conservatif appliqué.")
             except Exception as _wf_startup_err:
                 logger.warning("[STARTUP F-BUG2] WF validation skipped: %s", _wf_startup_err)
 
@@ -1940,31 +1952,53 @@ if __name__ == "__main__":
                 }
                 best_params.update(SCENARIO_DEFAULT_PARAMS.get(_startup_wf_best['scenario'], {}))
             else:
-                # P1.1: defaults conservatifs identiques au main-loop (backtest_orchestrator.py)
-                # Ne jamais utiliser la meilleure config IS (overfitting garanti).
-                best_params = {
-                    'timeframe': '1d',
-                    'ema1_period': 26,
-                    'ema2_period': 50,
-                    'scenario': 'StochRSI',
-                }
-                best_params.update(SCENARIO_DEFAULT_PARAMS.get('StochRSI', {}))
-                logger.warning(
-                    "[STARTUP F-BUG2] Aucun WF valide — fallback conservatif: StochRSI EMA(26/50) 1d.",
-                )
-                # P1.2: email alert — capital réel sur config non validée OOS
-                try:
-                    send_email_alert(
-                        subject=f"[{backtest_pair}] ⚠ Bot démarré en mode fallback conservatif",
-                        body=(
-                            f"Paire : {backtest_pair}\n"
-                            f"Aucune configuration OOS validée lors du démarrage.\n"
-                            f"Stratégie active : StochRSI EMA(26/50) 1d (defaults conservatifs).\n\n"
-                            f"Action recommandée : vérifier les OOS gates (walk_forward.py)."
-                        ),
+                # I2 startup: Fallback IS champion (max trades, ≥5) — identique à backtest_orchestrator.py
+                # IMPORTANT: trades peut être un DataFrame — ne pas faire 'trades or []' (bool ambiguity)
+                def _n_trades(r: dict) -> int:
+                    t = r.get('trades')
+                    return len(t) if t is not None else 0
+                _fb_s = sorted(_pool_loop, key=_n_trades, reverse=True)
+                _fb_s = _fb_s[0] if _fb_s else None
+                _n_fb_s = _n_trades(_fb_s) if _fb_s is not None else 0
+                if _fb_s is not None and _n_fb_s >= 5:
+                    best_params = {
+                        'timeframe': _fb_s['timeframe'],
+                        'ema1_period': _fb_s['ema_periods'][0],
+                        'ema2_period': _fb_s['ema_periods'][1],
+                        'scenario': _fb_s['scenario'],
+                    }
+                    best_params.update(SCENARIO_DEFAULT_PARAMS.get(_fb_s['scenario'], {}))
+                    logger.warning(
+                        "[STARTUP I2] Fallback IS champion (max trades): %s %s EMA(%d/%d) — %d trades IS.",
+                        _fb_s['scenario'], _fb_s['timeframe'],
+                        _fb_s['ema_periods'][0], _fb_s['ema_periods'][1],
+                        _n_fb_s,
                     )
-                except Exception as _mail_err:
-                    logger.warning("[STARTUP F-BUG2] Email alert non envoyé: %s", _mail_err)
+                else:
+                    # Aucun IS champion viable — defaults conservatifs (dernier recours)
+                    best_params = {
+                        'timeframe': '1d',
+                        'ema1_period': 26,
+                        'ema2_period': 50,
+                        'scenario': 'StochRSI',
+                    }
+                    best_params.update(SCENARIO_DEFAULT_PARAMS.get('StochRSI', {}))
+                    logger.warning(
+                        "[STARTUP F-BUG2] Aucun WF valide ni IS champion viable — fallback conservatif: StochRSI EMA(26/50) 1d.",
+                    )
+                    # Email alert uniquement sur fallback conservatif (config non validée OOS)
+                    try:
+                        send_email_alert(
+                            subject=f"[{backtest_pair}] ⚠ Bot démarré en mode fallback conservatif",
+                            body=(
+                                f"Paire : {backtest_pair}\n"
+                                f"Aucune configuration OOS validée lors du démarrage.\n"
+                                f"Stratégie active : StochRSI EMA(26/50) 1d (defaults conservatifs).\n\n"
+                                f"Action recommandée : vérifier les OOS gates (walk_forward.py)."
+                            ),
+                        )
+                    except Exception as _mail_err:
+                        logger.warning("[STARTUP F-BUG2] Email alert non envoyé: %s", _mail_err)
 
             # Initialiser l'état du bot pour cette paire
             if backtest_pair not in bot_state:
@@ -1973,6 +2007,17 @@ if __name__ == "__main__":
                         bot_state[backtest_pair] = _make_default_pair_state()
 
             pair_state: PairState = cast('PairState', bot_state[backtest_pair])
+
+            # I-3: flag WF validation status pour affichage panel
+            with _bot_state_lock:
+                pair_state['wf_fallback'] = _startup_wf_best is None
+
+            # I-2: sur fallback, forcer les seuils StochRSI aux valeurs config (cohérence inter-paires)
+            if _startup_wf_best is None:
+                with _bot_state_lock:
+                    pair_state['stoch_buy_min']   = config.stoch_rsi_buy_min
+                    pair_state['stoch_buy_max']   = config.stoch_rsi_buy_max
+                    pair_state['stoch_sell_exit'] = config.stoch_rsi_sell_exit
 
             # OOS-STREAK (startup): track WF OOS result — source la plus fiable.
             _OOS_FAIL_STREAK_N = 6

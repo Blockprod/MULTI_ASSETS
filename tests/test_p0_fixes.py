@@ -401,10 +401,10 @@ class TestBacktestFees:
         assert hasattr(cfg, 'backtest_maker_fee')
 
     def test_backtest_fees_defaults(self):
-        """Les valeurs par défaut des backtest fees sont identiques aux defaults live."""
+        """Les valeurs par défaut des backtest fees sont alignées sur les fees live Binance (0.1%)."""
         from bot_config import Config
-        assert Config.backtest_taker_fee == 0.0007
-        assert Config.backtest_maker_fee == 0.0002
+        assert Config.backtest_taker_fee == 0.001  # C1: aligné Binance 0.1%
+        assert Config.backtest_maker_fee == 0.001  # C1: aligné Binance 0.1%
 
     def test_live_fee_override_does_not_affect_backtest_fee(self):
         """Modifier config.taker_fee ne change pas config.backtest_taker_fee."""
@@ -458,9 +458,9 @@ class TestOOSThresholds:
         assert hasattr(Config, 'oos_win_rate_min')
 
     def test_oos_thresholds_defaults(self):
-        """Valeurs par défaut: sharpe >= 0.8, win_rate >= 30%."""
+        """Valeurs par défaut: sharpe >= 0.15, win_rate >= 30%."""
         from bot_config import Config
-        assert Config.oos_sharpe_min == 0.8
+        assert Config.oos_sharpe_min == 0.15
         assert Config.oos_win_rate_min == 30.0
 
     def test_oos_thresholds_from_env(self, monkeypatch):
@@ -477,6 +477,25 @@ class TestOOSThresholds:
         cfg = Config.from_env()
         assert cfg.oos_sharpe_min == 0.5
         assert cfg.oos_win_rate_min == 40.0
+
+    def test_config_has_oos_min_trades(self):
+        """Config doit avoir oos_min_trades avec défaut 10."""
+        from bot_config import Config
+        assert hasattr(Config, 'oos_min_trades')
+        assert Config.oos_min_trades == 10
+
+    def test_oos_min_trades_from_env(self, monkeypatch):
+        """oos_min_trades chargeable depuis OOS_MIN_TRADES."""
+        monkeypatch.setenv('BINANCE_API_KEY', 'test')
+        monkeypatch.setenv('BINANCE_SECRET_KEY', 'test')
+        monkeypatch.setenv('SENDER_EMAIL', 'a@b.c')
+        monkeypatch.setenv('RECEIVER_EMAIL', 'd@e.f')
+        monkeypatch.setenv('GOOGLE_MAIL_PASSWORD', 'pass')
+        monkeypatch.setenv('OOS_MIN_TRADES', '20')
+
+        from bot_config import Config
+        cfg = Config.from_env()
+        assert cfg.oos_min_trades == 20
 
 
 # ─── Config._validate coverage ──────────────────────────────────────────────

@@ -6,6 +6,7 @@
 
 # Wrapper anti-doublon pour MULTI_ASSETS (lock file)
 $scriptPath       = "C:\Users\averr\MULTI_ASSETS\code\src\MULTI_SYMBOLS.py"
+$watchdogPath     = "C:\Users\averr\MULTI_ASSETS\code\src\watchdog.py"
 $pythonHiddenExe  = "C:\Users\averr\MULTI_ASSETS\.venv\Scripts\pythonw.exe"
 $pythonConsoleExe = "C:\Users\averr\MULTI_ASSETS\.venv\Scripts\python.exe"
 $lockFile         = "C:\Users\averr\MULTI_ASSETS\.running.lock"
@@ -25,7 +26,10 @@ if (!(Test-Path $pythonConsoleExe)) {
 }
 
 $runningBots = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -match [regex]::Escape($scriptPath) }
+    Where-Object { $_.CommandLine -and (
+        $_.CommandLine -match [regex]::Escape($scriptPath) -or
+        $_.CommandLine -match [regex]::Escape($watchdogPath)
+    )}
 
 if ($runningBots -and $runningBots.Count -gt 0) {
     $pids = ($runningBots | Select-Object -ExpandProperty ProcessId | Sort-Object -Unique) -join ","
@@ -101,7 +105,8 @@ if ($Mode -eq "console") {
     }
 }
 else {
-    $p = Start-Process -FilePath $pythonHiddenExe -ArgumentList "-B $scriptPath" -WindowStyle Hidden -WorkingDirectory "C:\Users\averr\MULTI_ASSETS\code\src" -PassThru
+    # Mode hidden : lancer watchdog.py qui gère le démarrage et les redémarrages du bot
+    $p = Start-Process -FilePath $pythonHiddenExe -ArgumentList "-B `"$watchdogPath`"" -WindowStyle Hidden -WorkingDirectory "C:\Users\averr\MULTI_ASSETS\code\src" -PassThru
     $p.Id | Set-Content $lockFile
-    Write-Host "[start_safe] Bot demarre (PID=$($p.Id))."
+    Write-Host "[start_safe] Watchdog + Bot demarres (watchdog PID=$($p.Id))."
 }

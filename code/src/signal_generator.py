@@ -80,9 +80,9 @@ def generate_buy_condition_checker(
         if not ema_condition:
             return False, f"EMA1 ({row['ema1']:.8g}) <= EMA2 ({row['ema2']:.8g})"
         if not stoch_condition:
-            return False, f"StochRSI ({row['stoch_rsi']:.4f}) >= {_buy_max}"
+            return False, f"StochRSI ({row['stoch_rsi']*100:.2f}%) >= {_buy_max*100:.1f}%"
         if row['stoch_rsi'] <= _buy_min:
-            return False, f"StochRSI ({row['stoch_rsi']:.4f}) <= {_buy_min} (trop bas)"
+            return False, f"StochRSI ({row['stoch_rsi']*100:.2f}%) <= {_buy_min*100:.1f}% (trop bas)"
 
         # Conditions additionnelles selon le scénario
         scenario = best_params.get('scenario', 'StochRSI')

@@ -232,6 +232,18 @@ def _apply_oos_quality_gate(
         *selection_pool* est le sous-ensemble OOS-valide, ou tout le pool en dégradé.
         *oos_blocked* est True si aucun résultat n'a passé les gates.
     """
+    # Filtre configs dégénérées : WR=100% + DD=0% simultanément → physiquement impossible sur 3 ans
+    _n_before = len(results)
+    results = [
+        r for r in results
+        if not (r.get('win_rate', 0.0) >= 100.0 and r.get('max_drawdown', 1.0) == 0.0)
+    ]
+    if len(results) < _n_before:
+        logger.warning(
+            "[%s] %d config(s) dégénérées exclues (WR=100%% + DD=0%%)",
+            log_tag, _n_before - len(results),
+        )
+
     try:
         from walk_forward import validate_oos_result as _validate_oos
         valid = [
@@ -253,17 +265,17 @@ def _apply_oos_quality_gate(
             if was_blocked:
                 deps.save_fn()
                 logger.info(
-                    "[%s] Blocage P0-03 levé — %d/%d résultats passent les OOS gates.",
+                    "[%s] Blocage P0-03 levé — %d/%d résultats passent les IS quality gates.",
                     log_tag, len(valid), len(results),
                 )
             else:
                 logger.info(
-                    "[%s] %d/%d résultats passent les OOS gates.",
+                    "[%s] %d/%d résultats passent les IS quality gates.",
                     log_tag, len(valid), len(results),
                 )
         else:
             logger.info(
-                "[%s] %d/%d résultats passent les OOS gates.",
+                "[%s] %d/%d résultats passent les IS quality gates.",
                 log_tag, len(valid), len(results),
             )
     else:
@@ -284,7 +296,11 @@ def _apply_oos_quality_gate(
             _now_oos = time.time()
             _cooldown_oos = getattr(deps.config, 'backtest_throttle_seconds', 3600.0)
             with deps.oos_alert_lock:
-                _last_sent = deps.oos_alert_last_sent.get(pair, 0.0)
+                _last_sent_mem = deps.oos_alert_last_sent.get(pair, 0.0)
+            # Fallback: timestamp persisté dans bot_state (survie aux restarts)
+            with deps.bot_state_lock:
+                _last_sent_persisted = float(deps.bot_state.get(pair, {}).get('oos_alert_sent_ts', 0.0))
+            _last_sent = max(_last_sent_mem, _last_sent_persisted)
             if (_now_oos - _last_sent) >= _cooldown_oos:
                 try:
                     deps.send_alert_fn(
@@ -298,6 +314,10 @@ def _apply_oos_quality_gate(
                     )
                     with deps.oos_alert_lock:
                         deps.oos_alert_last_sent[pair] = _now_oos
+                    # Persister le timestamp (survie aux restarts)
+                    with deps.bot_state_lock:
+                        deps.bot_state.setdefault(pair, {})['oos_alert_sent_ts'] = _now_oos
+                    deps.save_fn()
                 except Exception as _alert_err:
                     logger.error("[%s] Envoi alerte OOS impossible: %s", log_tag, _alert_err)
             else:
@@ -542,16 +562,11 @@ def _execute_scheduled_trading(
             pair_state['last_order_side'] = None
         current_run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Mettre à jour l'état
-        pair_state['last_run_time'] = current_run_time
-        pair_state['last_execution'] = current_run_time
-        deps.save_fn()
-
         # Persister les params actifs pour que la lambda les lise au prochain cycle.
         with deps.bot_state_lock:
             deps.live_best_params[backtest_pair] = dict(best_params)
 
-        # Afficher le panel de suivi
+        # Afficher le panel de suivi (avant last_run_time update — P4.2: fix "Temps écoulé 0:00:00")
         logger.info("[SCHEDULED] Création et affichage du panel de suivi...")
         try:
             if _has_console_output(deps.console):
@@ -561,6 +576,11 @@ def _execute_scheduled_trading(
             logger.info(f"[SCHEDULED] Exécution planifiée COMPLETEE pour {backtest_pair}")
         except Exception as tracking_err:
             logger.error(f"[SCHEDULED] Erreur affichage tracking panel: {str(tracking_err)}")
+
+        # P4.2: mettre à jour last_run_time APRES le panel
+        pair_state['last_run_time'] = current_run_time
+        pair_state['last_execution'] = current_run_time
+        deps.save_fn()
 
     except Exception as e:
         logger.error(f"[SCHEDULED] Erreur GLOBALE execution planifiee {backtest_pair}: {str(e)}")
@@ -610,16 +630,36 @@ def _execute_live_trading_only(
             return
 
         tf = current_params['timeframe']
+        with deps.bot_state_lock:
+            # C-06: 'in_position' supprimé du bot_state — utiliser last_order_side == 'BUY'
+            _pair_state_snap = dict(deps.bot_state.get(backtest_pair, {}))
+            _in_position = _pair_state_snap.get('last_order_side') == 'BUY'
         logger.info(
-            "[LIVE-ONLY] %s -> %s @ %s — %s EMA(%s/%s) %s",
+            "[LIVE-ONLY-DBG] %s: in_position=%r (clés pair_state: %s)",
             backtest_pair,
-            real_trading_pair,
-            datetime.now().strftime('%H:%M:%S'),
-            current_params.get('scenario'),
-            current_params.get('ema1_period'),
-            current_params.get('ema2_period'),
-            tf,
+            _in_position,
+            sorted(_pair_state_snap.keys()),
         )
+        if _in_position:
+            # F-COH: afficher les params d'ENTRÉE verrouillés, pas les params WF actuels
+            _entry_scenario = _pair_state_snap.get('entry_scenario', current_params.get('scenario'))
+            _entry_ema1     = _pair_state_snap.get('entry_ema1', current_params.get('ema1_period'))
+            _entry_ema2     = _pair_state_snap.get('entry_ema2', current_params.get('ema2_period'))
+            _entry_tf       = _pair_state_snap.get('entry_timeframe', tf)
+            logger.info(
+                "[LIVE-ONLY] %s -> %s @ %s — %s EMA(%s/%s) %s [F-COH: verrouillé sur entrée | WF\u2192 %s EMA(%s/%s) %s]",
+                backtest_pair, real_trading_pair, datetime.now().strftime('%H:%M:%S'),
+                _entry_scenario, _entry_ema1, _entry_ema2, _entry_tf,
+                current_params.get('scenario'), current_params.get('ema1_period'),
+                current_params.get('ema2_period'), tf,
+            )
+        else:
+            logger.info(
+                "[LIVE-ONLY] %s -> %s @ %s — %s EMA(%s/%s) %s",
+                backtest_pair, real_trading_pair, datetime.now().strftime('%H:%M:%S'),
+                current_params.get('scenario'), current_params.get('ema1_period'),
+                current_params.get('ema2_period'), tf,
+            )
 
         try:
             deps.execute_trades_fn(real_trading_pair, tf, current_params, backtest_pair, sizing_mode=sizing_mode)
@@ -644,10 +684,8 @@ def _execute_live_trading_only(
         # Always update last_execution — even on trade error (D-10: dashboard Last Cycle)
         pair_state = cast(Dict[str, Any], deps.bot_state.setdefault(backtest_pair, {}))
         current_run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        pair_state['last_run_time'] = current_run_time
-        pair_state['last_execution'] = current_run_time
-        deps.save_fn()
 
+        # P4.2: afficher panel AVANT last_run_time update (fix "Temps écoulé 0:00:00")
         try:
             if _has_console_output(deps.console):
                 deps.console.print(deps.build_tracking_panel_fn(pair_state, current_run_time))
@@ -655,6 +693,10 @@ def _execute_live_trading_only(
                 _safe_stdout_flush()
         except Exception as _panel_err:
             logger.error(f"[LIVE-ONLY] Erreur panel tracking: {_panel_err}")
+
+        pair_state['last_run_time'] = current_run_time
+        pair_state['last_execution'] = current_run_time
+        deps.save_fn()
 
     except Exception as e:
         logger.error(f"[LIVE-ONLY] Erreur {backtest_pair}: {e}")
@@ -841,18 +883,55 @@ def _backtest_and_display_results(
             'scenario': _wf_best_cfg['scenario'],
         }
         best_params.update(deps.scenario_default_params.get(_wf_best_cfg['scenario'], {}))
+        # S1: reset compteur fallback consécutifs
+        with deps.bot_state_lock:
+            pair_state['wf_fallback_consecutive'] = 0
     else:
-        best_params = {
-            'timeframe': '1d',  # conservative default
-            'ema1_period': 26,
-            'ema2_period': 50,
-            'scenario': 'StochRSI',
-        }
-        best_params.update(deps.scenario_default_params.get('StochRSI', {}))
-        logger.warning(
-            "[MAIN P1-WF] Aucun résultat WF valide — paramètres CONSERVATIFS par défaut "
-            "(EMA 26/50, StochRSI, 1d). Les achats restent bloqués par P0-03/oos_blocked."
-        )
+        # I2: Fallback dynamique — IS champion avec le plus de trades (moins risque d'overfit)
+        # IMPORTANT: trades peut être un DataFrame — ne pas faire 'trades or []' (bool ambiguity)
+        def _n_trades_fb(r: dict) -> int:
+            t = r.get('trades')
+            return len(t) if t is not None else 0
+        _fb_candidates = sorted(_pool_main, key=_n_trades_fb, reverse=True)
+        _fb = _fb_candidates[0] if _fb_candidates else None
+        _n_fb = _n_trades_fb(_fb) if _fb is not None else 0
+        if _fb is not None and _n_fb >= 5:
+            best_params = {
+                'timeframe': _fb['timeframe'],
+                'ema1_period': _fb['ema_periods'][0],
+                'ema2_period': _fb['ema_periods'][1],
+                'scenario': _fb['scenario'],
+            }
+            best_params.update(deps.scenario_default_params.get(_fb['scenario'], {}))
+            logger.warning(
+                "[MAIN P1-WF] Fallback IS champion (max trades): %s %s EMA(%d/%d) "
+                "— %d trades IS. Les achats restent bloqués par P0-03/oos_blocked.",
+                _fb['scenario'], _fb['timeframe'],
+                _fb['ema_periods'][0], _fb['ema_periods'][1],
+                _n_fb,
+            )
+        else:
+            best_params = {
+                'timeframe': '1d',
+                'ema1_period': 26,
+                'ema2_period': 50,
+                'scenario': 'StochRSI',
+            }
+            best_params.update(deps.scenario_default_params.get('StochRSI', {}))
+            logger.warning(
+                "[MAIN P1-WF] Aucun résultat IS valide — paramètres CONSERVATIFS par défaut "
+                "(EMA 26/50, StochRSI, 1d). Les achats restent bloqués par P0-03/oos_blocked."
+            )
+        # S1: incrémenter compteur fallback consécutifs et alerter si persistant
+        with deps.bot_state_lock:
+            _fallback_count = pair_state.get('wf_fallback_consecutive', 0) + 1
+            pair_state['wf_fallback_consecutive'] = _fallback_count
+        if _fallback_count >= 3:
+            logger.warning(
+                "[REGIME-ALERT] %s en fallback WF depuis %d cycles consécutifs "
+                "— régime adverse persistant ou données insuffisantes.",
+                backtest_pair, _fallback_count,
+            )
 
     # Afficher les resultats
     deps.display_backtest_table_fn(backtest_pair, results, console)
@@ -878,8 +957,6 @@ def _backtest_and_display_results(
     current_run_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Panel pour l'historique et la planification
-    pair_state['last_run_time'] = current_run_time
-
     # SOLUTION DEFINITIVE - Éviter les planifications multiples
     existing_job = None
     for job in deps.schedule.jobs:
@@ -910,3 +987,5 @@ def _backtest_and_display_results(
 
     console.print(deps.build_tracking_panel_fn(pair_state, current_run_time))
     console.print("\n")
+    # P4.2: mettre à jour last_run_time APRES le panel (fix "Temps écoulé 0:00:00")
+    pair_state['last_run_time'] = current_run_time

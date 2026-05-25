@@ -287,5 +287,7 @@ class TradingBotWatchdog:
 
 
 if __name__ == "__main__":
-    watchdog = TradingBotWatchdog()
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _bot_script = os.path.join(_script_dir, "MULTI_SYMBOLS.py")
+    watchdog = TradingBotWatchdog(script_path=_bot_script)
     watchdog.run()

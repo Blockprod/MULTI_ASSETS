@@ -193,6 +193,25 @@ Si aucun résultat → archiver dans `code/legacy/` et retirer de `config/setup.
 
 ---
 
+## Pandas & DataFrames
+
+### L-17 · `df or []` lève `ValueError: The truth value of a DataFrame is ambiguous`
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-05-25
+
+**Contexte** : Copie du pattern `len(r.get('trades') or [])` depuis un contexte où `trades` est une liste — appliqué dans un contexte où `trades` est un DataFrame.
+**Erreur** : `bool(DataFrame)` lève toujours `ValueError: The truth value of a DataFrame is ambiguous` → crash du bot au démarrage.
+**Règle** : Ne **jamais** utiliser `some_df or default` pour tester la nullité d'une valeur qui peut être un DataFrame. Toujours utiliser `x is not None` :
+```python
+# MAUVAIS (crash si trades est un DataFrame)
+len(r.get('trades') or [])
+# BON
+t = r.get('trades')
+len(t) if t is not None else 0
+```
+**Ref** : Crash `MULTI_SYMBOLS.py` + `backtest_orchestrator.py` — fix C1/I2 2026-05-25
+
+---
+
 ## Git & Hygiène repo
 
 ### L-16 · Fichiers runtime non ignorés par git

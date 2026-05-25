@@ -1018,7 +1018,16 @@ def run_all_backtests(
             )
         else:
             adaptive_ema = (26, 50)
-        ema_periods_by_tf[tf] = [adaptive_ema, (26, 50)] + extra_ema_pairs
+        # P3-DEDUP: construire la liste unique dès maintenant — évite le doublon EMA adaptatif=paire fixe
+        _fixed_ema_pairs = [(26, 50)] + extra_ema_pairs
+        if adaptive_ema in _fixed_ema_pairs:
+            logger.debug(
+                "[BACKTEST-DEDUP] %s %s: EMA adaptatif %s coïncide avec grille fixe — ignoré.",
+                backtest_pair, tf, adaptive_ema,
+            )
+            ema_periods_by_tf[tf] = _fixed_ema_pairs
+        else:
+            ema_periods_by_tf[tf] = [adaptive_ema] + _fixed_ema_pairs
 
     scenarios = [
         {'name': 'StochRSI', 'params': {'stoch_period': 14}},
@@ -1027,10 +1036,6 @@ def run_all_backtests(
         {
             'name': 'StochRSI_TRIX',
             'params': {'stoch_period': 14, 'trix_length': 7, 'trix_signal': 15},
-        },
-        {
-            'name': 'StochRSI_DipBuy',
-            'params': {'stoch_period': 14, 'stoch_buy_max': 0.30},
         },
     ]
 
@@ -1071,6 +1076,14 @@ def run_all_backtests(
         for pair in ema_periods:
             if pair not in ema_periods_unique:
                 ema_periods_unique.append(pair)
+        if len(ema_periods_unique) < len(ema_periods):
+            _dupes = [p for p in ema_periods if ema_periods.count(p) > 1]
+            logger.debug(
+                "[BACKTEST-DEDUP] %s %s: doublons EMA résiduels %s — %d éliminé(s).",
+                backtest_pair, timeframe,
+                list(dict.fromkeys(_dupes)),
+                len(ema_periods) - len(ema_periods_unique),
+            )
         # Pre-compute ALL EMA columns on is_df before spawning threads
         # to avoid race condition (concurrent writes → duplicate columns).
         _all_ema_periods: Set[int] = set()
@@ -1121,7 +1134,28 @@ def run_all_backtests(
                 except Exception as e:
                     logger.error(f"Erreur future: {e}")
 
-    return results
+    # Dédup résultats IS identiques (même scenario/TF/wallet final/WR)
+    _seen_keys: set = set()
+    _dedup_results: list = []
+    _n_dupes = 0
+    for _r in results:
+        _key = (
+            _r.get('scenario', ''),
+            _r.get('timeframe', ''),
+            round(float(_r.get('final_wallet', 0.0)), 2),
+            round(float(_r.get('win_rate', 0.0)), 4),
+        )
+        if _key in _seen_keys:
+            _n_dupes += 1
+        else:
+            _seen_keys.add(_key)
+            _dedup_results.append(_r)
+    if _n_dupes > 0:
+        logger.warning(
+            "[BACKTEST-DEDUP] %d résultats IS dupliqués supprimés (métriques identiques)",
+            _n_dupes,
+        )
+    return _dedup_results
 
 
 def run_parallel_backtests(
@@ -1171,8 +1205,7 @@ def run_parallel_backtests(
     total_tasks = 0
     for tf in timeframes:
         ema_list = ema_periods_by_tf.get(tf, [(26, 50)])
-        # +1 pour StochRSI_DipBuy ajouté dynamiquement dans run_all_backtests
-        total_tasks += len(crypto_pairs) * len(ema_list) * (len(scenarios) + 1)
+        total_tasks += len(crypto_pairs) * len(ema_list) * len(scenarios)
 
     console.print(
         f"\n[bold cyan]Lancement de {total_tasks} backtests "

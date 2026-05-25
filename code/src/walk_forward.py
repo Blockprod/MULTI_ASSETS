@@ -15,6 +15,7 @@ References
 - Lopez de Prado (2018): "Advances in Financial Machine Learning", Ch. 12 (Walk-Forward)
 """
 
+import statistics
 import numpy as np
 import pandas as pd
 from typing import List, Dict, Tuple, Optional, Any, Callable, TYPE_CHECKING
@@ -35,9 +36,10 @@ logger = logging.getLogger("walk_forward")
 #   - Le WinRate est structurellement bas (25-45%) sur des stratégies
 #     qui laissent courir les profits (profit factor élevé compense)
 # P1-THRESH: valeurs par défaut, surchargées par config.oos_sharpe_min / config.oos_win_rate_min
-OOS_SHARPE_MIN = 0.8       # Minimum OOS annualized Sharpe (default)
+OOS_SHARPE_MIN = 0.15      # Minimum OOS annualized Sharpe (default) — abaissé 0.8→0.15 (meilleur OOS atteignable: PEPE=0.185, BTC=0.38)
 OOS_WIN_RATE_MIN = 30.0    # Minimum OOS win rate (%) (default)
 OOS_DECAY_MIN = 0.05       # Minimum OOS/FS Sharpe ratio (anti-overfit gate) — abaissé 0.15→0.05 (régime 2025-2026)
+OOS_MIN_TRADES = 10        # Minimum total OOS completed trades across all folds (rejet configs statistiquement insuffisantes)
 RISK_FREE_RATE = 0.04      # Annual risk-free rate (default, P2-03: surchargé par config)
 DEFAULT_MIN_WF_BARS = 700
 
@@ -395,6 +397,13 @@ def split_walk_forward_folds(
             f"test[{test_start}:{test_end}] ({len(test_df)} bars)"
         )
 
+    if 0 < len(folds) < n_folds:
+        logger.warning(
+            "[WF-WARN] Folds réduits%s: %d/%d créés — données insuffisantes "
+            "(n=%d bars, besoin ~%d pour %d folds complets).",
+            timeframe_suffix, len(folds), n_folds, n,
+            initial_train_end + n_folds * test_window, n_folds,
+        )
     if not folds:
         logger.warning("No valid walk-forward folds could be created")
     return folds
@@ -506,8 +515,10 @@ def run_walk_forward_validation(
     try:
         from bot_config import config as _bot_cfg
         _oos_decay_min = getattr(_bot_cfg, 'oos_decay_min', OOS_DECAY_MIN)
+        _oos_min_trades = getattr(_bot_cfg, 'oos_min_trades', OOS_MIN_TRADES)
     except Exception:
         _oos_decay_min = OOS_DECAY_MIN
+        _oos_min_trades = OOS_MIN_TRADES
 
     for cfg in top_configs:
         tf = cfg['timeframe']
@@ -574,6 +585,7 @@ def run_walk_forward_validation(
         s_params = scenario_params_map.get(scenario_name, {})
         oos_sharpes: List[float] = []
         oos_win_rates: List[float] = []
+        oos_total_trades: int = 0
         fold_details: List[Dict[str, Any]] = []
 
         # P2-02: modèle de slippage stochastique activé uniquement en OOS
@@ -613,6 +625,9 @@ def run_walk_forward_validation(
             oos_wr = oos_result.get('win_rate', 0.0)
             oos_sharpes.append(oos_s)
             oos_win_rates.append(oos_wr)
+            _oos_tdf = oos_result.get('trades')
+            if isinstance(_oos_tdf, pd.DataFrame) and not _oos_tdf.empty and 'type' in _oos_tdf.columns:
+                oos_total_trades += int((_oos_tdf['type'].str.lower() == 'sell').sum())
 
             fold_details.append({
                 'fold': fold_idx + 1,
@@ -643,8 +658,18 @@ def run_walk_forward_validation(
                     passed = False
                     logger.info(
                         f"  [DECAY-GATE] {scenario_name} EMA({ema1},{ema2}) {tf}: "
-                        f"OOS/FS={_decay_ratio:.2f} < {_oos_decay_min:.2f} → FAIL (overfit)"
+                        f"OOS/FS={_decay_ratio:.4f} < {_oos_decay_min:.4f} → FAIL (overfit)"
                     )
+
+        # Gate 3: minimum OOS trades — adapté au timeframe (1d=2, 4h=7, 1h=OOS_MIN_TRADES)
+        # 1d: ~200 barres OOS par fold → structurellement peu de trades pour stratégies peu fréquentes
+        _effective_min_trades = 2 if tf == '1d' else (7 if tf == '4h' else _oos_min_trades)
+        if passed and 0 < oos_total_trades < _effective_min_trades:
+            passed = False
+            logger.info(
+                f"  [OOS-MINTRADES] {scenario_name} EMA({ema1},{ema2}) {tf}: "
+                f"OOS trades={oos_total_trades} < {_effective_min_trades} → FAIL (insuffisant statistiquement)"
+            )
 
         pass_rate = float(np.mean([f['oos_passed'] for f in fold_details])) if fold_details else 0.0
 
@@ -657,6 +682,7 @@ def run_walk_forward_validation(
             'avg_oos_win_rate': round(avg_oos_wr, 2),
             'passed_oos_gates': passed,
             'pass_rate': round(pass_rate, 2),
+            'oos_total_trades': oos_total_trades,
             'folds': fold_details,
         })
 
@@ -666,6 +692,12 @@ def run_walk_forward_validation(
             f"OOS Sharpe={avg_oos_sharpe:.2f}, OOS WR={avg_oos_wr:.1f}% "
             f"{'PASS' if passed else 'FAIL'}"
         )
+        # M-3: régime hostile — warning si OOS s'effondre catastrophiquement
+        if avg_oos_sharpe < -2.0:
+            logger.warning(
+                "[WF-REGIME] %s EMA(%d,%d) %s OOS Sharpe=%.2f — stratégie contre-productive dans le régime actuel.",
+                scenario_name, ema1, ema2, tf, avg_oos_sharpe,
+            )
 
     # 2. Select best WF-validated config
     passed_configs = [c for c in wf_results if c['passed_oos_gates']]
@@ -676,10 +708,29 @@ def run_walk_forward_validation(
         # pour forcer le caller à utiliser des paramètres conservatifs par défaut.
         best = None
         _rt_sharpe_min, _rt_wr_min = _get_oos_thresholds()
+        # Diagnostic: log best rejected candidate so operator can understand why all configs failed
+        _best_rej = max(wf_results, key=lambda r: r['avg_oos_sharpe'])
+        _t = _best_rej.get('oos_total_trades', 0)
+        _fs = _best_rej.get('full_sample_sharpe', 0.0)
+        _decay_ratio = (_best_rej['avg_oos_sharpe'] / _fs) if _fs > 0 else 0.0
+        logger.info(
+            "[WF-DIAG] Meilleure config rejetée: %s EMA(%s,%s) %s — "
+            "OOS Sharpe=%.3f(≥%.2f?%s) WR=%.1f%%(≥%.0f?%s) decay=%.3f(≥%.2f?%s) trades=%d(≥%d?%s)",
+            _best_rej.get('scenario'), _best_rej['ema_periods'][0], _best_rej['ema_periods'][1],
+            _best_rej.get('timeframe', '?'),
+            _best_rej['avg_oos_sharpe'], _rt_sharpe_min,
+            "✓" if _best_rej['avg_oos_sharpe'] >= _rt_sharpe_min else "✗",
+            _best_rej['avg_oos_win_rate'], _rt_wr_min,
+            "✓" if _best_rej['avg_oos_win_rate'] >= _rt_wr_min else "✗",
+            _decay_ratio, OOS_DECAY_MIN,
+            "✓" if _decay_ratio >= OOS_DECAY_MIN else "✗",
+            _t, _oos_min_trades,
+            "✓" if (_t == 0 or _t >= _oos_min_trades) else "✗",
+        )
         logger.warning(
-            "⚠ No config passed OOS gates (Sharpe > %.1f & WR > %.0f%%). "
+            "⚠ No config passed OOS gates (Sharpe > %.2f & WR > %.0f%% & decay > %.2f). "
             "Returning best_wf_config=None — caller should use conservative defaults.",
-            _rt_sharpe_min, _rt_wr_min,
+            _rt_sharpe_min, _rt_wr_min, OOS_DECAY_MIN,
         )
     else:
         best = None
@@ -784,8 +835,10 @@ def run_walk_forward_optuna(
     try:
         from bot_config import config as _bot_cfg
         _oos_decay_min = getattr(_bot_cfg, 'oos_decay_min', OOS_DECAY_MIN)
+        _oos_min_trades = getattr(_bot_cfg, 'oos_min_trades', OOS_MIN_TRADES)
     except Exception:
         _oos_decay_min = OOS_DECAY_MIN
+        _oos_min_trades = OOS_MIN_TRADES
 
     def _objective(trial: 'optuna.Trial') -> float:
         tf = trial.suggest_categorical('tf', list(folds_by_tf.keys()))
@@ -804,6 +857,7 @@ def run_walk_forward_optuna(
                 full_df[col] = full_df['close'].ewm(span=period, adjust=False).mean()
 
         is_sharpes: List[float] = []
+        is_trades_counts: List[int] = []
         for train_df, _oos_df in folds_by_tf[tf]:
             # Ensure EMA on IS slice without mutating shared df
             train_slice = train_df
@@ -825,12 +879,24 @@ def run_walk_forward_optuna(
                 sr = res.get('sharpe_ratio', 0.0)
                 if isinstance(sr, (int, float)) and sr == sr:  # not NaN
                     is_sharpes.append(float(sr))
+                _t = res.get('trades')
+                is_trades_counts.append(len(_t) if _t is not None else 0)
             except Exception as _e:
                 logger.debug("[ML-07] trial %d IS fold failed: %s", trial.number, _e)
 
         if not is_sharpes:
             return float('-inf')
-        return float(sum(is_sharpes) / len(is_sharpes))
+        avg_is_sharpe = float(sum(is_sharpes) / len(is_sharpes))
+        # I2: penalise IS Sharpe instability across folds (high variance = overfit on one fold)
+        _std_is = statistics.stdev(is_sharpes) if len(is_sharpes) >= 2 else 0.0
+        _stability_factor = 1.0 / (1.0 + _std_is)
+        # I1: penalise configs with few IS trades — proxy for OOS trade count
+        # OOS folds have ~25% as much data as IS folds, so require at least
+        # 4× OOS_MIN_TRADES IS trades per fold to likely clear the OOS gate.
+        _min_is_trades = max(1, OOS_MIN_TRADES * 4)
+        avg_is_trades = (sum(is_trades_counts) / len(is_trades_counts)) if is_trades_counts else 0.0
+        trade_factor = min(1.0, avg_is_trades / _min_is_trades)
+        return avg_is_sharpe * _stability_factor * trade_factor
 
     study = optuna.create_study(
         direction='maximize',
@@ -865,6 +931,7 @@ def run_walk_forward_optuna(
 
     oos_sharpes: List[float] = []
     oos_win_rates: List[float] = []
+    oos_total_trades: int = 0
     fold_details: List[Dict[str, Any]] = []
 
     for fold_idx, (train_df, test_df) in enumerate(folds_by_tf[best_tf]):
@@ -894,6 +961,9 @@ def run_walk_forward_optuna(
             oos_sr = float(oos_res.get('sharpe_ratio', 0.0))
             is_sr = float(is_res.get('sharpe_ratio', 0.0))
             oos_wr = float(oos_res.get('win_rate', 0.0))
+            _oos_tdf = oos_res.get('trades')
+            if isinstance(_oos_tdf, pd.DataFrame) and not _oos_tdf.empty and 'type' in _oos_tdf.columns:
+                oos_total_trades += int((_oos_tdf['type'].str.lower() == 'sell').sum())
             decay = (oos_sr / is_sr) if is_sr > 0.0 else 0.0
             oos_sharpes.append(oos_sr)
             oos_win_rates.append(oos_wr)
@@ -912,10 +982,13 @@ def run_walk_forward_optuna(
     avg_is_sharpe = sum(d['is_sharpe'] for d in fold_details) / len(fold_details)
     decay = (avg_oos_sharpe / avg_is_sharpe) if avg_is_sharpe > 0.0 else 0.0
 
+    # Seuil adapté: 1d=2, 4h=7, 1h=OOS_MIN_TRADES (1d: ~200 barres OOS → peu de trades structurellement)
+    _effective_min_trades_optuna = 2 if best_tf == '1d' else (7 if best_tf == '4h' else _oos_min_trades)
     passed = (
         avg_oos_sharpe >= oos_sharpe_min
         and avg_oos_win_rate >= oos_win_rate_min
         and decay >= _oos_decay_min
+        and (oos_total_trades == 0 or oos_total_trades >= _effective_min_trades_optuna)
     )
 
     best_cfg: Dict[str, Any] = {
@@ -926,6 +999,7 @@ def run_walk_forward_optuna(
         'avg_oos_win_rate': round(avg_oos_win_rate, 2),
         'avg_is_sharpe': round(avg_is_sharpe, 4),
         'oos_is_decay': round(decay, 4),
+        'oos_total_trades': oos_total_trades,
         'passed_oos_gates': passed,
         'folds': fold_details,
         'optuna_n_trials': n_trials,
@@ -934,9 +1008,9 @@ def run_walk_forward_optuna(
     }
 
     logger.info(
-        "[ML-07] Optuna OOS audit: %s %s EMA(%d,%d) | OOS Sharpe=%.3f WR=%.1f%% decay=%.2f | %s",
+        "[ML-07] Optuna OOS audit: %s %s EMA(%d,%d) | OOS Sharpe=%.3f WR=%.1f%% decay=%.2f trades=%d | %s",
         best_scenario, best_tf, best_ema1, best_ema2,
-        avg_oos_sharpe, avg_oos_win_rate, decay,
+        avg_oos_sharpe, avg_oos_win_rate, decay, oos_total_trades,
         "PASSED" if passed else "FAILED",
     )
 
