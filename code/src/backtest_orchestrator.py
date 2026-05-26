@@ -281,16 +281,24 @@ def _apply_oos_quality_gate(
     else:
         pool = results
         blocked = True
-        with deps.bot_state_lock:
-            ps = deps.bot_state.setdefault(pair, {})
-            ps['oos_blocked'] = True
-            ps['oos_blocked_since'] = time.time()
-        deps.save_fn(force=save_force)
-        logger.critical(
-            "[%s] Aucun résultat ne passe les OOS gates "
-            "(Sharpe > %.1f & WR > %.0f%%) — ACHATS BLOQUÉS pour %s.",
-            log_tag, deps.config.oos_sharpe_min, deps.config.oos_win_rate_min, pair,
-        )
+        _strict = getattr(deps.config, 'oos_strict_mode', True)
+        if _strict:
+            with deps.bot_state_lock:
+                ps = deps.bot_state.setdefault(pair, {})
+                ps['oos_blocked'] = True
+                ps['oos_blocked_since'] = time.time()
+            deps.save_fn(force=save_force)
+            logger.critical(
+                "[%s] Aucun résultat ne passe les OOS gates "
+                "(Sharpe > %.1f & WR > %.0f%%) — ACHATS BLOQUÉS pour %s.",
+                log_tag, deps.config.oos_sharpe_min, deps.config.oos_win_rate_min, pair,
+            )
+        else:
+            logger.warning(
+                "[%s] Aucun résultat ne passe les OOS gates "
+                "(Sharpe > %.1f & WR > %.0f%%) — mode souple, achats maintenus pour %s.",
+                log_tag, deps.config.oos_sharpe_min, deps.config.oos_win_rate_min, pair,
+            )
         if send_alert:
             # Cooldown: n'envoyer l'alerte qu'une fois par backtest_throttle_seconds (défaut 1h)
             _now_oos = time.time()

@@ -458,9 +458,9 @@ class TestOOSThresholds:
         assert hasattr(Config, 'oos_win_rate_min')
 
     def test_oos_thresholds_defaults(self):
-        """Valeurs par défaut: sharpe >= 0.15, win_rate >= 30%."""
+        """Valeurs par défaut: sharpe >= 0.30, win_rate >= 30%."""
         from bot_config import Config
-        assert Config.oos_sharpe_min == 0.15
+        assert Config.oos_sharpe_min == 0.30
         assert Config.oos_win_rate_min == 30.0
 
     def test_oos_thresholds_from_env(self, monkeypatch):
@@ -479,10 +479,10 @@ class TestOOSThresholds:
         assert cfg.oos_win_rate_min == 40.0
 
     def test_config_has_oos_min_trades(self):
-        """Config doit avoir oos_min_trades avec défaut 10."""
+        """Config doit avoir oos_min_trades avec défaut 15."""
         from bot_config import Config
         assert hasattr(Config, 'oos_min_trades')
-        assert Config.oos_min_trades == 10
+        assert Config.oos_min_trades == 15
 
     def test_oos_min_trades_from_env(self, monkeypatch):
         """oos_min_trades chargeable depuis OOS_MIN_TRADES."""

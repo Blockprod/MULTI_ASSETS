@@ -57,6 +57,16 @@ reports/
 test_output*.txt
 tests_output*.txt
 test_run.txt
+build_log*.txt
+cov*.txt
+coverage*.txt
+test_final*.txt
+test_p*.txt
+test_suite*.txt
+verification*.txt
+
+# Artefacts binaires compilés (backup)
+*.pyd.bak
 
 # Logs bot générés à la racine
 log_bot.md

@@ -106,6 +106,8 @@ class IBKRForexClient:
         self._ib = IB()
         # Callback proactif — même pattern qu'AlphaEdge session_lifecycle._on_ib_disconnect
         self._ib.disconnectedEvent += self._on_disconnect
+        # B-03: callback de réconciliation post-reconnect (assigné par IBKR_FOREX)
+        self._on_reconnect: "Optional[Any]" = None  # type: ignore[assignment]
 
     # ─── Connexion ───────────────────────────────────────────────────────────
 
@@ -220,11 +222,16 @@ class IBKRForexClient:
         )
 
     def ensure_connected(self) -> None:
-        """Reconnecte si la connexion est perdue."""
+        """Reconnecte si la connexion est perdue. Appelle _on_reconnect si assigné (B-03)."""
         if not self._ib.isConnected():
             self._connected = False
             logger.warning("[IBKR-CLIENT] Connexion perdue — reconnexion...")
             self.connect()
+            if self._ib.isConnected() and callable(self._on_reconnect):
+                try:
+                    self._on_reconnect()
+                except Exception as _rc_err:
+                    logger.error("[IBKR-CLIENT] _on_reconnect ERREUR: %s", _rc_err)
 
     def disconnect(self) -> None:
         """Déconnexion propre."""
@@ -251,6 +258,38 @@ class IBKRForexClient:
         try:
             return float(acct.get("NetLiquidation", 0.0))
         except (ValueError, TypeError):
+            return 0.0
+
+    def get_forex_position(self, ibkr_pair: str) -> float:
+        """C2: Retourne la position live nette sur IB Gateway pour une paire Forex.
+
+        Interroge directement l'exchange — ne dépend pas du bot_state.
+        Valeur positive = LONG, négative = SHORT, 0.0 = flat.
+
+        Args:
+            ibkr_pair : ex 'EURUSD'
+
+        Returns:
+            Quantité nette (devise base). 0.0 si non connecté ou aucune position.
+        """
+        if not self._ib.isConnected():
+            logger.warning("[IBKR-CLIENT] get_forex_position: non connecté — retour 0.0")
+            return 0.0
+        try:
+            symbol = ibkr_pair[:3].upper()
+            currency = ibkr_pair[3:].upper()
+            positions = self._ib.positions()
+            for pos in positions:
+                c = pos.contract
+                if (
+                    getattr(c, "secType", "") == "CASH"
+                    and getattr(c, "symbol", "").upper() == symbol
+                    and getattr(c, "currency", "").upper() == currency
+                ):
+                    return float(pos.position)
+            return 0.0
+        except Exception as exc:
+            logger.error("[IBKR-CLIENT] get_forex_position %s ERREUR: %s", ibkr_pair, exc)
             return 0.0
 
     def get_all_tickers(self, **kwargs: Any) -> List[Dict[str, Any]]:
@@ -312,14 +351,36 @@ class IBKRForexClient:
         """Non applicable Forex IBKR — retourne structure vide."""
         return []
 
+    def get_order_by_ref(self, order_ref: str) -> "Optional[Dict[str, Any]]":  # type: ignore[name-defined]  # noqa: F821
+        """Recherche un ordre existant par orderRef (idempotence B-02).
+
+        Retourne le dict trade si trouvé, None sinon.
+        """
+        if not order_ref:
+            return None
+        self.ensure_connected()
+        for trade in self._ib.trades():
+            if getattr(trade.order, "orderRef", "") == order_ref:
+                return self._trade_to_dict(trade)
+        return None
+
     def order_market_buy(self, **kwargs: Any) -> Dict[str, Any]:
         """Place un ordre d'achat au marché."""
         self.ensure_connected()
         symbol: str = kwargs["symbol"]
         quantity: float = float(kwargs.get("quantity", kwargs.get("quoteOrderQty", 0.0)))
+        order_ref: str = kwargs.get("orderRef", "")
+        # B-02: idempotence — ne pas doubler si l'ordre existe déjà
+        if order_ref:
+            existing = self.get_order_by_ref(order_ref)
+            if existing:
+                logger.info("[IBKR-CLIENT] order_market_buy: orderRef %s déjà soumis", order_ref)
+                return existing
         contract = _build_forex_contract(symbol)
         order = MarketOrder("BUY", quantity)
         order.tif = "IOC"
+        if order_ref:
+            order.orderRef = order_ref
         trade = self._ib.placeOrder(contract, order)
         self._ib.sleep(1)
         return self._trade_to_dict(trade)
@@ -346,12 +407,20 @@ class IBKRForexClient:
           quantity    : float
           stopPrice   : float  (pour STOP_LOSS)
           price       : float  (pour LIMIT)
+          orderRef    : str   (optionnel, pour idempotence B-02)
         """
         self.ensure_connected()
         symbol: str = kwargs["symbol"]
         side: str = kwargs.get("side", "SELL").upper()
         order_type: str = kwargs.get("type", "MARKET").upper()
         quantity: float = float(kwargs.get("quantity", 0.0))
+        order_ref: str = kwargs.get("orderRef", "")
+        # B-02: idempotence — ne pas doubler si l'ordre existe déjà
+        if order_ref:
+            existing = self.get_order_by_ref(order_ref)
+            if existing:
+                logger.info("[IBKR-CLIENT] create_order: orderRef %s déjà soumis", order_ref)
+                return existing
         contract = _build_forex_contract(symbol)
 
         if order_type in ("STOP_LOSS", "STOP_LOSS_LIMIT", "STOP"):
@@ -364,6 +433,8 @@ class IBKRForexClient:
         else:
             order = MarketOrder(side, quantity)
 
+        if order_ref:
+            order.orderRef = order_ref
         trade = self._ib.placeOrder(contract, order)
         self._ib.sleep(1)
         return self._trade_to_dict(trade)

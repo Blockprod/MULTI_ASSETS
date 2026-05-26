@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger("ibkr_forex")
@@ -64,8 +65,10 @@ def safe_forex_buy(
         pair, quantity, quote_qty, current_price,
     )
 
+    # B-02: orderRef UUID — détection doublons sur retry
+    _order_ref = str(uuid.uuid4())
     try:
-        result = client.order_market_buy(symbol=pair, quantity=quantity)
+        result = client.order_market_buy(symbol=pair, quantity=quantity, orderRef=_order_ref)
         time.sleep(_ORDER_WAIT_SECONDS)
 
         # Vérifier que l'ordre a bien été exécuté (status=FILLED, executedQty > 0)
@@ -179,6 +182,8 @@ def place_forex_stop_loss(
         pair, quantity, stop_price,
     )
 
+    # B-02: orderRef UUID — détection doublons sur retry
+    _sl_order_ref = str(uuid.uuid4())
     try:
         result = client.create_order(
             symbol=pair,
@@ -186,6 +191,7 @@ def place_forex_stop_loss(
             type="STOP_LOSS",
             quantity=quantity,
             stopPrice=stop_price,
+            orderRef=_sl_order_ref,
         )
         time.sleep(1.0)
 

@@ -78,10 +78,11 @@ class Config:
     trailing_activation_pct: float = 0.03
     target_volatility_pct: float = 0.02
     backtest_min_notional: float = 5.0  # Filtre Binance simulé en backtest (USDC)
-    oos_sharpe_min: float = 0.15     # P1-THRESH: seuil OOS Sharpe minimum
+    oos_sharpe_min: float = 0.30     # P1-THRESH: seuil OOS Sharpe minimum (relevé 0.15→0.30)
     oos_win_rate_min: float = 30.0   # P1-THRESH: seuil OOS Win Rate minimum (%)
-    oos_decay_min: float = 0.05      # seuil ratio OOS/FS Sharpe (anti-overfit gate) — abaissé 0.15→0.05 (régime 2025-2026)
-    oos_min_trades: int = 10         # nombre minimum de trades OOS complétés (rejet configs statistiquement insuffisantes)
+    oos_decay_min: float = 0.40      # seuil ratio OOS/FS Sharpe (anti-overfit gate) — relevé 0.05→0.20→0.40
+    oos_strict_mode: bool = True     # C1: True = blocage strict (défaut prod). False = warn-only via OOS_STRICT_MODE=false
+    oos_min_trades: int = 15         # nombre minimum de trades OOS complétés (relevé 10→15)
     schedule_interval_minutes: int = 2  # P2-02: intervalle schedule (avant: hardcodé)
     risk_free_rate: float = 0.04     # P2-03: taux sans risque annuel (US T-bills)
     email_cooldown_seconds: int = 300  # P2-07: cooldown entre emails d'alerte
@@ -210,13 +211,16 @@ class Config:
         config_data['target_volatility_pct'] = float(os.getenv('TARGET_VOLATILITY_PCT', '0.02'))
         config_data['backtest_min_notional'] = float(os.getenv('BACKTEST_MIN_NOTIONAL', '5.0'))
         config_data['oos_sharpe_min'] = float(
-            os.getenv('OOS_SHARPE_MIN', '0.15'))      # P1-THRESH
+            os.getenv('OOS_SHARPE_MIN', '0.30'))      # P1-THRESH (relevé 0.15→0.30)
         config_data['oos_win_rate_min'] = float(
             os.getenv('OOS_WIN_RATE_MIN', '30.0'))  # P1-THRESH
         config_data['oos_decay_min'] = float(
-            os.getenv('OOS_DECAY_MIN', '0.05'))        # anti-overfit
+            os.getenv('OOS_DECAY_MIN', '0.40'))        # anti-overfit (relevé 0.05→0.20→0.40)
+        config_data['oos_strict_mode'] = (
+            os.getenv('OOS_STRICT_MODE', 'true').lower()
+            in ('true', '1', 'yes'))  # C1: blocage strict par défaut (désactiver via OOS_STRICT_MODE=false)
         config_data['oos_min_trades'] = int(
-            os.getenv('OOS_MIN_TRADES', '10'))          # min trades OOS
+            os.getenv('OOS_MIN_TRADES', '15'))          # min trades OOS (relevé 10→15)
         config_data['schedule_interval_minutes'] = int(
             os.getenv('SCHEDULE_INTERVAL_MINUTES', '2'))  # P2-02
         config_data['risk_free_rate'] = float(

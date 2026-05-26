@@ -191,6 +191,7 @@ def calculate_indicators(
     adx_period: Optional[int] = None,
     trix_length: Optional[int] = None,
     trix_signal: Optional[int] = None,
+    atr_period: int = 14,
     *,
     on_error: Optional[Callable[[str], None]] = None,
 ) -> pd.DataFrame:
@@ -273,6 +274,7 @@ def calculate_indicators(
                         adx_period or 0,
                         trix_length or 0,
                         trix_signal or 0,
+                        atr_period,
                     )
                 if df_cython is not None and not df_cython.empty:
                     try:

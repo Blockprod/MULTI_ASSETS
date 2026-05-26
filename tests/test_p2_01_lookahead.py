@@ -291,14 +291,14 @@ class TestValidateOOSResult:
     def test_exactly_at_threshold_fails(self):
         """Les seuils sont stricts (>), pas (>= )."""
         from walk_forward import validate_oos_result
-        # 0.15 n'est PAS > 0.15
-        assert validate_oos_result(0.15, 50.0) is False
+        # 0.30 n'est PAS > 0.30
+        assert validate_oos_result(0.30, 50.0) is False
         # 30.0 n'est PAS > 30.0
         assert validate_oos_result(0.6, 30.0) is False
 
     def test_just_above_threshold_passes(self):
         from walk_forward import validate_oos_result
-        assert validate_oos_result(0.16, 30.1) is True
+        assert validate_oos_result(0.31, 30.1) is True
 
     def test_negative_sharpe_fails(self):
         from walk_forward import validate_oos_result

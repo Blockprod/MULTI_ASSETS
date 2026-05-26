@@ -1189,8 +1189,9 @@ class TestExecuteScheduledTrading:
         assert len(exec_calls) == 1  # trading still runs
 
     def test_oos_all_fail_blocks_buys(self, monkeypatch):
-        """Aucun résultat OOS valide → achats bloqués."""
+        """Aucun résultat OOS valide → achats bloqués (mode strict)."""
         cfg = _make_config(oos_sharpe_min=2.0, oos_win_rate_min=80.0)
+        cfg.oos_strict_mode = True
         monkeypatch.setattr(ms, 'config', cfg)
         monkeypatch.setattr(ms, 'console', MagicMock())
         monkeypatch.setattr(ms, 'bot_state', {})

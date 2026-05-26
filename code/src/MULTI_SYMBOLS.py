@@ -157,6 +157,7 @@ from cython_integrity import (                 # P1-01
     verify_cython_integrity as _verify_cython_integrity,
 )
 from metrics import write_metrics as _write_metrics  # P2-04: observabilité métriques
+from correlation_guard import check_correlation_guard, feed_candle  # P2-3: anti-corrélation systémique
 
 try:
     # Forcer la console Windows en UTF-8 (code page 65001)
@@ -1189,19 +1190,6 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
     # P2-EQUITY: recalculer l'equity de référence au premier cycle de chaque jour UTC
     _refresh_starting_equity_if_new_day()
 
-    # ST-P1-01: guard anti-corrélation — limite le nombre de positions longues simultanées
-    with _bot_state_lock:
-        _open_longs = [
-            p for p, s in bot_state.items()
-            if isinstance(s, dict) and s.get('last_order_side') == 'BUY'
-        ]
-    if len(_open_longs) >= config.max_concurrent_long:
-        logger.info(
-            "Max positions longues atteint (%d/%d) — achat bloqué pour %s",
-            len(_open_longs), config.max_concurrent_long, backtest_pair,
-        )
-        return
-
     # pair_state dérivé depuis bot_state — les mutations du dict se propagent par référence.
     with _bot_state_lock:
         pair_state: PairState = cast('PairState', bot_state.setdefault(backtest_pair, {}))
@@ -1416,7 +1404,15 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
         mkt = _fetch_indicators(real_trading_pair, time_interval, best_params)
         if mkt is None:
             return
-        _, row, current_price = mkt
+        df, row, current_price = mkt
+
+        # P2-3: Alimenter le guard corrélation avec la dernière bougie fermée
+        if isinstance(df.index, pd.DatetimeIndex) and len(df) >= 2 and 'close' in df.columns:
+            feed_candle(
+                real_trading_pair,
+                df.index[-2].timestamp(),
+                float(df['close'].iloc[-2]),
+            )
 
         # EM-P2-05: Alerte drawdown max si PnL non réalisé dépasse le seuil configuré
         if (
@@ -1500,6 +1496,14 @@ def _execute_real_trades_inner(real_trading_pair: str, time_interval: str, best_
                     "[RECONCILE TS-P2-02] Achat bloqué pour %s — réconciliation démarrage échouée. "
                     "Supprimez 'reconcile_failed' du bot_state après vérification manuelle.",
                     backtest_pair,
+                )
+                return
+            # P2-3: corrélation systémique — bloquer si >0.85 avec paire en position
+            _corr_ok, _corr_reason = check_correlation_guard(real_trading_pair, bot_state)
+            if not _corr_ok:
+                logger.warning(
+                    "[CORR-GUARD] Achat bloqué pour %s — %s",
+                    real_trading_pair, _corr_reason,
                 )
                 return
             _execute_buy(ctx, deps)
@@ -2144,8 +2148,33 @@ if __name__ == "__main__":
                     except Exception as _e:
                         logger.error("[PARALLEL] %s scheduled error: %s", futures[f], _e)
 
-        # ── Tâche groupée 1 : backtest + WF + trading → toutes les heures ──
-        schedule.every(60).minutes.do(_dispatch_scheduled_parallel)
+        # ── Tâche groupée 1 : backtest + WF + trading → aligné sur la bougie H:00:30 UTC ──
+        # A-02: threading.Timer ciblant H:00:30 UTC (30s après la clôture de la bougie horaire)
+        # Évite le drift de schedule.every(60).minutes qui se décale de la clôture réelle.
+        def _schedule_next_hourly_cycle() -> None:
+            import datetime as _dt
+            _now_utc = _dt.datetime.now(_dt.timezone.utc)
+            _next = _now_utc.replace(minute=0, second=30, microsecond=0)
+            if _next <= _now_utc:
+                _next += _dt.timedelta(hours=1)
+            _delay_s = (_next - _now_utc).total_seconds()
+
+            def _run_and_reschedule() -> None:
+                try:
+                    _dispatch_scheduled_parallel()
+                except Exception as _sched_err:
+                    logger.error("[A-02] Erreur cycle horaire: %s", _sched_err)
+                _schedule_next_hourly_cycle()
+
+            _t = threading.Timer(_delay_s, _run_and_reschedule)
+            _t.daemon = True
+            _t.start()
+            logger.info(
+                "[A-02] Prochain cycle backtest+WF+trading planifié à %s UTC (dans %.0fs)",
+                _next.strftime("%H:%M:%S"), _delay_s,
+            )
+
+        _schedule_next_hourly_cycle()
         # ── Tâche groupée 2 : live trading → toutes les 2 minutes ──
         schedule.every(2).minutes.do(_dispatch_live_parallel).tag('live')
 

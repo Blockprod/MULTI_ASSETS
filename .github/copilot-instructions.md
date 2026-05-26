@@ -36,7 +36,7 @@ config/        ← fichiers de configuration
 - `recvWindow = 60000ms` (centralisé dans `config.recv_window`)
 
 ## Fees
-- Live : `taker_fee=0.0007`, `maker_fee=0.0002`
+- Live : `taker_fee=0.001`, `maker_fee=0.001`
 - `backtest_taker_fee` / `backtest_maker_fee` sont **FIGÉS** et ne doivent JAMAIS
   être écrasés par les fees live. Modifier backtest_runner.py uniquement.
 

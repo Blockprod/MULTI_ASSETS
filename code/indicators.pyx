@@ -22,7 +22,8 @@ def calculate_indicators(
     int sma_long=0,
     int adx_period=0,
     int trix_length=0,
-    int trix_signal=0
+    int trix_signal=0,
+    int atr_period=14,
 ) -> pd.DataFrame:
     # Déclarations cdef en premier
     cdef np.ndarray[DTYPE_t, ndim=1] close
@@ -78,7 +79,6 @@ def calculate_indicators(
     cdef DTYPE_t tr, plus_dm, minus_dm, tr_sum, plus_dm_sum, minus_dm_sum
     cdef DTYPE_t raw_plus_dm, raw_minus_dm  # P3-DUP: ADX mutual exclusion
     cdef DTYPE_t atr_tr_sum  # P3-DUP: ATR SMA seeding
-    cdef int atr_period  # P3-DUP: parameterized ATR period
     cdef DTYPE_t trix_pct, trix_signal_val
     cdef np.ndarray[DTYPE_t, ndim=1] temp_trix = np.empty(n, dtype=DTYPE) if trix_length > 0 else None
     cdef np.ndarray[DTYPE_t, ndim=1] temp_trix_signal = np.empty(n, dtype=DTYPE) if trix_length > 0 else None
@@ -162,9 +162,8 @@ def calculate_indicators(
             rsi_range = max_rsi - min_rsi
             stoch_rsi[i] = (rsi[i] - min_rsi) / rsi_range if rsi_range != 0 else 0.5
 
-    # ATR — P3-DUP: utilise SMA des N premiers TRs comme seed (standard Wilder),
-    # et respecte le paramètre atr_period au lieu de hardcoder 14.
-    atr_period = 14  # TODO: ajouter en paramètre de la fonction
+    # ATR — utilise SMA des N premiers TRs comme seed (standard Wilder).
+    # atr_period est maintenant un paramètre de la fonction (défaut=14).
     atr_tr_sum = 0.0
     for i in range(n):
         if i == 0:

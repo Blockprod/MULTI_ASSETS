@@ -163,6 +163,30 @@ with patch('order_manager.display_buy_signal_panel'):
 
 ## Cython
 
+### L-15 · Intégration module de guard = no-op si pas de singleton persistant
+**Sévérité** : 🔴 CRITIQUE · **Date** : 2026-05-26
+
+**Contexte** : `correlation_guard.py` créé et appelé depuis `MULTI_SYMBOLS.py` dans le chemin BUY.  
+**Erreur** : `check_correlation_guard()` créait une **nouvelle instance** `CorrelationGuard()` à chaque appel → historique toujours vide → guard retournait toujours `(True, None)` → jamais de blocage en production. L'intégration était un no-op silencieux.  
+**Règle** : Tout module de guard/validation qui accumule de l'état (historique prix, compteurs, cache) **doit** exposer un singleton module-level `_GLOBAL_INSTANCE` et une fonction `feed_xxx()` pour l'alimenter depuis la boucle de trading.  
+**Pattern correct** :
+```python
+# Dans le module guard
+_GLOBAL_GUARD = CorrelationGuard()
+
+def feed_candle(pair, ts, close):
+    _GLOBAL_GUARD.correlation_data.add_candle(pair, ts, close)
+
+def check_guard(pair, bot_state, guard=None):
+    if guard is None:
+        guard = _GLOBAL_GUARD  # ← utiliser le singleton, PAS CorrelationGuard()
+    ...
+```
+**Et dans la boucle de trading** : appeler `feed_candle()` après chaque fetch OHLCV réussi.  
+**Vérification** : Après intégration, vérifier que l'instance utilisée dans `check_xxx()` est **la même** que celle alimentée par `feed_xxx()`.
+
+---
+
 ### L-14 · Stub `.pyi` orphelin — fonction déclarée absente du `.pyx`
 **Sévérité** : 🟡 IMPORTANT · **Date** : 2026-03-20
 

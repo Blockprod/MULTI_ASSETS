@@ -1008,11 +1008,14 @@ def run_all_backtests(
         )
 
     # EMA adaptatives par timeframe
+    # C4: fraction alignée sur le initial_train_pct minimum du walk-forward (0.40).
+    # Utiliser 0.70 contaminerait l'OOS du fold 1 (IS=[0:40%], OOS=[40%:65%]).
+    _WF_MIN_INITIAL_TRAIN_PCT = 0.40
     ema_periods_by_tf: Dict[str, List[Tuple[int, int]]] = {}
     extra_ema_pairs = [(18, 36), (20, 40), (30, 60)]
     for tf, df_tf in base_dataframes.items():
         if df_tf is not None and not df_tf.empty:
-            is_end = max(int(len(df_tf) * 0.70), 1)
+            is_end = max(int(len(df_tf) * _WF_MIN_INITIAL_TRAIN_PCT), 1)
             adaptive_ema = get_optimal_ema_periods(
                 df_tf.iloc[:is_end], timeframe=tf, symbol=backtest_pair
             )

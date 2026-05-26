@@ -67,6 +67,24 @@ def verify_cython_integrity(
     """
     global CYTHON_INTEGRITY_VERIFIED
 
+    # C5: Vérification alignement ATR Cython vs config (garde conservatoire).
+    # indicators.pyx expose maintenant atr_period comme paramètre (défaut=14).
+    # indicators_engine passe atr_period explicitement via calculate_indicators.
+    # Ce guard reste actif pour alerter si ATR_PERIOD env var != 14 sans mise à jour callers.
+    try:
+        from bot_config import config as _cfg
+        if getattr(_cfg, 'atr_period', 14) != 14:
+            import warnings as _warn
+            _warn.warn(
+                f"[CYTHON-INTEGRITY C5] config.atr_period={_cfg.atr_period} — "
+                f"vérifier que tous les appelants de calculate_indicators passent "
+                f"atr_period={_cfg.atr_period} explicitement.",
+                UserWarning,
+                stacklevel=2,
+            )
+    except Exception:
+        pass  # bot_config non disponible (contexte IBKR sans Binance) — skip
+
     expected = _load_checksums()
     if expected is None:
         CYTHON_INTEGRITY_VERIFIED = False

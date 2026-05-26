@@ -27,10 +27,7 @@ except ImportError:
 
 # ─── Positionnement des placeholders BINANCE (AVANT tout import tiers) ────────
 _os.environ.setdefault("BINANCE_API_KEY", "IBKR_PLACEHOLDER_NOT_USED")
-_os.environ.setdefault(
-    "BINANCE_SECRET_KEY",
-    _os.environ.get("IBKR_SECRET", "IBKR_PLACEHOLDER_NOT_USED"),
-)
+_os.environ.setdefault("BINANCE_SECRET_KEY", "IBKR_PLACEHOLDER_NOT_USED")
 # Aligner initial_wallet backtest avec le capital IBKR (config.initial_wallet lu à l'import)
 _os.environ.setdefault("INITIAL_WALLET", _os.environ.get("IBKR_INITIAL_CAPITAL", "10000.0"))
 # Frais backtest adaptés au forex IBKR (vs 0.07 % Binance crypto).
@@ -38,11 +35,12 @@ _os.environ.setdefault("INITIAL_WALLET", _os.environ.get("IBKR_INITIAL_CAPITAL",
 # Utiliser ces valeurs dans ce processus uniquement (bot IBKR = processus séparé du bot Binance).
 _os.environ.setdefault("BACKTEST_TAKER_FEE", "0.00015")   # ~1.5 pip spread EUR/USD
 _os.environ.setdefault("BACKTEST_MAKER_FEE", "0.00005")   # ~0.5 pip (ordres limites)
-# OOS gates adaptés au forex (crypto : Sharpe ≥ 0.8, WR ≥ 30 % — trop strict).
-# Forex : Sharpe ≥ 0.0 = rendement positif ajusté au risque (paper trading acceptable).
-# Fenêtre IS réduite à 2 ans pour plus de poids au régime récent.
-_os.environ.setdefault("OOS_SHARPE_MIN", "0.0")            # Forex : Sharpe ≥ 0 (vs 0.8 crypto)
-_os.environ.setdefault("OOS_WIN_RATE_MIN", "25.0")         # Forex (vs 30.0 crypto)
+# OOS gates adaptés au forex — E1: seuils relevés pour production.
+# Forex market-making est moins prédictible que crypto trend-following.
+# Sharpe ≥ 0.5 (was 0.0), WR ≥ 40 % (was 25 %), decay ≥ 0.40 (was absent).
+_os.environ.setdefault("OOS_SHARPE_MIN", "0.5")            # E1: Forex Sharpe minimum (was 0.0)
+_os.environ.setdefault("OOS_WIN_RATE_MIN", "40.0")         # E1: Forex WinRate minimum (was 25.0)
+_os.environ.setdefault("OOS_DECAY_MIN", "0.40")            # E1: anti-overfit gate (was absent)
 # Aligner le risk/trade backtest sur le live IBKR (défaut Binance = 5%, IBKR = 5.5%)
 _os.environ.setdefault("RISK_PER_TRADE", "0.055")           # Alignement backtest ↔ live IBKR
 # Les vars email (communes aux deux bots)
@@ -92,6 +90,10 @@ from ibkr_order_manager_forex import (                                   # noqa:
     cancel_forex_order, get_current_price, get_account_nav,
     safe_forex_short_open, place_forex_stop_buy, safe_forex_cover,
 )
+from ibkr_wal import (                                                    # noqa: E402
+    ibkr_wal_write, ibkr_wal_clear, ibkr_wal_replay,
+    OP_FX_BUY_INTENT, OP_FX_BUY_CONFIRMED, OP_FX_SL_PLACED,
+)
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 _LOG_DIR = os.path.join(_ROOT_DIR, "code", "logs")
@@ -131,6 +133,11 @@ WF_SCENARIOS: List[Dict[str, Any]] = [
 _ibkr_state_lock = threading.RLock()
 _pair_execution_locks: Dict[str, threading.Lock] = {}
 _pair_locks_mutex = threading.Lock()
+
+# ─── Lot minimum IBKR Forex ───────────────────────────────────────────────────
+# E4: guard centralisé — évite de placer un SL résiduel sous le lot minimum
+# (ce qui déclencherait une erreur IBKR "minimum order size not met").
+_IBKR_MIN_LOT: float = 20_000.0
 
 # ─── État runtime (bot_state) ─────────────────────────────────────────────────
 bot_state: Dict[str, Any] = {}
@@ -967,13 +974,21 @@ def _execute_ibkr_partial_exit(
                 if old_sl_id:
                     cancel_forex_order(client, pair, old_sl_id)
                 sl_price = float(pair_state.get("stop_loss") or 0.0)
-                if sl_price > 0 and remaining_qty > 0:
+                if sl_price > 0 and remaining_qty >= _IBKR_MIN_LOT:
                     if is_short:
                         sl_result = place_forex_stop_buy(client, pair, remaining_qty, sl_price)
                     else:
                         sl_result = place_forex_stop_loss(client, pair, remaining_qty, sl_price)
                     with _ibkr_state_lock:
                         pair_state["sl_order_id"] = sl_result["sl_order_id"] if sl_result else None
+                elif remaining_qty > 0:
+                    # E4: restant < lot minimum — pas de SL résiduel pour éviter erreur IBKR
+                    logger.warning(
+                        "[IBKR-E4] %s PARTIAL-1: remaining_qty %.0f < min lot %.0f — SL non re-placé",
+                        pair, remaining_qty, _IBKR_MIN_LOT,
+                    )
+                    with _ibkr_state_lock:
+                        pair_state["sl_order_id"] = None
                 with _ibkr_state_lock:
                     pair_state["quantity"] = remaining_qty
                     pair_state["partial_taken_1"] = True
@@ -1009,13 +1024,21 @@ def _execute_ibkr_partial_exit(
                 if old_sl_id:
                     cancel_forex_order(client, pair, old_sl_id)
                 sl_price = float(pair_state.get("stop_loss") or 0.0)
-                if sl_price > 0 and remaining_qty > 0:
+                if sl_price > 0 and remaining_qty >= _IBKR_MIN_LOT:
                     if is_short:
                         sl_result = place_forex_stop_buy(client, pair, remaining_qty, sl_price)
                     else:
                         sl_result = place_forex_stop_loss(client, pair, remaining_qty, sl_price)
                     with _ibkr_state_lock:
                         pair_state["sl_order_id"] = sl_result["sl_order_id"] if sl_result else None
+                elif remaining_qty > 0:
+                    # E4: restant < lot minimum — pas de SL résiduel pour éviter erreur IBKR
+                    logger.warning(
+                        "[IBKR-E4] %s PARTIAL-2: remaining_qty %.0f < min lot %.0f — SL non re-placé",
+                        pair, remaining_qty, _IBKR_MIN_LOT,
+                    )
+                    with _ibkr_state_lock:
+                        pair_state["sl_order_id"] = None
                 with _ibkr_state_lock:
                     pair_state["quantity"] = remaining_qty
                     pair_state["partial_taken_2"] = True
@@ -1222,6 +1245,33 @@ def _execute_pair_signal(
         in_short = last_side == "SHORT"
         in_position = in_long or in_short
 
+    # C2: vérification position live sur IB Gateway — guard anti double-exposition.
+    # Si l'état dit "flat" mais qu'une position existe sur l'exchange (ex: crash+reconnect
+    # avec état vide), forcer in_position=True pour empêcher un nouveau BUY.
+    try:
+        _live_qty = client.get_forex_position(pair)
+        if _live_qty != 0.0 and not in_position:
+            logger.critical(
+                "[IBKR-C2] %s — position live détectée (%.0f) mais état=flat. "
+                "in_position forcé True — BUY bloqué. Sync état requis.",
+                pair, _live_qty,
+            )
+            with _ibkr_state_lock:
+                _ps_sync = bot_state.setdefault(pair, {})
+                if not _ps_sync.get("last_order_side"):
+                    _ps_sync["last_order_side"] = "BUY" if _live_qty > 0 else "SHORT"
+                    _ps_sync["quantity"] = abs(_live_qty)
+                    _ps_sync["c2_synced"] = True
+            in_position = True
+            in_long = _live_qty > 0
+            in_short = _live_qty < 0
+    except Exception as _c2_err:
+        logger.critical(
+            "[IBKR-C2] %s — get_forex_position ERREUR — cycle entier skip (fail-safe): %s",
+            pair, _c2_err,
+        )
+        return
+
     current_price = get_current_price(client, pair)
     if current_price <= 0:
         logger.error("[IBKR] %s — prix actuel invalide (%.5f)", pair, current_price)
@@ -1282,12 +1332,28 @@ def _execute_pair_signal(
             )
             quote_qty = qty * current_price
             quote_qty = min(quote_qty, ibkr_cfg.max_position_usd)
+            # B-01: WAL — intent avant ordre réel
+            ibkr_wal_write(OP_FX_BUY_INTENT, {"pair": pair, "quote_qty": quote_qty})
             buy_result = safe_forex_buy(client, pair, quote_qty, current_price=current_price)
             if buy_result:
                 entry_price = buy_result["entry_price"]
                 real_qty = buy_result["quantity"]
+                # B-01: WAL — BUY confirmé, SL pas encore posé
+                ibkr_wal_write(OP_FX_BUY_CONFIRMED, {
+                    "pair": pair,
+                    "entry_price": entry_price,
+                    "quantity": real_qty,
+                    "order_id": buy_result.get("order_id"),
+                })
                 sl_price = max(entry_price - ibkr_cfg.atr_multiplier_sl * atr, 0.0) if atr else entry_price * 0.98
                 sl_result = place_forex_stop_loss(client, pair, real_qty, sl_price)
+                if sl_result:
+                    # B-01: WAL — SL posé, chaîne complète
+                    ibkr_wal_write(OP_FX_SL_PLACED, {
+                        "pair": pair,
+                        "sl_order_id": sl_result["sl_order_id"],
+                    })
+                    ibkr_wal_clear(pair)
                 with _ibkr_state_lock:
                     pair_state["last_order_side"] = "BUY"
                     pair_state["entry_price"] = entry_price
@@ -2058,6 +2124,114 @@ def _init_bot(ibkr_cfg: IBKRConfig) -> None:
     _save_state(ibkr_cfg, force=True)
 
 
+# ─── B-03: Réconciliation post-reconnect ─────────────────────────────────────
+
+def _build_reconnect_handler(
+    ibkr_cfg: "IBKRConfig",
+    fx_client: "IBKRForexClient",
+) -> None:
+    """Assigne le callback de réconciliation post-reconnect sur fx_client.
+
+    Après une reconnexion IB Gateway, vérifie chaque paire :
+    - Position BUY ouverte sans sl_exchange_placed → re-place le SL.
+    """
+    def _on_reconnect() -> None:
+        logger.info("[IBKR-B03] Reconnexion détectée — réconciliation état ↔ positions live")
+        for pair_def in FOREX_PAIRS:
+            _rc_pair = pair_def["ibkr_pair"]
+            with _ibkr_state_lock:
+                _rc_ps = bot_state.get(_rc_pair, {})
+            _state_side = _rc_ps.get("last_order_side")
+            _state_in_pos = _state_side in ("BUY", "LONG", "SHORT")
+
+            # E3: Réconciliation live — vérifier position réelle sur IB Gateway.
+            # Protège contre les divergences après crash/restart de IB Gateway (05:30 UTC).
+            try:
+                _live_qty = fx_client.get_forex_position(_rc_pair)
+            except Exception as _e3_err:
+                logger.warning(
+                    "[IBKR-B03] %s — get_forex_position ERREUR (skip réconciliation): %s",
+                    _rc_pair, _e3_err,
+                )
+                _live_qty = None
+
+            if _live_qty is not None:
+                if _live_qty != 0.0 and not _state_in_pos:
+                    # Cas 1: live=position mais état=flat — sync forcée, BUY non enregistré.
+                    logger.critical(
+                        "[IBKR-B03] %s — position live %.0f détectée mais état=flat. "
+                        "Synchronisation état forcée (e3_synced=True).",
+                        _rc_pair, _live_qty,
+                    )
+                    with _ibkr_state_lock:
+                        _s = bot_state.setdefault(_rc_pair, {})
+                        _s["last_order_side"] = "BUY" if _live_qty > 0 else "SHORT"
+                        _s["quantity"] = abs(_live_qty)
+                        _s.setdefault("sl_exchange_placed", False)
+                        _s["e3_synced"] = True
+                    _save_state(ibkr_cfg, force=True)
+                    _state_in_pos = True
+                    _state_side = "BUY" if _live_qty > 0 else "SHORT"
+                    try:
+                        send_email_alert(
+                            f"[IBKR-B03] {_rc_pair} — divergence état/live corrigée",
+                            f"Position live {_live_qty:.0f} détectée sans état BUY enregistré.\n"
+                            f"État synchronisé automatiquement. Vérifier manuellement le SL.",
+                        )
+                    except Exception as _mail_exc:
+                        logger.warning("[IBKR-B03] Email E3-cas1 ERREUR: %s", _mail_exc)
+
+                elif _live_qty == 0.0 and _state_in_pos:
+                    # Cas 2: live=flat mais état=BUY — position fermée externalement
+                    # (TP touché, fermeture manuelle, ou rollover IBKR).
+                    logger.critical(
+                        "[IBKR-B03] %s — état=%s mais aucune position live. "
+                        "Fermeture externe détectée — réinitialisation état.",
+                        _rc_pair, _state_side,
+                    )
+                    with _ibkr_state_lock:
+                        _s = bot_state.setdefault(_rc_pair, {})
+                        _s["last_order_side"] = None
+                        _s["quantity"] = 0.0
+                        _s["sl_exchange_placed"] = False
+                        _s["sl_order_id"] = None
+                        _s["e3_reset"] = True
+                    _save_state(ibkr_cfg, force=True)
+                    try:
+                        send_email_alert(
+                            f"[IBKR-B03] {_rc_pair} — position fermée externalement",
+                            f"État indiquait {_state_side} mais aucune position sur IB Gateway.\n"
+                            f"État réinitialisé. Vérifier PnL et journaux manuellement.",
+                        )
+                    except Exception as _mail_exc:
+                        logger.warning("[IBKR-B03] Email E3-cas2 ERREUR: %s", _mail_exc)
+                    continue  # état reseté, pas de SL à re-placer
+
+            # Re-placement SL orphelins (BUY confirmé sans SL posé sur exchange).
+            with _ibkr_state_lock:
+                _rc_ps = bot_state.get(_rc_pair, {})
+            if _rc_ps.get("last_order_side") in ("BUY", "LONG") and not _rc_ps.get("sl_exchange_placed"):
+                _sl_p = _rc_ps.get("stop_loss")
+                _qty = _rc_ps.get("quantity")
+                if not _sl_p or not _qty:
+                    continue
+                logger.warning(
+                    "[IBKR-B03] %s — BUY sans SL post-reconnect, re-placement stop=%.5f qty=%.0f",
+                    _rc_pair, _sl_p, _qty,
+                )
+                _sl_r = place_forex_stop_loss(fx_client, _rc_pair, _qty, _sl_p)
+                if _sl_r:
+                    with _ibkr_state_lock:
+                        bot_state[_rc_pair]["sl_order_id"] = _sl_r["sl_order_id"]
+                        bot_state[_rc_pair]["sl_exchange_placed"] = True
+                    _save_state(ibkr_cfg, force=True)
+                    logger.info("[IBKR-B03] SL re-placé pour %s orderId=%s", _rc_pair, _sl_r["sl_order_id"])
+                else:
+                    logger.error("[IBKR-B03] Impossible de re-placer le SL pour %s", _rc_pair)
+
+    fx_client._on_reconnect = _on_reconnect
+
+
 # ─── Point d'entrée ───────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -2082,8 +2256,43 @@ def main() -> None:
         logger.critical("[IBKR] Connexion IB Gateway impossible : %s", exc)
         raise SystemExit(1) from exc
 
+    # B-03: assigner le callback de réconciliation post-reconnect
+    _build_reconnect_handler(ibkr_cfg, client)
+
     # Chargement état + init paires
     _init_bot(ibkr_cfg)
+
+    # B-01: WAL replay — re-placer les SL orphelins si crash entre BUY et SL
+    _wal_pending = ibkr_wal_replay()
+    for _wal_entry in _wal_pending:
+        _wp = _wal_entry.get("pair", "")
+        if not _wp:
+            continue
+        with _ibkr_state_lock:
+            _wps = bot_state.get(_wp, {})
+        if _wps.get("last_order_side") == "BUY" and not _wps.get("sl_exchange_placed"):
+            _sl_p = _wps.get("stop_loss")
+            _qty = _wps.get("quantity")
+            if _sl_p and _qty:
+                logger.warning(
+                    "[IBKR-WAL] Replay: %s BUY sans SL — re-placement stop=%.5f qty=%.0f",
+                    _wp, _sl_p, _qty,
+                )
+                _sl_r = place_forex_stop_loss(client, _wp, _qty, _sl_p)
+                if _sl_r:
+                    with _ibkr_state_lock:
+                        bot_state[_wp]["sl_order_id"] = _sl_r["sl_order_id"]
+                        bot_state[_wp]["sl_exchange_placed"] = True
+                    _save_state(ibkr_cfg, force=True)
+                    ibkr_wal_clear(_wp)
+                    logger.info("[IBKR-WAL] Replay OK: SL re-placé pour %s orderId=%s", _wp, _sl_r["sl_order_id"])
+                else:
+                    logger.error(
+                        "[IBKR-WAL] Replay échoué pour %s — SL non placé, position sans protection",
+                        _wp,
+                    )
+            else:
+                logger.warning("[IBKR-WAL] Replay: %s — stop_loss ou quantity absent dans l'état", _wp)
 
     # Email de démarrage — permet de vérifier que le SMTP fonctionne
     try:

@@ -98,7 +98,7 @@ def save_ibkr_state(
                         raw = fh.read()
                     if raw.startswith(_JSON_HEADER):
                         old_state_bytes = raw[len(_JSON_HEADER) + 32:]
-                        if hash(old_state_bytes) == hash(state_bytes):
+                        if old_state_bytes == state_bytes:
                             _last_save_time = now
                             return
                 except Exception:
@@ -156,18 +156,14 @@ def load_ibkr_state(
         raise IBKRStateError(f"Impossible de lire le fichier d'état : {exc}") from exc
 
     if not raw.startswith(_JSON_HEADER):
-        # Fichier plain JSON sans header (édition manuelle) — accepté avec warning
-        try:
-            stripped = raw.lstrip()
-            if stripped and stripped[0:1] == b"{":
-                logger.warning(
-                    "[IBKR-STATE] Fichier d'état sans signature HMAC — "
-                    "sera re-signé au prochain save"
-                )
-                return json.loads(raw.decode("utf-8"))
-        except Exception as exc:
-            raise IBKRStateError(f"Format d'état non reconnu : {exc}") from exc
-        raise IBKRStateError("Format de fichier d'état IBKR non reconnu")
+        # Fichier sans header JSON_V1 — rejet strict (P0-1 fail-safe).
+        # Pour migrer un fichier non signé : utiliser scripts/migrate_ibkr_state.py
+        raise IBKRStateError(
+            "[IBKR-STATE] Fichier d'état sans signature HMAC rejeté. "
+            "Intégrité non vérifiable — démarrage avec état vide requis. "
+            "Pour migrer un ancien fichier non signé : "
+            "scripts/migrate_ibkr_state.py --sign <state_file>"
+        )
 
     hmac_key = _get_hmac_key(ibkr_secret)
     mac_stored = raw[len(_JSON_HEADER): len(_JSON_HEADER) + 32]

@@ -444,7 +444,7 @@ class TestP1Thresh:
         cfg = Config()
         assert hasattr(cfg, 'oos_sharpe_min'), "Config missing oos_sharpe_min"
         assert hasattr(cfg, 'oos_win_rate_min'), "Config missing oos_win_rate_min"
-        assert cfg.oos_sharpe_min == 0.15
+        assert cfg.oos_sharpe_min == 0.30
         assert cfg.oos_win_rate_min == 30.0
 
     def test_oos_thresholds_from_env(self):

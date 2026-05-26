@@ -39,7 +39,7 @@ logger = logging.getLogger("walk_forward")
 OOS_SHARPE_MIN = 0.15      # Minimum OOS annualized Sharpe (default) — abaissé 0.8→0.15 (meilleur OOS atteignable: PEPE=0.185, BTC=0.38)
 OOS_WIN_RATE_MIN = 30.0    # Minimum OOS win rate (%) (default)
 OOS_DECAY_MIN = 0.05       # Minimum OOS/FS Sharpe ratio (anti-overfit gate) — abaissé 0.15→0.05 (régime 2025-2026)
-OOS_MIN_TRADES = 10        # Minimum total OOS completed trades across all folds (rejet configs statistiquement insuffisantes)
+OOS_MIN_TRADES = 15        # Minimum total OOS completed trades across all folds (relevé 10→15 — configs statistiquement insuffisantes)
 RISK_FREE_RATE = 0.04      # Annual risk-free rate (default, P2-03: surchargé par config)
 DEFAULT_MIN_WF_BARS = 700
 
@@ -713,6 +713,8 @@ def run_walk_forward_validation(
         _t = _best_rej.get('oos_total_trades', 0)
         _fs = _best_rej.get('full_sample_sharpe', 0.0)
         _decay_ratio = (_best_rej['avg_oos_sharpe'] / _fs) if _fs > 0 else 0.0
+        _rej_tf = _best_rej.get('timeframe', '1h')
+        _eff_min_trades_diag = 2 if _rej_tf == '1d' else (7 if _rej_tf == '4h' else _oos_min_trades)
         logger.info(
             "[WF-DIAG] Meilleure config rejetée: %s EMA(%s,%s) %s — "
             "OOS Sharpe=%.3f(≥%.2f?%s) WR=%.1f%%(≥%.0f?%s) decay=%.3f(≥%.2f?%s) trades=%d(≥%d?%s)",
@@ -722,15 +724,15 @@ def run_walk_forward_validation(
             "✓" if _best_rej['avg_oos_sharpe'] >= _rt_sharpe_min else "✗",
             _best_rej['avg_oos_win_rate'], _rt_wr_min,
             "✓" if _best_rej['avg_oos_win_rate'] >= _rt_wr_min else "✗",
-            _decay_ratio, OOS_DECAY_MIN,
-            "✓" if _decay_ratio >= OOS_DECAY_MIN else "✗",
-            _t, _oos_min_trades,
-            "✓" if (_t == 0 or _t >= _oos_min_trades) else "✗",
+            _decay_ratio, _oos_decay_min,
+            "✓" if _decay_ratio >= _oos_decay_min else "✗",
+            _t, _eff_min_trades_diag,
+            "✓" if (_t == 0 or _t >= _eff_min_trades_diag) else "✗",
         )
         logger.warning(
             "⚠ No config passed OOS gates (Sharpe > %.2f & WR > %.0f%% & decay > %.2f). "
             "Returning best_wf_config=None — caller should use conservative defaults.",
-            _rt_sharpe_min, _rt_wr_min, OOS_DECAY_MIN,
+            _rt_sharpe_min, _rt_wr_min, _oos_decay_min,
         )
     else:
         best = None
