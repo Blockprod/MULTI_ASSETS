@@ -8,8 +8,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
-from typing import Any, Dict
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -45,7 +44,6 @@ class TestComputePositionSize:
 
     def _fn(self):
         """Retourne la fonction directement depuis le module."""
-        import importlib
         # Importer sans exécuter main() — la fonction est au module level
         import IBKR_FOREX as _m
         return _m._compute_position_size

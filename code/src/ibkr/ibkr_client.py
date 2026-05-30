@@ -26,7 +26,7 @@ if sys.platform == "win32":
 logger = logging.getLogger("ibkr_forex")
 
 try:
-    from ib_insync import IB, Contract, MarketOrder, StopOrder, StopLimitOrder, Trade
+    from ib_insync import IB, Contract, MarketOrder, StopLimitOrder, Trade
     _IB_AVAILABLE = True
 except ImportError:
     _IB_AVAILABLE = False
@@ -107,7 +107,7 @@ class IBKRForexClient:
         # Callback proactif — même pattern qu'AlphaEdge session_lifecycle._on_ib_disconnect
         self._ib.disconnectedEvent += self._on_disconnect
         # B-03: callback de réconciliation post-reconnect (assigné par IBKR_FOREX)
-        self._on_reconnect: "Optional[Any]" = None  # type: ignore[assignment]
+        self._on_reconnect: "Any | None" = None  # type: ignore[assignment]
 
     # ─── Connexion ───────────────────────────────────────────────────────────
 

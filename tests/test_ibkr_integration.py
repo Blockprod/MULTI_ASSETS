@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import tempfile
 
 import pytest
 
@@ -45,7 +44,7 @@ class TestIBKRWalReplay:
 
     def test_replay_detects_buy_without_sl(self, tmp_path):
         """FX_BUY_CONFIRMED sans FX_SL_PLACED → opération incomplète retournée."""
-        from ibkr_wal import ibkr_wal_replay, _WAL_FILE, OP_FX_BUY_CONFIRMED
+        from ibkr_wal import ibkr_wal_replay, OP_FX_BUY_CONFIRMED
         import ibkr_wal as wal_module
 
         wal_path = tmp_path / "ibkr_wal.jsonl"

@@ -1,11 +1,10 @@
 """Tests dashboard SLO (P2-4)."""
 import os
 import sys
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'src'))
 
-from dashboard_slo import DashboardSLO, SLOStatus
+from dashboard_slo import DashboardSLO
 
 
 class TestSLOSaveFailures:
@@ -236,12 +235,12 @@ class TestSLOEdgeCases:
     def test_multiple_updates_reflect(self):
         """Updates multiples se reflètent."""
         slo = DashboardSLO()
-        
+
         slo.update_daily_loss(2.0)
         assert slo.check_daily_loss()["healthy"] is True
-        
+
         slo.update_daily_loss(5.0)
         assert slo.check_daily_loss()["healthy"] is False
-        
+
         slo.update_daily_loss(3.0)
         assert slo.check_daily_loss()["healthy"] is True
