@@ -26,7 +26,7 @@ if sys.platform == "win32":
 logger = logging.getLogger("ibkr_forex")
 
 try:
-    from ib_insync import IB, Contract, MarketOrder, StopOrder, Trade
+    from ib_insync import IB, Contract, MarketOrder, StopOrder, StopLimitOrder, Trade
     _IB_AVAILABLE = True
 except ImportError:
     _IB_AVAILABLE = False
@@ -260,6 +260,15 @@ class IBKRForexClient:
         except (ValueError, TypeError):
             return 0.0
 
+    def get_available_funds(self) -> float:
+        """I4: Retourne les fonds disponibles (AvailableFunds) en devise du compte."""
+        self.ensure_connected()
+        acct = self.get_account()
+        try:
+            return float(acct.get("AvailableFunds", 0.0))
+        except (ValueError, TypeError):
+            return 0.0
+
     def get_forex_position(self, ibkr_pair: str) -> float:
         """C2: Retourne la position live nette sur IB Gateway pour une paire Forex.
 
@@ -301,15 +310,20 @@ class IBKRForexClient:
         return {}
 
     def get_symbol_ticker(self, **kwargs: Any) -> Dict[str, Any]:
-        """Retourne le prix mid d'une paire Forex."""
+        """Retourne le prix mid d'une paire Forex (I6: snapshot non-bloquant via reqTickers)."""
         self.ensure_connected()
         symbol: str = kwargs.get("symbol", "")
         contract = _build_forex_contract(symbol)
-        ticker = self._ib.reqMktData(contract, "", False, False)
-        # Attendre que les données arrivent (max 3s)
-        self._ib.sleep(3)
-        mid = (ticker.bid + ticker.ask) / 2 if ticker.bid and ticker.ask else 0.0
-        self._ib.cancelMktData(contract)
+        tickers = self._ib.reqTickers(contract)
+        if tickers:
+            t = tickers[0]
+            mid = (
+                (t.bid + t.ask) / 2
+                if t.bid and t.ask and t.bid > 0 and t.ask > 0
+                else (t.last or t.close or 0.0)
+            )
+        else:
+            mid = 0.0
         return {"symbol": symbol, "price": str(mid)}
 
     def get_symbol_info(self, symbol: str) -> Any:
@@ -390,9 +404,18 @@ class IBKRForexClient:
         self.ensure_connected()
         symbol: str = kwargs["symbol"]
         quantity: float = float(kwargs.get("quantity", 0.0))
+        order_ref: str = kwargs.get("orderRef", "")
+        # C1: idempotence — ne pas doubler si l'ordre existe déjà
+        if order_ref:
+            existing = self.get_order_by_ref(order_ref)
+            if existing:
+                logger.info("[IBKR-CLIENT] order_market_sell: orderRef %s déjà soumis", order_ref)
+                return existing
         contract = _build_forex_contract(symbol)
         order = MarketOrder("SELL", quantity)
         order.tif = "IOC"
+        if order_ref:
+            order.orderRef = order_ref
         trade = self._ib.placeOrder(contract, order)
         self._ib.sleep(1)
         return self._trade_to_dict(trade)
@@ -425,7 +448,13 @@ class IBKRForexClient:
 
         if order_type in ("STOP_LOSS", "STOP_LOSS_LIMIT", "STOP"):
             stop_price: float = float(kwargs.get("stopPrice", kwargs.get("stop_price", 0.0)))
-            order = StopOrder(side, quantity, stop_price)
+            lmt_price_offset: float = float(kwargs.get("lmtPriceOffset", 0.00030))
+            # C2: StopLimitOrder — évite le gap risk illimité du StopOrder market
+            if side == "SELL":
+                lmt_price = max(0.00001, stop_price - lmt_price_offset)
+            else:
+                lmt_price = stop_price + lmt_price_offset
+            order = StopLimitOrder(side, quantity, stop_price, lmt_price)
         elif order_type == "LIMIT":
             from ib_insync import LimitOrder
             price: float = float(kwargs.get("price", 0.0))
@@ -438,6 +467,20 @@ class IBKRForexClient:
         trade = self._ib.placeOrder(contract, order)
         self._ib.sleep(1)
         return self._trade_to_dict(trade)
+
+    def get_completed_orders(self) -> List[Dict[str, Any]]:
+        """Retourne les ordres complétés (FILLED/CANCELED) via reqCompletedOrders.
+
+        Utilisé comme fallback dans _check_and_handle_sl_hit après restart
+        IB Gateway (ib.trades() est vide, mais completed orders persistent).
+        """
+        self.ensure_connected()
+        try:
+            completed = self._ib.reqCompletedOrders(apiOnly=False)
+            return [self._trade_to_dict(t) for t in completed]
+        except Exception as exc:
+            logger.warning("[IBKR-CLIENT] get_completed_orders ERREUR: %s", exc)
+            return []
 
     def cancel_order(self, **kwargs: Any) -> Dict[str, Any]:
         """Annule un ordre par orderId."""
@@ -558,6 +601,7 @@ class IBKRForexClient:
             "type": trade.order.orderType,
             "status": mapped_status,
             "price": str(avg_price),
+            "avgFillPrice": str(avg_price),   # A1: champ explicite pour _extract_fill_price
             "executedQty": str(filled_qty),
             "origQty": str(trade.order.totalQuantity),
         }

@@ -85,7 +85,8 @@ def backtest_from_dataframe_fast(
     np.ndarray[DTYPE_t, ndim=1] mtf_bullish=None,
     bint use_mtf_filter=False,
     double leverage=1.0,        # Forex levier : max_affordable *= leverage (1.0 = crypto spot)
-    bint allow_short=False      # Activer les positions SHORT (IBKR uniquement)
+    bint allow_short=False,     # Activer les positions SHORT (IBKR uniquement)
+    np.ndarray[DTYPE_t, ndim=1] atr_adaptive_multiplier=None  # ML-03: adaptive ATR stop multiplier per bar
 ) -> dict:
     """
     Moteur de backtest standard pour MULTI_SYMBOLS.py
@@ -130,6 +131,8 @@ def backtest_from_dataframe_fast(
     # A-3: cooldown post-stop-loss
     cdef int cooldown_remaining = 0
     cdef bint was_stop_loss_exit = False
+    # ML-03: adaptive ATR stop multiplier per bar
+    cdef double effective_atr_stop_mult = 0.0
     # SHORT: variables supplémentaires
     cdef bint short_entry_condition
     cdef double short_fill_price
@@ -449,10 +452,18 @@ def backtest_from_dataframe_fast(
                 else:
                     fill_price = current_price * (1.0 + slippage_buy)
 
+                # ML-03: adaptive ATR stop multiplier per bar (LONG)
+                if atr_adaptive_multiplier is not None:
+                    effective_atr_stop_mult = atr_adaptive_multiplier[i]
+                    if isnan(effective_atr_stop_mult) or effective_atr_stop_mult <= 0:
+                        effective_atr_stop_mult = atr_stop_multiplier
+                else:
+                    effective_atr_stop_mult = atr_stop_multiplier
+
                 # === POSITION SIZING (P4-CYTHON) ===
                 if is_risk_mode and atr_values[i] > 0 and fill_price > 0:
                     # Risk-based: risk_per_trade of equity per stop_distance
-                    stop_distance = atr_stop_multiplier * atr_values[i]
+                    stop_distance = effective_atr_stop_mult * atr_values[i]
                     if stop_distance > 0:
                         risk_amount = usd * risk_per_trade
                         qty_by_risk = risk_amount / stop_distance
@@ -489,7 +500,7 @@ def backtest_from_dataframe_fast(
                         position.trailing_stop = 0.0
                         position.trailing_activated = False
                         position.atr_at_entry = atr_values[i]
-                        position.stop_loss = fill_price - (atr_stop_multiplier * atr_values[i])
+                        position.stop_loss = fill_price - (effective_atr_stop_mult * atr_values[i])
                         position.partial_taken_1 = False
                         position.partial_taken_2 = False
                         position.breakeven_triggered = False
@@ -537,8 +548,16 @@ def backtest_from_dataframe_fast(
                     else:
                         short_fill_price = current_price * (1.0 - slippage_sell)
 
+                    # ML-03: adaptive ATR stop multiplier per bar (SHORT)
+                    if atr_adaptive_multiplier is not None:
+                        effective_atr_stop_mult = atr_adaptive_multiplier[i]
+                        if isnan(effective_atr_stop_mult) or effective_atr_stop_mult <= 0:
+                            effective_atr_stop_mult = atr_stop_multiplier
+                    else:
+                        effective_atr_stop_mult = atr_stop_multiplier
+
                     if is_risk_mode and atr_values[i] > 0 and short_fill_price > 0:
-                        stop_distance = atr_stop_multiplier * atr_values[i]
+                        stop_distance = effective_atr_stop_mult * atr_values[i]
                         if stop_distance > 0:
                             risk_amount = usd * risk_per_trade
                             qty_by_risk = risk_amount / stop_distance
@@ -570,7 +589,7 @@ def backtest_from_dataframe_fast(
                             position.trailing_stop = 0.0
                             position.trailing_activated = False
                             position.atr_at_entry = atr_values[i]
-                            position.stop_loss = short_fill_price + (atr_stop_multiplier * atr_values[i])
+                            position.stop_loss = short_fill_price + (effective_atr_stop_mult * atr_values[i])
                             position.partial_taken_1 = False
                             position.partial_taken_2 = False
                             position.breakeven_triggered = False

@@ -287,7 +287,10 @@ def _cumulative_pnl(real_pairs: set[str]) -> tuple[float, int]:
                         line = line.strip()
                         if not line:
                             continue
-                        rec = json.loads(line)
+                        try:
+                            rec = json.loads(line)
+                        except Exception:
+                            continue
                         if real_pairs and rec.get("pair") not in real_pairs:
                             continue
                         pnl = rec.get("pnl")
@@ -317,7 +320,10 @@ def _recent_trades(real_pairs: set[str], limit: int = 20) -> list[dict]:
                         line = line.strip()
                         if not line:
                             continue
-                        rec = json.loads(line)
+                        try:
+                            rec = json.loads(line)
+                        except Exception:
+                            continue
                         if real_pairs and rec.get("pair") not in real_pairs:
                             continue
                         trades.append(rec)
@@ -345,7 +351,10 @@ def _build_equity_curve(starting_equity: float, real_pairs: set[str]) -> list[di
                                 line = line.strip()
                                 if not line:
                                     continue
-                                rec = json.loads(line)
+                                try:
+                                    rec = json.loads(line)
+                                except Exception:
+                                    continue
                                 if real_pairs and rec.get("pair") not in real_pairs:
                                     continue
                                 if rec.get("side", "").lower() == "sell" and rec.get("pnl") is not None:
@@ -452,7 +461,10 @@ def _win_stats(real_pairs: set[str]) -> tuple[float | None, int, int]:
                                 line = line.strip()
                                 if not line:
                                     continue
-                                rec = json.loads(line)
+                                try:
+                                    rec = json.loads(line)
+                                except Exception:
+                                    continue
                                 if real_pairs and rec.get("pair") not in real_pairs:
                                     continue
                                 if rec.get("side", "").lower() != "sell":
@@ -528,10 +540,11 @@ def collect_data() -> dict:
             continue
         if backtest_pairs and symbol not in backtest_pairs:
             continue
-        in_position = ps.get("last_order_side") == "BUY"
+        in_position = ps.get("last_order_side") in ("BUY", "SHORT")
+        side = ps.get("last_order_side") or "BUY"
         entry = ps.get("entry_price")
         spot = ps.get("ticker_spot_price")
-        qty = ps.get("initial_position_size")
+        qty = ps.get("initial_position_size") or ps.get("quantity")
 
         mt_pair = (mt.get("pairs") or {}).get(symbol, {})
         real_pair = next((p["real_pair"] for p in configured if p["backtest_pair"] == symbol), symbol)
@@ -545,8 +558,12 @@ def collect_data() -> dict:
         unrealized_pct = None
         if in_position and entry and spot and display_qty is not None:
           try:
-            unrealized_pnl = (float(spot) - float(entry)) * float(display_qty)
-            unrealized_pct = (float(spot) - float(entry)) / float(entry) * 100.0
+            if side == "SHORT":
+              unrealized_pnl = (float(entry) - float(spot)) * float(display_qty)
+              unrealized_pct = (float(entry) - float(spot)) / float(entry) * 100.0
+            else:
+              unrealized_pnl = (float(spot) - float(entry)) * float(display_qty)
+              unrealized_pct = (float(spot) - float(entry)) / float(entry) * 100.0
           except Exception:
             pass
 
@@ -565,6 +582,7 @@ def collect_data() -> dict:
         pairs[symbol] = {
             "real_pair":           real_pair,
             "in_position":         in_position,
+            "side":                side,
             "entry_price":         entry,
             "spot_price":          spot,
             "qty":                 display_qty,

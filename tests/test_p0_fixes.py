@@ -479,10 +479,10 @@ class TestOOSThresholds:
         assert cfg.oos_win_rate_min == 40.0
 
     def test_config_has_oos_min_trades(self):
-        """Config doit avoir oos_min_trades avec défaut 15."""
+        """Config doit avoir oos_min_trades avec défaut 8 (R2-audit: abaissé 15→8)."""
         from bot_config import Config
         assert hasattr(Config, 'oos_min_trades')
-        assert Config.oos_min_trades == 15
+        assert Config.oos_min_trades == 8
 
     def test_oos_min_trades_from_env(self, monkeypatch):
         """oos_min_trades chargeable depuis OOS_MIN_TRADES."""

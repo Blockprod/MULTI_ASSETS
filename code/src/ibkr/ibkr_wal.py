@@ -27,8 +27,10 @@ _WAL_LOCK = threading.Lock()
 # ─── Codes d'opération ────────────────────────────────────────────────────────
 OP_FX_BUY_INTENT = "FX_BUY_INTENT"       # avant appel safe_forex_buy
 OP_FX_BUY_CONFIRMED = "FX_BUY_CONFIRMED" # après fill confirmé
-OP_FX_SL_PLACED = "FX_SL_PLACED"         # après SL posé sur exchange
-
+OP_FX_SL_PLACED = "FX_SL_PLACED"         # après SL posé sur exchange# C3: équivalents SHORT
+OP_FX_SHORT_INTENT = "FX_SHORT_INTENT"           # avant appel safe_forex_short_open
+OP_FX_SHORT_CONFIRMED = "FX_SHORT_CONFIRMED"     # après fill confirmé
+OP_FX_SHORT_SL_PLACED = "FX_SHORT_SL_PLACED"     # après SL BUY posé sur exchange
 
 def ibkr_wal_write(op: str, payload: Dict[str, Any]) -> None:
     """Ajoute une entrée au WAL IBKR. Thread-safe. fsync à chaque appel."""
@@ -87,11 +89,19 @@ def ibkr_wal_replay() -> List[Dict[str, Any]]:
     incomplete: List[Dict[str, Any]] = []
     for pair, entries in by_pair.items():
         ops = {e["op"] for e in entries}
+        last = max(entries, key=lambda e: e.get("ts", 0.0))
         if OP_FX_BUY_CONFIRMED in ops and OP_FX_SL_PLACED not in ops:
-            last = max(entries, key=lambda e: e.get("ts", 0.0))
+            last["chain"] = "buy"
             incomplete.append(last)
             logger.warning(
-                "[IBKR-WAL] Opération incomplète détectée — pair=%s ops=%s",
+                "[IBKR-WAL] Opération incomplète (BUY) détectée — pair=%s ops=%s",
+                pair, ops,
+            )
+        elif OP_FX_SHORT_CONFIRMED in ops and OP_FX_SHORT_SL_PLACED not in ops:
+            last["chain"] = "short"
+            incomplete.append(last)
+            logger.warning(
+                "[IBKR-WAL] Opération incomplète (SHORT) détectée — pair=%s ops=%s",
                 pair, ops,
             )
 

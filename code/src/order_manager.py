@@ -400,7 +400,7 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
     if _be_enabled and not ps.get('breakeven_triggered', False) and entry_price and entry_price > 0:
         if ctx.current_price is not None:
             _be_profit = (ctx.current_price - entry_price) / entry_price
-            if _be_profit >= getattr(config, 'breakeven_trigger_pct', 0.02):
+            if _be_profit >= getattr(config, 'breakeven_trigger_pct', 0.015):
                 _be_new_stop = entry_price * (1 + deps.config.slippage_buy)
                 _current_sl = ps.get('stop_loss') or 0
                 if _be_new_stop > _current_sl:
@@ -409,7 +409,7 @@ def _update_trailing_stop(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
                         "[B-3 BREAKEVEN] Stop remonté au prix d'entrée + slippage : %g "
                         "(profit %.2f%% >= seuil %.1f%%)",
                         _be_new_stop, _be_profit * 100,
-                        getattr(config, 'breakeven_trigger_pct', 0.02) * 100,
+                        getattr(config, 'breakeven_trigger_pct', 0.015) * 100,
                     )
                     # C-15-BREAKEVEN-SL: Déplacer le SL exchange au niveau breakeven
                     if (ps.get('sl_exchange_placed') and ps.get('sl_order_id')
@@ -2136,7 +2136,9 @@ def _execute_buy(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
     usdc_balance_for_display = ctx.usdc_balance  # snapshot avant éventuel achat
 
     # === CAPITAL DISPONIBLE POUR ACHAT ===
-    usdc_for_buy = deps.get_usdc_sells_fn(ctx.real_trading_pair)
+    _buy_ts = ps.get('buy_timestamp')
+    _since_ms = int(_buy_ts * 1000) if _buy_ts else None
+    usdc_for_buy = deps.get_usdc_sells_fn(ctx.real_trading_pair, _since_ms)
 
     if usdc_for_buy <= 0:
         logger.error(
@@ -2170,7 +2172,7 @@ def _execute_buy(ctx: '_TradeCtx', deps: '_TradingDeps') -> None:
         _alloc_lock.acquire()
     try:
         # Re-fetch le capital réel sous le lock (un autre thread a pu acheter entre-temps)
-        usdc_for_buy = deps.get_usdc_sells_fn(ctx.real_trading_pair)
+        usdc_for_buy = deps.get_usdc_sells_fn(ctx.real_trading_pair, _since_ms)
         if usdc_for_buy <= 0:
             logger.warning("[BUY] Capital épuisé après acquisition du lock — achat annulé")
             return

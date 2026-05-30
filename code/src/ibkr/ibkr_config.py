@@ -44,13 +44,15 @@ class IBKRConfig:
         self.initial_capital: float = 10_000.0   # 10 000€ paper
         self.risk_per_trade: float = 0.055        # 5.5% = ~550€/trade
         self.max_leverage: float = 20.0           # IBKR Forex retail (20:1 EUR/USD)
-        self.max_position_usd: float = 500_000.0  # Cap notionnel max par trade (USD)
+        self.max_position_usd: float = 15_000.0   # Cap notionnel max par trade (USD) — ~1.5× NAV sur 10k€
         self.daily_loss_limit_pct: float = 0.05   # 5% = 500€/j
+        self.weekly_loss_limit_pct: float = 0.10   # 10% = 1000€/semaine (I2)
+        self.sl_limit_offset: float = 0.00030          # 3 pips — écart SL limit (StopLimitOrder)
 
         # ─── Trailing stop & partials ─────────────────────────────────────
         self.atr_multiplier_sl: float = 3.0               # SL initial = entry ± 3×ATR
         self.atr_multiplier_trailing: float = 8.0          # Distance trailing = 8×ATR
-        self.trailing_activation_multiplier: float = 8.0   # Activation trailing = entry ± 8×ATR
+        self.trailing_activation_multiplier: float = 3.0   # A4: activation trailing = entry ± 3×ATR (réaliste H1)
         self.breakeven_pct: float = 0.01                   # Breakeven à +1%
         self.partial_threshold_1: float = 0.02             # 1er partiel à +2%
         self.partial_threshold_2: float = 0.04             # 2e partiel à +4%
@@ -125,17 +127,19 @@ class IBKRConfig:
 
         # Capital
         cfg.initial_capital = float(os.environ.get("IBKR_INITIAL_CAPITAL", "10000.0"))
-        cfg.risk_per_trade = float(os.environ.get("IBKR_RISK_PER_TRADE", "0.02"))
+        cfg.risk_per_trade = float(os.environ.get("IBKR_RISK_PER_TRADE", "0.055"))
         cfg.max_leverage = float(os.environ.get("IBKR_MAX_LEVERAGE", "5.0"))
-        cfg.max_position_usd = float(os.environ.get("IBKR_MAX_POSITION_USD", "500000.0"))
+        cfg.max_position_usd = float(os.environ.get("IBKR_MAX_POSITION_USD", "15000.0"))
         cfg.daily_loss_limit_pct = float(
             os.environ.get("IBKR_DAILY_LOSS_LIMIT_PCT", "0.05")
         )
+        cfg.sl_limit_offset = float(os.environ.get("IBKR_SL_LIMIT_OFFSET", "0.00030"))
+        cfg.weekly_loss_limit_pct = float(os.environ.get("IBKR_WEEKLY_LOSS_LIMIT_PCT", "0.10"))
 
         # Trailing stop & partials
         cfg.atr_multiplier_sl = float(os.environ.get("IBKR_ATR_SL", "3.0"))
         cfg.atr_multiplier_trailing = float(os.environ.get("IBKR_ATR_TRAILING", "8.0"))
-        cfg.trailing_activation_multiplier = float(os.environ.get("IBKR_TRAILING_ACTIVATION", "8.0"))
+        cfg.trailing_activation_multiplier = float(os.environ.get("IBKR_TRAILING_ACTIVATION", "3.0"))
         cfg.breakeven_pct = float(os.environ.get("IBKR_BREAKEVEN_PCT", "0.01"))
         cfg.partial_threshold_1 = float(os.environ.get("IBKR_PARTIAL_THRESHOLD_1", "0.02"))
         cfg.partial_threshold_2 = float(os.environ.get("IBKR_PARTIAL_THRESHOLD_2", "0.04"))

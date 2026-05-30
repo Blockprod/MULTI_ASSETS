@@ -180,6 +180,7 @@ def get_last_sell_trade_usdc(
 def get_usdc_from_all_sells_since_last_buy(
     real_trading_pair: str,
     client: Any,
+    since_timestamp_ms: Optional[int] = None,
 ) -> float:
     """Retourne le montant total USDC net de toutes les ventes depuis le
     dernier BUY.  Utilisé pour calculer le capital disponible.
@@ -190,6 +191,11 @@ def get_usdc_from_all_sells_since_last_buy(
         Paire de trading.
     client : BinanceFinalClient
         Client Binance.
+    since_timestamp_ms : Optional[int]
+        Si fourni (timestamp du dernier BUY en ms), utilisé comme startTime dans
+        get_my_trades pour capturer TOUS les fills de vente depuis ce BUY, même
+        si la position a été clôturée via plusieurs ordres partiels qui dépassent
+        la fenêtre limit=1000. Sinon, fallback sur le scan inverse du dernier BUY.
 
     Returns
     -------
@@ -198,7 +204,45 @@ def get_usdc_from_all_sells_since_last_buy(
     """
     try:
         _, quote_currency = extract_coin_from_pair(real_trading_pair)
-        trades = client.get_my_trades(symbol=real_trading_pair, limit=500)
+
+        if since_timestamp_ms is not None and since_timestamp_ms > 0:
+            # Chemin rapide : startTime connu → on récupère tous les fills depuis ce BUY
+            trades = client.get_my_trades(
+                symbol=real_trading_pair,
+                startTime=since_timestamp_ms,
+                limit=1000,
+            )
+            if not trades:
+                logger.warning(f"[CAPITAL] Aucun trade depuis le dernier BUY pour {real_trading_pair}")
+                return 0.0
+
+            total_usdc = 0.0
+            sell_count = 0
+            for trade in trades:
+                if trade.get('isBuyer', False):
+                    # Re-BUY détecté : on repart de zéro pour ne compter que les ventes
+                    # depuis ce BUY le plus récent (ignore les cycles précédents).
+                    total_usdc = 0.0
+                    sell_count = 0
+                    continue
+                quote_qty = float(trade.get('quoteQty', 0))
+                commission = float(trade.get('commission', 0))
+                commission_asset = trade.get('commissionAsset', '')
+                if commission_asset == quote_currency:
+                    net_usdc = quote_qty - commission
+                else:
+                    net_usdc = quote_qty
+                total_usdc += net_usdc
+                sell_count += 1
+
+            logger.info(
+                f"[CAPITAL] {sell_count} ventes trouvees depuis dernier BUY "
+                f"(startTime) = {total_usdc:.2f} {quote_currency}"
+            )
+            return total_usdc
+
+        # Fallback : scan inverse pour trouver le dernier BUY dans les 1000 derniers trades
+        trades = client.get_my_trades(symbol=real_trading_pair, limit=1000)
 
         if not trades:
             logger.warning(f"[CAPITAL] Aucun trade trouve pour {real_trading_pair}")

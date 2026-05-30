@@ -94,3 +94,14 @@ code/src/cache/
 
 # Metriques runtime locales
 metrics/
+
+# Scripts de diagnostic temporaires (racine)
+_diag*.py
+_patch*.py
+
+# Sorties de tests supplémentaires
+test_out2.txt
+risk_out.txt
+
+# Logs IBKR runtime
+code/src/ibkr/logs/

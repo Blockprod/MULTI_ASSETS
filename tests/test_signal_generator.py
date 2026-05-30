@@ -238,13 +238,14 @@ class TestBuySignalMTFFilter:
         ok, _ = checker(row, 500.0)
         assert ok is True
 
-    def test_mtf_bearish_blocks_signal(self):
-        """mtf_bullish=0.0 (< 0.5) → filtre MTF bloque le signal."""
+    def test_mtf_bearish_soft_filter(self):
+        """mtf_bullish=0.0 (< 0.5) → A-2 supprimé : signal autorisé à taille pleine."""
         checker = self._checker()
         row = _buy_row(mtf_bullish=0.0)
         ok, reason = checker(row, 500.0)
-        assert ok is False
-        assert "MTF" in reason
+        # A-2 MTF filter supprimé : aucune réduction de taille, signal toujours valide
+        assert ok is True
+        assert "[OK]" in reason
 
     def test_missing_mtf_column_skips_filter(self):
         """Absence de colonne mtf_bullish → filtre ignoré, signal valide."""

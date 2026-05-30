@@ -93,11 +93,17 @@ from ibkr_order_manager_forex import (                                   # noqa:
 from ibkr_wal import (                                                    # noqa: E402
     ibkr_wal_write, ibkr_wal_clear, ibkr_wal_replay,
     OP_FX_BUY_INTENT, OP_FX_BUY_CONFIRMED, OP_FX_SL_PLACED,
+    OP_FX_SHORT_INTENT, OP_FX_SHORT_CONFIRMED, OP_FX_SHORT_SL_PLACED,
 )
+from trade_journal import log_trade                                      # noqa: E402
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 _LOG_DIR = os.path.join(_ROOT_DIR, "code", "logs")
 os.makedirs(_LOG_DIR, exist_ok=True)
+
+# ─── Journal des trades (lu par le dashboard IBKR) ───────────────────────────
+_IBKR_JOURNAL_DIR = os.path.join(_IBKR_DIR, "logs")
+os.makedirs(_IBKR_JOURNAL_DIR, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -114,6 +120,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ibkr_forex")
 console = Console()
+
+# I5: guard anti-corrélation inter-paires (code/src/ est dans sys.path)
+try:
+    from correlation_guard import check_correlation_guard  # noqa: E402
+    _CORRELATION_GUARD_AVAILABLE = True
+except ImportError:
+    _CORRELATION_GUARD_AVAILABLE = False
+    logger.warning("[IBKR] correlation_guard non disponible — garde corrélation désactivée")
 
 # ─── Paires Forex tradées ─────────────────────────────────────────────────────
 FOREX_PAIRS: List[Dict[str, Any]] = [
@@ -246,6 +260,11 @@ def _compute_position_size(
 
     Identique à position_sizing.compute_position_size_by_risk mais sans bot_config.
     """
+    import math as _math
+    if not atr_value or not entry_price or not nav:
+        return 0.0
+    if _math.isnan(atr_value) or _math.isnan(entry_price) or _math.isnan(nav):
+        return 0.0
     if atr_value <= 0 or entry_price <= 0 or nav <= 0:
         return 0.0
     stop_distance = atr_stop_multiplier * atr_value
@@ -635,6 +654,7 @@ def _display_ibkr_sell_panel(
     sell_signal: bool,
     con: "Console",
     best: "Optional[Dict[str, Any]]" = None,
+    side: str = "BUY",
 ) -> None:
     """Panneau Rich des conditions de vente IBKR — affiché à chaque cycle live.
 
@@ -642,11 +662,18 @@ def _display_ibkr_sell_panel(
     """
     try:
         stoch = float(last.get("stoch_rsi", float("nan")) or float("nan"))
-        pnl_latent = (current_price - entry_price) * qty if entry_price and qty else 0.0
-        pnl_pct = (
-            (current_price - entry_price) / entry_price * 100
-            if entry_price and entry_price > 0 else 0.0
-        )
+        if side == "SHORT":
+            pnl_latent = (entry_price - current_price) * qty if entry_price and qty else 0.0
+            pnl_pct = (
+                (entry_price - current_price) / entry_price * 100
+                if entry_price and entry_price > 0 else 0.0
+            )
+        else:
+            pnl_latent = (current_price - entry_price) * qty if entry_price and qty else 0.0
+            pnl_pct = (
+                (current_price - entry_price) / entry_price * 100
+                if entry_price and entry_price > 0 else 0.0
+            )
 
         grid = Table(
             title="[bold white]Analyse des conditions de vente[/bold white]",
@@ -730,10 +757,17 @@ def _display_ibkr_forex_balance_panel(
         if in_position:
             entry = pair_state.get("entry_price") or 0.0
             qty = pair_state.get("quantity") or 0.0
-            pnl = (current_price - entry) * qty if entry > 0 else 0.0
-            pnl_pct = (current_price - entry) / entry * 100 if entry > 0 else 0.0
+            side = pair_state.get("last_order_side", "BUY")
+            if side == "SHORT":
+                pnl = (entry - current_price) * qty if entry > 0 else 0.0
+                pnl_pct = (entry - current_price) / entry * 100 if entry > 0 else 0.0
+                status_label = "[bold magenta]EN POSITION (SHORT)[/bold magenta]"
+            else:
+                pnl = (current_price - entry) * qty if entry > 0 else 0.0
+                pnl_pct = (current_price - entry) / entry * 100 if entry > 0 else 0.0
+                status_label = "[bold green]EN POSITION (BUY)[/bold green]"
             pnl_color = "bold green" if pnl >= 0 else "bold red"
-            grid.add_row("Statut", "[bold green]EN POSITION (BUY)[/bold green]")
+            grid.add_row("Statut", status_label)
             grid.add_row("Prix d'entr\u00e9e", f"{entry:.5f} {quote}")
             grid.add_row("Quantit\u00e9", f"{qty:,.0f} {base}")
             grid.add_row(
@@ -970,6 +1004,21 @@ def _execute_ibkr_partial_exit(
                 result = safe_forex_sell(client, pair, partial_qty, reason="PARTIAL-1")
             if result:
                 remaining_qty = qty - partial_qty
+                # I1: comptabiliser PnL partiel dans daily_pnl
+                _p1_fill = float(result.get("avgFillPrice") or result.get("exit_price") or current_price)
+                _p1_pnl = ((_p1_fill - entry_price) * partial_qty if not is_short
+                           else (entry_price - _p1_fill) * partial_qty)
+                _today_p1 = datetime.utcnow().strftime("%Y-%m-%d")
+                with _ibkr_state_lock:
+                    if bot_state.get("daily_pnl_date") != _today_p1:
+                        bot_state["daily_pnl"] = 0.0
+                        bot_state["daily_pnl_date"] = _today_p1
+                    bot_state["daily_pnl"] = float(bot_state.get("daily_pnl") or 0.0) + _p1_pnl
+                    _this_week_p1 = datetime.utcnow().isocalendar()[1]
+                    if bot_state.get("weekly_pnl_week") != _this_week_p1:
+                        bot_state["weekly_pnl"] = 0.0
+                        bot_state["weekly_pnl_week"] = _this_week_p1
+                    bot_state["weekly_pnl"] = float(bot_state.get("weekly_pnl") or 0.0) + _p1_pnl
                 old_sl_id = pair_state.get("sl_order_id")
                 if old_sl_id:
                     cancel_forex_order(client, pair, old_sl_id)
@@ -1020,6 +1069,21 @@ def _execute_ibkr_partial_exit(
                 result = safe_forex_sell(client, pair, partial_qty, reason="PARTIAL-2")
             if result:
                 remaining_qty = qty_now - partial_qty
+                # I1: comptabiliser PnL partiel dans daily_pnl
+                _p2_fill = float(result.get("avgFillPrice") or result.get("exit_price") or current_price)
+                _p2_pnl = ((_p2_fill - entry_price) * partial_qty if not is_short
+                           else (entry_price - _p2_fill) * partial_qty)
+                _today_p2 = datetime.utcnow().strftime("%Y-%m-%d")
+                with _ibkr_state_lock:
+                    if bot_state.get("daily_pnl_date") != _today_p2:
+                        bot_state["daily_pnl"] = 0.0
+                        bot_state["daily_pnl_date"] = _today_p2
+                    bot_state["daily_pnl"] = float(bot_state.get("daily_pnl") or 0.0) + _p2_pnl
+                    _this_week_p2 = datetime.utcnow().isocalendar()[1]
+                    if bot_state.get("weekly_pnl_week") != _this_week_p2:
+                        bot_state["weekly_pnl"] = 0.0
+                        bot_state["weekly_pnl_week"] = _this_week_p2
+                    bot_state["weekly_pnl"] = float(bot_state.get("weekly_pnl") or 0.0) + _p2_pnl
                 old_sl_id = pair_state.get("sl_order_id")
                 if old_sl_id:
                     cancel_forex_order(client, pair, old_sl_id)
@@ -1295,13 +1359,21 @@ def _execute_pair_signal(
     if not in_position and not pair_state.get("oos_blocked", False):
         # Limite perte journalière
         _today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        _this_week = datetime.utcnow().isocalendar()[1]
         with _ibkr_state_lock:
             if bot_state.get("daily_pnl_date") != _today_str:
                 bot_state["daily_pnl"] = 0.0
                 bot_state["daily_pnl_date"] = _today_str
             _daily_pnl = bot_state.get("daily_pnl", 0.0)
+            # I2: reset hebdomadaire (lundi = isocalendar week change)
+            if bot_state.get("weekly_pnl_week") != _this_week:
+                bot_state["weekly_pnl"] = 0.0
+                bot_state["weekly_pnl_week"] = _this_week
+            _weekly_pnl = bot_state.get("weekly_pnl", 0.0)
         _daily_loss_limit = -ibkr_cfg.daily_loss_limit_pct * ibkr_cfg.initial_capital
+        _weekly_loss_limit = -ibkr_cfg.weekly_loss_limit_pct * ibkr_cfg.initial_capital
         _daily_blocked = _daily_pnl <= _daily_loss_limit
+        _weekly_blocked = _weekly_pnl <= _weekly_loss_limit
 
         # Évaluer signaux BUY et SHORT
         buy_signal, buy_reason = _check_ibkr_buy_signal(last, scenario, current_price)
@@ -1314,14 +1386,23 @@ def _execute_pair_signal(
             buy_signal = False
             short_signal = False
             buy_reason = f"⚠ Daily loss limit ({_daily_pnl:.2f}€ ≤ {_daily_loss_limit:.2f}€)"
+        if _weekly_blocked:
+            buy_signal = False
+            short_signal = False
+            buy_reason = f"⚠ Weekly loss limit ({_weekly_pnl:.2f}€ ≤ {_weekly_loss_limit:.2f}€)"
 
         _display_ibkr_buy_panel(pair, current_price, last, best, buy_signal, buy_reason, console)
 
         if _daily_blocked:
             return
+        if _weekly_blocked:
+            logger.warning("[IBKR-I2] %s — weekly loss limit atteint (%.2f€)", pair, _weekly_pnl)
+            return
 
         # ── Entrée LONG ──────────────────────────────────────────────────────
         if buy_signal:
+            # I4: vérification marge disponible
+            _avail = client.get_available_funds() if hasattr(client, "get_available_funds") else 0.0
             nav = get_account_nav(client)
             if nav <= 0:
                 logger.error("[IBKR] %s — NAV invalide (%.2f), BUY annulé", pair, nav)
@@ -1331,7 +1412,21 @@ def _execute_pair_signal(
                 atr_stop_multiplier=ibkr_cfg.atr_multiplier_sl,
             )
             quote_qty = qty * current_price
-            quote_qty = min(quote_qty, ibkr_cfg.max_position_usd)
+            # A2: cap dynamique sur NAV
+            quote_qty = min(quote_qty, nav * 1.5, ibkr_cfg.max_position_usd)
+            # I4: bloquer si fonds insuffisants (marge ≥4% du notionnel)
+            if _avail > 0 and _avail < quote_qty * 0.04:
+                logger.warning(
+                    "[IBKR-I4] %s — fonds disponibles %.2f insuffisants pour BUY notionnel %.2f",
+                    pair, _avail, quote_qty,
+                )
+                return
+            # I5: garde corrélation
+            if _CORRELATION_GUARD_AVAILABLE:
+                _corr_ok, _corr_reason = check_correlation_guard(pair, bot_state)
+                if not _corr_ok:
+                    logger.info("[IBKR-I5] %s — BUY bloqué par correlation_guard: %s", pair, _corr_reason)
+                    return
             # B-01: WAL — intent avant ordre réel
             ibkr_wal_write(OP_FX_BUY_INTENT, {"pair": pair, "quote_qty": quote_qty})
             buy_result = safe_forex_buy(client, pair, quote_qty, current_price=current_price)
@@ -1346,7 +1441,7 @@ def _execute_pair_signal(
                     "order_id": buy_result.get("order_id"),
                 })
                 sl_price = max(entry_price - ibkr_cfg.atr_multiplier_sl * atr, 0.0) if atr else entry_price * 0.98
-                sl_result = place_forex_stop_loss(client, pair, real_qty, sl_price)
+                sl_result = place_forex_stop_loss(client, pair, real_qty, sl_price, lmt_price_offset=ibkr_cfg.sl_limit_offset)
                 if sl_result:
                     # B-01: WAL — SL posé, chaîne complète
                     ibkr_wal_write(OP_FX_SL_PLACED, {
@@ -1371,6 +1466,8 @@ def _execute_pair_signal(
                     pair_state["breakeven_activated"] = False
                 _save_state(ibkr_cfg, force=True)
                 logger.info("[IBKR] %s BUY exécuté : qty=%.0f @%.5f SL=%.5f", pair, real_qty, entry_price, sl_price)
+                log_trade(_IBKR_JOURNAL_DIR, pair=pair, side="buy", quantity=real_qty,
+                          price=entry_price, scenario=scenario, atr_value=atr, stop_price=sl_price)
                 try:
                     send_email_alert(
                         f"[IBKR-FOREX] BUY {pair} @{entry_price:.5f}",
@@ -1381,6 +1478,14 @@ def _execute_pair_signal(
 
         # ── Entrée SHORT ─────────────────────────────────────────────────────
         elif short_signal:
+            # Circuit-breaker : bloquer après 3 rejets consécutifs IB (Error 201)
+            _short_block_until = float(pair_state.get("short_blocked_until", 0) or 0)
+            if time.time() < _short_block_until:
+                _cb_remaining = max(0, int((_short_block_until - time.time()) / 60))
+                logger.info(
+                    "[IBKR] %s — SHORT bloqué circuit-breaker (%d min restantes)", pair, _cb_remaining,
+                )
+                return
             nav = get_account_nav(client)
             if nav <= 0:
                 logger.error("[IBKR] %s — NAV invalide (%.2f), SHORT annulé", pair, nav)
@@ -1390,13 +1495,44 @@ def _execute_pair_signal(
                 atr_stop_multiplier=ibkr_cfg.atr_multiplier_sl,
             )
             quote_qty = qty * current_price
-            quote_qty = min(quote_qty, ibkr_cfg.max_position_usd)
+            # A2: cap dynamique sur NAV
+            quote_qty = min(quote_qty, nav * 1.5, ibkr_cfg.max_position_usd)
+            # I4: vérification marge disponible
+            _avail_short = client.get_available_funds() if hasattr(client, "get_available_funds") else 0.0
+            if _avail_short > 0 and _avail_short < quote_qty * 0.04:
+                logger.warning(
+                    "[IBKR-I4] %s — fonds disponibles %.2f insuffisants pour SHORT notionnel %.2f",
+                    pair, _avail_short, quote_qty,
+                )
+                return
+            # I5: garde corrélation
+            if _CORRELATION_GUARD_AVAILABLE:
+                _corr_ok_s, _corr_reason_s = check_correlation_guard(pair, bot_state)
+                if not _corr_ok_s:
+                    logger.info("[IBKR-I5] %s — SHORT bloqué par correlation_guard: %s", pair, _corr_reason_s)
+                    return
+            # C3: WAL — SHORT intent avant ordre réel
+            ibkr_wal_write(OP_FX_SHORT_INTENT, {"pair": pair, "quote_qty": quote_qty})
             short_result = safe_forex_short_open(client, pair, quote_qty, current_price=current_price)
             if short_result:
                 entry_price = short_result["entry_price"]
                 real_qty = short_result["quantity"]
+                # C3: WAL — SHORT confirmé, SL pas encore posé
+                ibkr_wal_write(OP_FX_SHORT_CONFIRMED, {
+                    "pair": pair,
+                    "entry_price": entry_price,
+                    "quantity": real_qty,
+                    "order_id": short_result.get("order_id"),
+                })
                 sl_price = entry_price + ibkr_cfg.atr_multiplier_sl * atr if atr else entry_price * 1.02
-                sl_result = place_forex_stop_buy(client, pair, real_qty, sl_price)
+                sl_result = place_forex_stop_buy(client, pair, real_qty, sl_price, lmt_price_offset=ibkr_cfg.sl_limit_offset)
+                if sl_result:
+                    # C3: WAL — SL SHORT posé, chaîne complète
+                    ibkr_wal_write(OP_FX_SHORT_SL_PLACED, {
+                        "pair": pair,
+                        "sl_order_id": sl_result["sl_order_id"],
+                    })
+                    ibkr_wal_clear(pair)
                 with _ibkr_state_lock:
                     pair_state["last_order_side"] = "SHORT"
                     pair_state["entry_price"] = entry_price
@@ -1412,8 +1548,12 @@ def _execute_pair_signal(
                     pair_state["trailing_stop_activated"] = False
                     pair_state["trailing_stop"] = None
                     pair_state["breakeven_activated"] = False
+                    pair_state["short_fail_count"] = 0       # reset circuit-breaker
+                    pair_state["short_blocked_until"] = 0.0  # reset circuit-breaker
                 _save_state(ibkr_cfg, force=True)
                 logger.info("[IBKR] %s SHORT ouvert : qty=%.0f @%.5f SL=%.5f", pair, real_qty, entry_price, sl_price)
+                log_trade(_IBKR_JOURNAL_DIR, pair=pair, side="short", quantity=real_qty,
+                          price=entry_price, scenario=scenario, atr_value=atr, stop_price=sl_price)
                 try:
                     send_email_alert(
                         f"[IBKR-FOREX] SHORT {pair} @{entry_price:.5f}",
@@ -1421,6 +1561,26 @@ def _execute_pair_signal(
                     )
                 except Exception as mail_exc:
                     logger.warning("[IBKR] Email SHORT %s ERREUR : %s", pair, mail_exc)
+            else:
+                # Ordre rejeté (Error 201, CANCELED) — incrémenter circuit-breaker
+                with _ibkr_state_lock:
+                    _fail_cnt = int(pair_state.get("short_fail_count", 0) or 0) + 1
+                    pair_state["short_fail_count"] = _fail_cnt
+                    if _fail_cnt >= 3:
+                        pair_state["short_blocked_until"] = time.time() + 3600.0  # blocage 1h
+                        logger.warning(
+                            "[IBKR] %s — %d rejets SHORT consécutifs, circuit-breaker 1h activé",
+                            pair, _fail_cnt,
+                        )
+                        try:
+                            send_email_alert(
+                                f"[IBKR-FOREX] Circuit-breaker SHORT {pair}",
+                                f"{_fail_cnt} rejets consécutifs (CANCELED / Error 201).\n"
+                                f"SHORT bloqué 1h. Vérifier sizing et paramètres du compte.",
+                            )
+                        except Exception as _cb_mail_exc:
+                            logger.warning("[IBKR] Email circuit-breaker %s ERREUR : %s", pair, _cb_mail_exc)
+                _save_state(ibkr_cfg, force=True)
 
     # ── Branch B : En LONG ───────────────────────────────────────────────────
     elif in_long:
@@ -1465,6 +1625,9 @@ def _execute_pair_signal(
                     bot_state["daily_pnl"] = bot_state.get("daily_pnl", 0.0) + pnl
                 _save_state(ibkr_cfg, force=True)
                 logger.info("[IBKR] %s SELL : @%.5f PnL=%.2f €", pair, exit_price, pnl)
+                _pnl_pct_sell = (pnl / (entry_price * qty_now) * 100.0) if entry_price and qty_now else None
+                log_trade(_IBKR_JOURNAL_DIR, pair=pair, side="sell", quantity=qty_now,
+                          price=exit_price, pnl=pnl, pnl_pct=_pnl_pct_sell)
                 try:
                     send_email_alert(
                         f"[IBKR-FOREX] SELL {pair} @{exit_price:.5f}",
@@ -1516,6 +1679,9 @@ def _execute_pair_signal(
                     bot_state["daily_pnl"] = bot_state.get("daily_pnl", 0.0) + pnl
                 _save_state(ibkr_cfg, force=True)
                 logger.info("[IBKR] %s COVER : @%.5f PnL=%.2f €", pair, exit_price, pnl)
+                _pnl_pct_cover = (pnl / (entry_price * qty_now) * 100.0) if entry_price and qty_now else None
+                log_trade(_IBKR_JOURNAL_DIR, pair=pair, side="cover", quantity=qty_now,
+                          price=exit_price, pnl=pnl, pnl_pct=_pnl_pct_cover)
                 try:
                     send_email_alert(
                         f"[IBKR-FOREX] COVER {pair} @{exit_price:.5f}",
@@ -1653,8 +1819,23 @@ def _process_pair(
 
 def _trading_job(client: IBKRForexClient, ibkr_cfg: IBKRConfig) -> None:
     """Exécute un cycle de trading sur toutes les paires Forex."""
-    if datetime.now().weekday() >= 5:  # 5=samedi, 6=dimanche — marché Forex fermé
+    _now_utc = datetime.utcnow()
+    if _now_utc.weekday() >= 5:  # 5=samedi, 6=dimanche — marché Forex fermé
         logger.info("[IBKR] Cycle backtest/WF ignoré — weekend (marché fermé)")
+        return
+    # I3: fermeture forcée vendredi ≥19:45 UTC (gap weekend)
+    if _now_utc.weekday() == 4 and (_now_utc.hour > 19 or (_now_utc.hour == 19 and _now_utc.minute >= 45)):
+        logger.warning("[IBKR-I3] Vendredi ≥19:45 UTC — fermeture forcée de toutes les positions")
+        for _pdef in FOREX_PAIRS:
+            _fp = _pdef["ibkr_pair"]
+            with _ibkr_state_lock:
+                _fps = bot_state.get(_fp, {})
+            _side = _fps.get("last_order_side")
+            _qty = float(_fps.get("quantity") or 0.0)
+            if _side == "BUY" and _qty > 0:
+                safe_forex_sell(client, _fp, _qty, reason="WEEKEND_CLOSE")
+            elif _side == "SHORT" and _qty > 0:
+                safe_forex_cover(client, _fp, _qty, reason="WEEKEND_CLOSE")
         return
 
     logger.info("[IBKR] ─── Cycle trading démarré ───")
@@ -1732,6 +1913,13 @@ def _check_and_handle_sl_hit(
 
     try:
         order = client.get_order(orderId=int(sl_order_id))
+        if not order:
+            # C5: fallback completed orders (ib.trades() vide après restart IB Gateway)
+            completed = client.get_completed_orders()
+            order = next(
+                (o for o in completed if str(o.get("orderId", "")) == str(sl_order_id)),
+                {},
+            )
         if order.get("status") != "FILLED":
             return False
 
@@ -1820,7 +2008,7 @@ def _live_process_pair(
             if bot_state.get("emergency_halt", False):
                 return
             pair_state = bot_state[pair]
-            in_position = (pair_state.get("last_order_side") == "BUY")
+            in_position = pair_state.get("last_order_side") in ("BUY", "SHORT")
             oos_blocked = pair_state.get("oos_blocked", False)
             best = _live_best_params.get(pair)
             last = _pair_last_indicators.get(pair)
@@ -1830,7 +2018,7 @@ def _live_process_pair(
         # l'email et on skip ce cycle pour éviter une ré-entrée immédiate.
         if _check_and_handle_sl_hit(pair, pair_state, client, ibkr_cfg):
             with _ibkr_state_lock:
-                in_position = (pair_state.get("last_order_side") == "BUY")
+                in_position = pair_state.get("last_order_side") in ("BUY", "SHORT")
             return  # skip panels + signal — prochain cycle = état propre
 
         # ─── IS best fallback + calcul indicateurs si cache absent ───────────────
@@ -1915,6 +2103,10 @@ def _live_process_pair(
                     _disp_price = _close_fb
             except Exception:
                 pass
+        # Persister le prix courant dans le pair_state pour le dashboard
+        if _disp_price > 0:
+            with _ibkr_state_lock:
+                pair_state["ticker_spot_price"] = _disp_price
         try:
             _display_ibkr_forex_balance_panel(
                 pair, ibkr_cfg.initial_capital, _disp_price, in_position, pair_state, console
@@ -1930,30 +2122,46 @@ def _live_process_pair(
                     _entry_px = float(pair_state.get("entry_price") or 0.0)
                     _qty = float(pair_state.get("quantity") or 0.0)
                     _stoch_val = float(last.get("stoch_rsi", 0.0) or 0.0)
-                    _sell_sig = _stoch_val > 0.4
-                    _display_ibkr_sell_panel(
-                        pair, _disp_price, last, _entry_px, _qty, _sell_sig, console, best=_best_disp
-                    )
+                    _side = pair_state.get("last_order_side", "BUY")
+                    if _side == "SHORT":
+                        # SHORT : Branch C de _execute_pair_signal affiche déjà
+                        # _display_ibkr_short_panel avec la bonne condition (stoch < cover_exit).
+                        # Afficher ici _display_ibkr_sell_panel (stoch > 0.4) serait trompeur.
+                        _cover_exit = getattr(ibkr_cfg, "stoch_rsi_cover_exit", 0.20)
+                        _cover_sig = _stoch_val < _cover_exit
+                        _display_ibkr_short_panel(
+                            pair, _disp_price, last, _entry_px, _qty, _cover_sig, console, best=_best_disp,
+                        )
+                    else:
+                        _sell_sig = _stoch_val > 0.4
+                        _display_ibkr_sell_panel(
+                            pair, _disp_price, last, _entry_px, _qty, _sell_sig, console, best=_best_disp,
+                            side=_side,
+                        )
                 else:
-                    _buy_sig, _buy_reason = _check_ibkr_buy_signal(
-                        last, _scenario, _disp_price
-                    )
-                    _display_ibkr_buy_panel(
-                        pair, _disp_price, last, _best_disp, _buy_sig, _buy_reason, console,
-                        oos_blocked=_is_disp_only,
-                    )
-                    # Afficher aussi les conditions SHORT en mode informatif
-                    if _is_disp_only and ibkr_cfg.allow_short:
-                        _short_sig, _short_reason = _check_ibkr_short_signal(
-                            last, _scenario, _disp_price, ibkr_cfg
+                    # Pour les paires OOS-bloquées (_is_disp_only), afficher ici car
+                    # _execute_pair_signal ne sera pas appelé.
+                    # Pour les paires actives, _execute_pair_signal affiche déjà le
+                    # panneau conditions → évite le double affichage.
+                    if _is_disp_only:
+                        _buy_sig, _buy_reason = _check_ibkr_buy_signal(
+                            last, _scenario, _disp_price
                         )
-                        _display_ibkr_short_entry_panel(
-                            pair, _disp_price, last,
-                            short_signal=_short_sig,
-                            short_reason=_short_reason,
-                            con=console,
-                            best=_best_disp,
+                        _display_ibkr_buy_panel(
+                            pair, _disp_price, last, _best_disp, _buy_sig, _buy_reason, console,
+                            oos_blocked=_is_disp_only,
                         )
+                        if ibkr_cfg.allow_short:
+                            _short_sig, _short_reason = _check_ibkr_short_signal(
+                                last, _scenario, _disp_price, ibkr_cfg
+                            )
+                            _display_ibkr_short_entry_panel(
+                                pair, _disp_price, last,
+                                short_signal=_short_sig,
+                                short_reason=_short_reason,
+                                con=console,
+                                best=_best_disp,
+                            )
             except Exception as _cond_err:
                 logger.debug("[IBKR-LIVE] %s \u2014 affichage conditions ignor\u00e9 : %s", pair, _cond_err)
         _run_signal = True
@@ -2122,6 +2330,130 @@ def _init_bot(ibkr_cfg: IBKRConfig) -> None:
         _ensure_pair_state(pair_def["ibkr_pair"])
 
     _save_state(ibkr_cfg, force=True)
+    _backfill_journal_on_startup()
+
+
+def _backfill_journal_on_startup() -> None:
+    """Journalise les positions déjà ouvertes détectées au démarrage.
+
+    Si le bot redémarre avec une position existante mais aucun journal,
+    écrit une entrée synthétique afin que le dashboard affiche le trade.
+    Idempotent : n'écrit que si aucune entrée récente n'existe déjà pour la paire.
+    Détecte aussi les états zombie (entry_price défini sans position active)
+    et écrit l'entrée de fermeture manquante.
+    """
+    import json as _json
+    journal_path = os.path.join(_IBKR_JOURNAL_DIR, "trade_journal.jsonl")
+
+    # Lire le journal : paires déjà journalisées + dernier side connu par paire
+    journaled_pairs: set[str] = set()
+    last_journal_side: dict[str, str] = {}
+    if os.path.exists(journal_path):
+        try:
+            with open(journal_path, encoding="utf-8") as _jf:
+                for _line in _jf:
+                    _line = _line.strip()
+                    if not _line:
+                        continue
+                    try:
+                        _rec = _json.loads(_line)
+                        _jp = _rec.get("pair", "")
+                        journaled_pairs.add(_jp)
+                        last_journal_side[_jp] = _rec.get("side", "").lower()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    with _ibkr_state_lock:
+        _snap = dict(bot_state)
+
+    for pair_def in FOREX_PAIRS:
+        pair = pair_def["ibkr_pair"]
+        ps = _snap.get(pair, {})
+        side = ps.get("last_order_side")
+        entry_price = ps.get("entry_price")
+        quantity = ps.get("quantity")
+
+        if side in ("BUY", "SHORT"):
+            # Backfill entrée ouverte : n'écrire que si pas encore journalisée
+            if pair in journaled_pairs:
+                continue
+            if not entry_price or not quantity:
+                continue
+            # Timestamp : utiliser buy_timestamp si dispo (epoch float)
+            _buy_ts = ps.get("buy_timestamp")
+            if isinstance(_buy_ts, (int, float)) and _buy_ts > 0:
+                _ts = datetime.fromtimestamp(float(_buy_ts), tz=__import__("datetime").timezone.utc).isoformat()
+            else:
+                _ts = None  # log_trade utilisera now()
+
+            log_trade(
+                _IBKR_JOURNAL_DIR,
+                pair=pair,
+                side=side.lower(),
+                quantity=float(quantity),
+                price=float(entry_price),
+                stop_price=ps.get("stop_loss"),
+                extra={"ts": _ts} if _ts else None,
+            )
+            logger.info(
+                "[IBKR-JOURNAL] Backfill démarrage : %s %s @%.5f qty=%.0f",
+                pair, side, float(entry_price), float(quantity),
+            )
+
+        elif entry_price is not None and last_journal_side.get(pair) in ("buy", "short"):
+            # État zombie : entry_price défini mais pas de position active dans l'état,
+            # et dernier journal = ouverture sans fermeture correspondante.
+            # Retrouver la quantité depuis le journal (chercher la dernière ligne d'ouverture)
+            _z_open_qty: float = 0.0
+            try:
+                with open(journal_path, encoding="utf-8") as _jf2:
+                    for _zline in _jf2:
+                        _zline = _zline.strip()
+                        if not _zline:
+                            continue
+                        _zrec = _json.loads(_zline)
+                        if _zrec.get("pair") == pair and _zrec.get("side", "").lower() in ("buy", "short"):
+                            _z_open_qty = float(_zrec.get("qty") or 0)
+            except Exception:
+                pass
+            _z_use_qty = _z_open_qty if _z_open_qty > 0 else float(quantity or 0)
+            _z_ticker = ps.get("ticker_spot_price")
+            _z_sl = ps.get("stop_loss")
+            _z_exit = _z_ticker if _z_ticker else (_z_sl if _z_sl else float(entry_price))
+            _z_open_side = last_journal_side[pair]  # "buy" or "short"
+            _z_pnl = None
+            if _z_use_qty > 0:
+                if _z_open_side == "short":
+                    _z_pnl = (float(entry_price) - float(_z_exit)) * _z_use_qty
+                else:
+                    _z_pnl = (float(_z_exit) - float(entry_price)) * _z_use_qty
+            log_trade(
+                _IBKR_JOURNAL_DIR,
+                pair=pair,
+                side="cover" if _z_open_side == "short" else "sell",
+                quantity=_z_use_qty,
+                price=float(_z_exit),
+                pnl=_z_pnl,
+                extra={"zombie_cleanup": True, "exit_estimated": True},
+            )
+            logger.warning(
+                "[IBKR-JOURNAL] Zombie cleanup %s : close estimé @%.5f qty=%.0f PnL=%.2f",
+                pair, float(_z_exit), _z_use_qty, _z_pnl or 0.0,
+            )
+            # Nettoyer l'état zombie (vider tous les champs de position)
+            with _ibkr_state_lock:
+                _sz = bot_state.setdefault(pair, {})
+                _sz["entry_price"] = None
+                _sz["stop_loss"] = None
+                _sz["min_price"] = None
+                _sz["max_price"] = None
+                _sz["trailing_stop"] = None
+                _sz["trailing_stop_activated"] = False
+                _sz["partial_taken_1"] = False
+                _sz["partial_taken_2"] = False
+                _sz["breakeven_activated"] = False
 
 
 # ─── B-03: Réconciliation post-reconnect ─────────────────────────────────────
@@ -2182,26 +2514,76 @@ def _build_reconnect_handler(
                         logger.warning("[IBKR-B03] Email E3-cas1 ERREUR: %s", _mail_exc)
 
                 elif _live_qty == 0.0 and _state_in_pos:
-                    # Cas 2: live=flat mais état=BUY — position fermée externalement
-                    # (TP touché, fermeture manuelle, ou rollover IBKR).
+                    # Cas 2: live=flat mais état=BUY/SHORT — position fermée externalement
+                    # (SL touché, fermeture manuelle, rollover IBKR, ou daily flatout paper).
+                    # Capturer les données de la position AVANT de vider l'état.
+                    _e3_entry = _rc_ps.get("entry_price")
+                    _e3_qty = float(_rc_ps.get("quantity") or 0.0)
+                    _e3_sl = _rc_ps.get("stop_loss")
+                    _e3_ticker = _rc_ps.get("ticker_spot_price")
                     logger.critical(
                         "[IBKR-B03] %s — état=%s mais aucune position live. "
                         "Fermeture externe détectée — réinitialisation état.",
                         _rc_pair, _state_side,
                     )
+                    # Journaliser la fermeture : prix estimé = ticker > SL > entry
+                    _e3_est_exit = _e3_ticker if _e3_ticker else (_e3_sl if _e3_sl else _e3_entry)
+                    _e3_pnl = None
+                    if _e3_entry and _e3_qty and _e3_est_exit:
+                        if _state_side == "SHORT":
+                            _e3_pnl = (float(_e3_entry) - float(_e3_est_exit)) * _e3_qty
+                        else:  # BUY/LONG
+                            _e3_pnl = (float(_e3_est_exit) - float(_e3_entry)) * _e3_qty
+                        log_trade(
+                            _IBKR_JOURNAL_DIR,
+                            pair=_rc_pair,
+                            side="cover" if _state_side == "SHORT" else "sell",
+                            quantity=_e3_qty,
+                            price=float(_e3_est_exit),
+                            stop_price=float(_e3_sl) if _e3_sl else None,
+                            pnl=_e3_pnl,
+                            extra={"external_close": True, "exit_estimated": True},
+                        )
+                        logger.info(
+                            "[IBKR-B03] %s — close journalisé : %s @%.5f qty=%.0f PnL=%.2f (estimé)",
+                            _rc_pair,
+                            "cover" if _state_side == "SHORT" else "sell",
+                            float(_e3_est_exit), _e3_qty, _e3_pnl,
+                        )
+                    # Réinitialiser l'état complet (tous les champs de position)
                     with _ibkr_state_lock:
                         _s = bot_state.setdefault(_rc_pair, {})
                         _s["last_order_side"] = None
                         _s["quantity"] = 0.0
+                        _s["entry_price"] = None
+                        _s["stop_loss"] = None
                         _s["sl_exchange_placed"] = False
                         _s["sl_order_id"] = None
+                        _s["min_price"] = None
+                        _s["max_price"] = None
+                        _s["trailing_stop"] = None
+                        _s["trailing_stop_activated"] = False
+                        _s["partial_taken_1"] = False
+                        _s["partial_taken_2"] = False
+                        _s["breakeven_activated"] = False
                         _s["e3_reset"] = True
+                        if _e3_pnl is not None:
+                            _e3_today = datetime.utcnow().strftime("%Y-%m-%d")
+                            if bot_state.get("daily_pnl_date") != _e3_today:
+                                bot_state["daily_pnl"] = 0.0
+                                bot_state["daily_pnl_date"] = _e3_today
+                            bot_state["daily_pnl"] = bot_state.get("daily_pnl", 0.0) + _e3_pnl
                     _save_state(ibkr_cfg, force=True)
                     try:
+                        _pnl_str = (
+                            f"\nPnL estimé (prix ticker) : {_e3_pnl:+.2f}"
+                            if _e3_pnl is not None
+                            else "\nPnL : inconnu (données manquantes)"
+                        )
                         send_email_alert(
                             f"[IBKR-B03] {_rc_pair} — position fermée externalement",
                             f"État indiquait {_state_side} mais aucune position sur IB Gateway.\n"
-                            f"État réinitialisé. Vérifier PnL et journaux manuellement.",
+                            f"Trade journalisé automatiquement. État entièrement réinitialisé.{_pnl_str}",
                         )
                     except Exception as _mail_exc:
                         logger.warning("[IBKR-B03] Email E3-cas2 ERREUR: %s", _mail_exc)
@@ -2219,7 +2601,7 @@ def _build_reconnect_handler(
                     "[IBKR-B03] %s — BUY sans SL post-reconnect, re-placement stop=%.5f qty=%.0f",
                     _rc_pair, _sl_p, _qty,
                 )
-                _sl_r = place_forex_stop_loss(fx_client, _rc_pair, _qty, _sl_p)
+                _sl_r = place_forex_stop_loss(fx_client, _rc_pair, _qty, _sl_p, lmt_price_offset=ibkr_cfg.sl_limit_offset)
                 if _sl_r:
                     with _ibkr_state_lock:
                         bot_state[_rc_pair]["sl_order_id"] = _sl_r["sl_order_id"]
@@ -2228,6 +2610,25 @@ def _build_reconnect_handler(
                     logger.info("[IBKR-B03] SL re-placé pour %s orderId=%s", _rc_pair, _sl_r["sl_order_id"])
                 else:
                     logger.error("[IBKR-B03] Impossible de re-placer le SL pour %s", _rc_pair)
+            elif _rc_ps.get("last_order_side") == "SHORT" and not _rc_ps.get("sl_exchange_placed"):
+                # C3: re-placement SL BUY pour positions SHORT orphelines
+                _sl_p = _rc_ps.get("stop_loss")
+                _qty = _rc_ps.get("quantity")
+                if not _sl_p or not _qty:
+                    continue
+                logger.warning(
+                    "[IBKR-B03] %s — SHORT sans SL post-reconnect, re-placement stop=%.5f qty=%.0f",
+                    _rc_pair, _sl_p, _qty,
+                )
+                _sl_r = place_forex_stop_buy(fx_client, _rc_pair, _qty, _sl_p, lmt_price_offset=ibkr_cfg.sl_limit_offset)
+                if _sl_r:
+                    with _ibkr_state_lock:
+                        bot_state[_rc_pair]["sl_order_id"] = _sl_r["sl_order_id"]
+                        bot_state[_rc_pair]["sl_exchange_placed"] = True
+                    _save_state(ibkr_cfg, force=True)
+                    logger.info("[IBKR-B03] SL SHORT re-placé pour %s orderId=%s", _rc_pair, _sl_r["sl_order_id"])
+                else:
+                    logger.error("[IBKR-B03] Impossible de re-placer le SL SHORT pour %s", _rc_pair)
 
     fx_client._on_reconnect = _on_reconnect
 
@@ -2246,6 +2647,12 @@ def main() -> None:
 
     # Charger la config depuis les env vars
     ibkr_cfg = IBKRConfig.from_env()
+    # C4: avertissement si variable absente (valeur par défaut utilisée)
+    if not os.environ.get("IBKR_RISK_PER_TRADE"):
+        logger.warning(
+            "[IBKR-CONFIG] IBKR_RISK_PER_TRADE absent — valeur par défaut %.1f%% appliquée",
+            ibkr_cfg.risk_per_trade * 100,
+        )
     logger.info("[IBKR] Config chargée : %r", ibkr_cfg)
 
     # Connexion IB Gateway
@@ -2278,7 +2685,7 @@ def main() -> None:
                     "[IBKR-WAL] Replay: %s BUY sans SL — re-placement stop=%.5f qty=%.0f",
                     _wp, _sl_p, _qty,
                 )
-                _sl_r = place_forex_stop_loss(client, _wp, _qty, _sl_p)
+                _sl_r = place_forex_stop_loss(client, _wp, _qty, _sl_p, lmt_price_offset=ibkr_cfg.sl_limit_offset)
                 if _sl_r:
                     with _ibkr_state_lock:
                         bot_state[_wp]["sl_order_id"] = _sl_r["sl_order_id"]
@@ -2293,6 +2700,30 @@ def main() -> None:
                     )
             else:
                 logger.warning("[IBKR-WAL] Replay: %s — stop_loss ou quantity absent dans l'état", _wp)
+        elif _wal_entry.get("chain") == "short" and _wps.get("last_order_side") == "SHORT" and not _wps.get("sl_exchange_placed"):
+            # C3: Replay SHORT orphelin
+            _sl_p = _wps.get("stop_loss")
+            _qty = _wps.get("quantity")
+            if _sl_p and _qty:
+                logger.warning(
+                    "[IBKR-WAL] Replay: %s SHORT sans SL — re-placement stop=%.5f qty=%.0f",
+                    _wp, _sl_p, _qty,
+                )
+                _sl_r = place_forex_stop_buy(client, _wp, _qty, _sl_p, lmt_price_offset=ibkr_cfg.sl_limit_offset)
+                if _sl_r:
+                    with _ibkr_state_lock:
+                        bot_state[_wp]["sl_order_id"] = _sl_r["sl_order_id"]
+                        bot_state[_wp]["sl_exchange_placed"] = True
+                    _save_state(ibkr_cfg, force=True)
+                    ibkr_wal_clear(_wp)
+                    logger.info("[IBKR-WAL] Replay OK: SL SHORT re-placé pour %s orderId=%s", _wp, _sl_r["sl_order_id"])
+                else:
+                    logger.error(
+                        "[IBKR-WAL] Replay SHORT échoué pour %s — SL non placé, position sans protection",
+                        _wp,
+                    )
+            else:
+                logger.warning("[IBKR-WAL] Replay: %s — stop_loss ou quantity absent dans l'état (SHORT)", _wp)
 
     # Email de démarrage — permet de vérifier que le SMTP fonctionne
     try:

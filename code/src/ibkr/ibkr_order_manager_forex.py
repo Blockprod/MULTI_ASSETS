@@ -124,8 +124,10 @@ def safe_forex_sell(
 
     logger.info("[IBKR-OM] SELL %s qty=%.0f raison=%s", pair, quantity, reason)
 
+    # C1: orderRef UUID — détection doublons sur retry
+    _order_ref = str(uuid.uuid4())
     try:
-        result = client.order_market_sell(symbol=pair, quantity=quantity)
+        result = client.order_market_sell(symbol=pair, quantity=quantity, orderRef=_order_ref)
         time.sleep(_ORDER_WAIT_SECONDS)
 
         order_status = result.get("status", "UNKNOWN")
@@ -160,11 +162,12 @@ def place_forex_stop_loss(
     pair: str,
     quantity: float,
     stop_price: float,
+    lmt_price_offset: float = 0.00030,
 ) -> Optional[Dict[str, Any]]:
-    """Place un ordre stop-loss natif sur IBKR (StopOrder SELL).
+    """Place un ordre stop-loss natif sur IBKR (StopLimitOrder SELL).
 
-    Équivalent IBKR de STOP_LOSS_LIMIT Binance.
-    Le stop se déclenche dès que le prix descend sous stop_price.
+    Args:
+        lmt_price_offset : écart du prix limit sous le stop (C2 — défaut 3 pips).
 
     Returns:
         Dict avec 'sl_order_id', 'stop_price' ou None si échec.
@@ -191,6 +194,7 @@ def place_forex_stop_loss(
             type="STOP_LOSS",
             quantity=quantity,
             stopPrice=stop_price,
+            lmtPriceOffset=lmt_price_offset,
             orderRef=_sl_order_ref,
         )
         time.sleep(1.0)
@@ -293,8 +297,10 @@ def safe_forex_short_open(
         pair, quantity, quote_qty, current_price,
     )
 
+    # C1: orderRef UUID — détection doublons sur retry
+    _order_ref = str(uuid.uuid4())
     try:
-        result = client.order_market_sell(symbol=pair, quantity=quantity)
+        result = client.order_market_sell(symbol=pair, quantity=quantity, orderRef=_order_ref)
         time.sleep(_ORDER_WAIT_SECONDS)
 
         order_status = result.get("status", "UNKNOWN")
@@ -329,11 +335,12 @@ def place_forex_stop_buy(
     pair: str,
     quantity: float,
     stop_price: float,
+    lmt_price_offset: float = 0.00030,
 ) -> Optional[Dict[str, Any]]:
-    """Place un ordre stop-loss natif pour une position SHORT (StopOrder BUY).
+    """Place un ordre stop-loss natif pour une position SHORT (StopLimitOrder BUY).
 
-    Déclenché dès que le prix MONTE au-dessus de stop_price.
-    Miroir de place_forex_stop_loss pour les positions SHORT.
+    Args:
+        lmt_price_offset : écart du prix limit au-dessus du stop (C2 — défaut 3 pips).
 
     Returns:
         Dict avec 'sl_order_id', 'stop_price' ou None si échec.
@@ -351,6 +358,8 @@ def place_forex_stop_buy(
         pair, quantity, stop_price,
     )
 
+    # C1: orderRef UUID — détection doublons sur retry
+    _sl_order_ref = str(uuid.uuid4())
     try:
         result = client.create_order(
             symbol=pair,
@@ -358,6 +367,8 @@ def place_forex_stop_buy(
             type="STOP_LOSS",
             quantity=quantity,
             stopPrice=stop_price,
+            lmtPriceOffset=lmt_price_offset,
+            orderRef=_sl_order_ref,
         )
         time.sleep(1.0)
 
@@ -400,8 +411,10 @@ def safe_forex_cover(
 
     logger.info("[IBKR-OM] COVER %s qty=%.0f raison=%s", pair, quantity, reason)
 
+    # C1: orderRef UUID — détection doublons sur retry
+    _order_ref = str(uuid.uuid4())
     try:
-        result = client.order_market_buy(symbol=pair, quantity=quantity)
+        result = client.order_market_buy(symbol=pair, quantity=quantity, orderRef=_order_ref)
         time.sleep(_ORDER_WAIT_SECONDS)
 
         order_status = result.get("status", "UNKNOWN")
@@ -435,18 +448,21 @@ def safe_forex_cover(
 
 def _round_to_lot(qty: float, lot_size: float) -> float:
     """Arrondit la quantité au lot IBKR inférieur."""
+    import math
     if lot_size <= 0:
         return qty
-    import math
+    if math.isnan(qty) or math.isinf(qty):
+        return 0.0
     return math.floor(qty / lot_size) * lot_size
 
 
 def _extract_fill_price(order_result: Dict[str, Any], fallback: float) -> float:
-    """Extrait le prix de remplissage moyen d'un résultat d'ordre."""
-    try:
-        price_str = order_result.get("price", "")
-        if price_str and float(price_str) > 0:
-            return float(price_str)
-    except (ValueError, TypeError):
-        pass
+    """A1: Extrait le prix de remplissage moyen — lit avgFillPrice en priorité."""
+    for field in ("avgFillPrice", "price"):
+        try:
+            val_str = order_result.get(field, "")
+            if val_str and float(val_str) > 0:
+                return float(val_str)
+        except (ValueError, TypeError):
+            continue
     return fallback

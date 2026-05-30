@@ -123,11 +123,11 @@ class TestIBKRForexClient:
         assert balance == pytest.approx(10_000.0)
 
     def test_get_symbol_ticker_mock(self, client, mock_ib):
-        # get_symbol_ticker utilise reqMktData avec bid/ask, pas reqTickers
+        # I6: get_symbol_ticker utilise reqTickers (snapshot non-bloquant)
         ticker = MagicMock()
         ticker.bid = 1.0848
         ticker.ask = 1.0852
-        mock_ib.reqMktData.return_value = ticker
+        mock_ib.reqTickers.return_value = [ticker]
         result = client.get_symbol_ticker(symbol="EURUSD")
         assert "price" in result
         assert float(result["price"]) == pytest.approx(1.0850, abs=1e-4)

@@ -350,6 +350,18 @@ body {
 .table tbody tr:hover td { background: #0e1723; }
 .t-sym { color: var(--text-1) !important; font-weight: 600; }
 .t-sym-wrap { display: block; }
+.side-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.badge-long  { background: #0d3321; color: #2ecc71; border: 1px solid #2ecc71; }
+.badge-short { background: #3a0d1a; color: #e74c3c; border: 1px solid #e74c3c; }
 .t-meta {
   display: block;
   margin-top: 3px;
@@ -922,6 +934,9 @@ function renderPositions(pairs) {
     var c = pnl !== null && pnl !== undefined ? signClass(pnl) : "";
     var ema1 = p.entry_ema1;
     var ema2 = p.entry_ema2;
+    var sideStr = (p.side || "BUY").toUpperCase();
+    var sideClass = sideStr === "SHORT" ? "badge-short" : "badge-long";
+    var sideBadge = '<span class="side-badge ' + sideClass + '">' + sideStr + '</span>';
     var activeParts = [];
     if (p.scenario) activeParts.push(p.scenario);
     if (p.timeframe) activeParts.push(p.timeframe);
@@ -938,7 +953,7 @@ function renderPositions(pairs) {
       + '</div>';
 
     return '<tr>'
-      + '<td class="t-sym"><span class="t-sym-wrap">' + esc(sym) + activeHtml + '</span></td>'
+      + '<td class="t-sym"><span class="t-sym-wrap">' + esc(sym) + sideBadge + activeHtml + '</span></td>'
       + '<td class="r">' + formatQty(p.qty) + '</td>'
       + '<td class="r">' + formatPrice(p.entry_price) + '</td>'
       + '<td class="r">' + formatPrice(p.spot_price) + '</td>'
@@ -957,11 +972,17 @@ function renderTrades(trades) {
   tbody.innerHTML = trades.slice(0, 50).map(function (t) {
     var side = (t.side || "").toLowerCase();
     var buy = side === "buy";
+    var isShort = side === "short";
+    var isCover = side === "cover" || side === "sell";
     var isBe = side === "breakeven";
     var isTrail = side === "trail_activated";
     var badge;
     if (buy) {
       badge = '<span class="badge badge-buy">BUY</span>';
+    } else if (isShort) {
+      badge = '<span class="badge badge-short">SHORT</span>';
+    } else if (isCover) {
+      badge = '<span class="badge badge-close">' + (side === "cover" ? "COVER" : "SELL") + '</span>';
     } else if (isBe) {
       badge = '<span class="badge badge-be">BE</span>';
     } else if (isTrail) {
@@ -972,7 +993,7 @@ function renderTrades(trades) {
     var symbol = esc(stripQuote(t.pair || ""));
 
     var details = "";
-    if (buy) {
+    if (buy || isShort) {
       if (t.stop !== null && t.stop !== undefined) {
         details = "SL " + formatPrice(t.stop);
       }

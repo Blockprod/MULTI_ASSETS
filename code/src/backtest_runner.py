@@ -132,11 +132,15 @@ def _compute_mtf_bullish(df_1h: pd.DataFrame, ema_fast: int, ema_slow: int) -> n
 
 _BIN_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'bin'))
 _BUILD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if _BIN_DIR not in sys.path:
-    sys.path.insert(0, _BIN_DIR)
-# Prioritize --inplace build output over code/bin (handles locked .pyd on Windows)
-if _BUILD_DIR not in sys.path:
-    sys.path.insert(0, _BUILD_DIR)
+# code/bin/ doit être en tête absolue de sys.path pour prendre priorité sur code/
+# (le .pyd dans code/ peut être verrouillé par un process, code/bin/ contient le build actif)
+for _d in (_BUILD_DIR, _BIN_DIR):
+    if _d in sys.path:
+        sys.path.remove(_d)
+sys.path.insert(0, _BUILD_DIR)
+sys.path.insert(0, _BIN_DIR)
+# Invalider tout import précédent du moteur Cython (évite le cache sys.modules)
+sys.modules.pop('backtest_engine_standard', None)
 
 import types as _bt_types
 backtest_engine: Optional[_bt_types.ModuleType] = None
@@ -272,18 +276,6 @@ def backtest_from_dataframe(
                     _vol_period = int(getattr(config, 'volume_sma_period', 20))
                     df_work['vol_sma'] = df_work['volume'].rolling(window=_vol_period).mean()
 
-                # A-2: Multi-timeframe filter — compute 4h EMA trend
-                _use_mtf = getattr(config, 'mtf_filter_enabled', False)
-                _mtf_bullish = None
-                if _use_mtf and hasattr(df_work.index, 'freq') or isinstance(df_work.index, pd.DatetimeIndex):
-                    try:
-                        _mtf_fast = getattr(config, 'mtf_ema_fast', 18)
-                        _mtf_slow = getattr(config, 'mtf_ema_slow', 58)
-                        _mtf_bullish = _compute_mtf_bullish(df_work, _mtf_fast, _mtf_slow)
-                    except Exception as _mtf_err:
-                        logger.warning("A-2 MTF computation failed: %s — filter disabled", _mtf_err)
-                        _use_mtf = False
-
                 # Threshold overrides for grid search (None = use config default)
                 _cy_stoch_buy_max   = stoch_buy_max_override   if stoch_buy_max_override   is not None else config.stoch_rsi_buy_max
                 _cy_stoch_buy_min   = stoch_buy_min_override   if stoch_buy_min_override   is not None else config.stoch_rsi_buy_min
@@ -292,6 +284,16 @@ def backtest_from_dataframe(
                 # Leverage kwarg : uniquement pour les nouveaux .pyd (Forex) — backward-compatible
                 _leverage_kw: Dict[str, Any] = {} if leverage == 1.0 else {'leverage': leverage}
                 _allow_short_kw: Dict[str, Any] = {} if not allow_short else {'allow_short': allow_short}
+
+                # ML-03: Adaptive ATR stop multiplier — rolling 30-day median per bar
+                _candles_per_day_cy = max(1.0, periods_per_year / 365.0)
+                _window_30d_cy = max(10, int(_candles_per_day_cy * 30))
+                _atr_s_cy = df_work['atr']
+                _atr_med_30d_cy = _atr_s_cy.rolling(window=_window_30d_cy, min_periods=10).median()
+                _vol_ratio_cy = (_atr_s_cy / _atr_med_30d_cy.replace(0, np.nan)).fillna(1.0)
+                _atr_adaptive_mult_cy = (
+                    config.atr_stop_multiplier * np.sqrt(_vol_ratio_cy)
+                ).clip(1.5, 5.0)
 
                 result = backtest_engine.backtest_from_dataframe_fast(
                     df_work['close'].to_numpy(dtype=np.float64),
@@ -358,10 +360,10 @@ def backtest_from_dataframe(
                     breakeven_enabled=getattr(config, 'breakeven_enabled', True),
                     breakeven_trigger_pct=getattr(config, 'breakeven_trigger_pct', 0.015),
                     cooldown_candles=getattr(config, 'stop_loss_cooldown_candles', 0),
-                    mtf_bullish=_mtf_bullish if _use_mtf and _mtf_bullish is not None else None,
-                    use_mtf_filter=_use_mtf and _mtf_bullish is not None,
+                    use_mtf_filter=False,
                     **_leverage_kw,
                     **_allow_short_kw,
+                    atr_adaptive_multiplier=np.asarray(_atr_adaptive_mult_cy, dtype=np.float64),  # ML-03
                 )
                 _cython_result = {
                     'final_wallet': result['final_wallet'],
@@ -479,23 +481,23 @@ def backtest_from_dataframe(
             _vol_period = int(getattr(config, 'volume_sma_period', 20))
             df_work['vol_sma'] = df_work['volume'].rolling(window=_vol_period).mean()
 
-        # A-2: Multi-timeframe filter (Python fallback)
-        _use_mtf_py = getattr(config, 'mtf_filter_enabled', False)
-        _mtf_bullish_py = None
-        if _use_mtf_py and isinstance(df_work.index, pd.DatetimeIndex):
-            try:
-                _mtf_fast_py = getattr(config, 'mtf_ema_fast', 18)
-                _mtf_slow_py = getattr(config, 'mtf_ema_slow', 58)
-                _mtf_bullish_py = _compute_mtf_bullish(df_work, _mtf_fast_py, _mtf_slow_py)
-            except Exception:
-                _use_mtf_py = False
-
         # P2-02: Précomputer le rang de volume (percentile roulant 50 bars) pour
         # le modèle de slippage stochastique OOS.  0=faible volume, 1=fort volume.
         _vol_rank_arr: Optional[np.ndarray] = None
         if slippage_model is not None and 'volume' in df_work.columns:
             _vol_series = df_work['volume'].rolling(50, min_periods=1).rank(pct=True)
             _vol_rank_arr = _vol_series.to_numpy(dtype=np.float64)
+
+        # ML-03: Adaptive ATR stop multiplier — rolling 30-day median (anti look-ahead)
+        _candles_per_day_py = max(1.0, periods_per_year / 365.0)
+        _window_30d_py = max(10, int(_candles_per_day_py * 30))
+        _atr_s_py = df_work['atr']
+        _atr_med_30d_py = _atr_s_py.rolling(window=_window_30d_py, min_periods=10).median()
+        _vol_ratio_py = (_atr_s_py / _atr_med_30d_py.replace(0, np.nan)).fillna(1.0)
+        _atr_adaptive_mult_py = (
+            config.atr_stop_multiplier * np.sqrt(_vol_ratio_py)
+        ).clip(1.5, 5.0)
+        _atr_adaptive_mult_arr = np.asarray(_atr_adaptive_mult_py, dtype=np.float64)
 
         # --- Python backtest loop ---
         usd = config.initial_wallet
@@ -729,10 +731,6 @@ def backtest_from_dataframe(
                 else:
                     buy_condition &= _vol > _vol_sma
 
-            # A-2: Multi-timeframe filter — 4h trend must be bullish
-            if buy_condition and _use_mtf_py and _mtf_bullish_py is not None:
-                buy_condition = _mtf_bullish_py[i] > 0.5
-
             # P0-SL-GUARD: bloquer l'achat si ATR indisponible → SL incalculable
             _atr_invalid = (
                 row_atr is None
@@ -754,7 +752,7 @@ def backtest_from_dataframe(
                     optimized_price = optimized_price * slippage_model.buy_factor(_vr)
 
                 if sizing_mode == 'risk' and row_atr > 0 and optimized_price > 0:
-                    stop_distance = config.atr_stop_multiplier * row_atr
+                    stop_distance = _atr_adaptive_mult_arr[i] * row_atr
                     if stop_distance > 0:
                         risk_amount = usd * config.risk_per_trade
                         qty_by_risk = risk_amount / stop_distance
@@ -785,7 +783,7 @@ def backtest_from_dataframe(
                     max_price = optimized_price
                     atr_at_entry = row_atr
                     stop_loss_at_entry = optimized_price - (
-                        config.atr_stop_multiplier * atr_at_entry
+                        _atr_adaptive_mult_arr[i] * atr_at_entry
                     )
                     trailing_activation_price_at_entry = optimized_price + (
                         config.atr_multiplier * atr_at_entry

@@ -114,12 +114,6 @@ def generate_buy_condition_checker(
                 except (ValueError, TypeError):
                     pass  # skip filter if data unavailable
 
-        # A-2: Multi-timeframe filter — 4h trend must be bullish
-        if getattr(_cfg, 'mtf_filter_enabled', False):
-            _mtf = row.get('mtf_bullish') if hasattr(row, 'get') else row.get('mtf_bullish', None)
-            if _mtf is not None and float(_mtf) < 0.5:
-                return False, "MTF 4h trend baissier (EMA_fast_4h <= EMA_slow_4h)"
-
         # ML-08 shadow: log ML confidence probability — NEVER blocks signal
         try:
             _m08 = _get_ml08_model()

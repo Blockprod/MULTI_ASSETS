@@ -928,8 +928,11 @@ def get_last_sell_trade_usdc(real_trading_pair: str) -> Tuple[Optional[float], O
     result = _get_last_sell_trade_usdc(real_trading_pair, client)
     return cast(Tuple[Optional[float], Optional[float], Optional[str]], result)
 
-def get_usdc_from_all_sells_since_last_buy(real_trading_pair: str) -> float:
-    return _get_usdc_from_all_sells(real_trading_pair, client)
+def get_usdc_from_all_sells_since_last_buy(
+    real_trading_pair: str,
+    since_timestamp_ms: Optional[int] = None,
+) -> float:
+    return _get_usdc_from_all_sells(real_trading_pair, client, since_timestamp_ms=since_timestamp_ms)
 
 def check_partial_exits_from_history(real_trading_pair: str, entry_price: float) -> Tuple[bool, bool]:
     return _check_partial_exits(real_trading_pair, entry_price, client)
@@ -1092,7 +1095,8 @@ def _fetch_indicators(real_trading_pair: str, time_interval: str, best_params: D
             _ema_s_4h = _df_4h_close.ewm(span=_ema_slow, adjust=False).mean()
             _bullish_4h = (_ema_f_4h > _ema_s_4h).astype(float).shift(1).fillna(0.0)
             _bullish_1h = _bullish_4h.reindex(df.index, method='ffill').fillna(0.0)
-            row['mtf_bullish'] = _bullish_1h.iloc[-2] if len(_bullish_1h) >= 2 else 0.0
+            _mtf_val = _bullish_1h.iloc[-2] if len(_bullish_1h) >= 2 else 0.0
+            row['mtf_bullish'] = _mtf_val
         except Exception as _mtf_err:
             logger.warning("[A-2] MTF computation failed: %s — filter disabled for this cycle", _mtf_err)
 
@@ -2320,6 +2324,12 @@ if __name__ == "__main__":
                         hb_path = os.path.join(os.path.dirname(__file__), "states", "heartbeat.json")
                         os.makedirs(os.path.dirname(hb_path), exist_ok=True)
                         tmp_path = hb_path + ".tmp"
+                        # Supprimer un .tmp orphelin laissé par un crash précédent
+                        try:
+                            if os.path.exists(tmp_path):
+                                os.remove(tmp_path)
+                        except OSError:
+                            pass
                         with open(tmp_path, "w", encoding="utf-8") as f:
                             json.dump(heartbeat, f)
                         os.replace(tmp_path, hb_path)

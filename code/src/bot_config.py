@@ -66,7 +66,7 @@ class Config:
     states_dir: str = "states"
     state_file: str = "bot_state.json"  # C-17: JSON (was .pkl)
     atr_period: int = 14
-    atr_multiplier: float = 4.5  # C2: réduit 8.0→4.5 (activation trailing ~+5% vs +22% avec 8×)
+    atr_multiplier: float = 3.0  # C2: réduit 8.0→4.5→3.0 (R4-audit: activation trailing ~+3% vs +5% avec 4.5×)
     atr_stop_multiplier: float = 3.0
     recv_window: int = 60000  # P1-11: centralisé, utilisé par exchange_client
     risk_per_trade: float = 0.055  # B-2: optimisé 5%→5.5% (Calmar max 2.004)
@@ -80,9 +80,9 @@ class Config:
     backtest_min_notional: float = 5.0  # Filtre Binance simulé en backtest (USDC)
     oos_sharpe_min: float = 0.30     # P1-THRESH: seuil OOS Sharpe minimum (relevé 0.15→0.30)
     oos_win_rate_min: float = 30.0   # P1-THRESH: seuil OOS Win Rate minimum (%)
-    oos_decay_min: float = 0.40      # seuil ratio OOS/FS Sharpe (anti-overfit gate) — relevé 0.05→0.20→0.40
+    oos_decay_min: float = 0.20      # seuil ratio OOS/FS Sharpe (anti-overfit gate) — abaissé 0.40→0.20 (R1-audit: norme institutionnelle crypto)
     oos_strict_mode: bool = True     # C1: True = blocage strict (défaut prod). False = warn-only via OOS_STRICT_MODE=false
-    oos_min_trades: int = 15         # nombre minimum de trades OOS complétés (relevé 10→15)
+    oos_min_trades: int = 8          # nombre minimum de trades OOS complétés (R2-audit: abaissé 15→8, 15 = trop restrictif sur 1h/90j)
     schedule_interval_minutes: int = 2  # P2-02: intervalle schedule (avant: hardcodé)
     risk_free_rate: float = 0.04     # P2-03: taux sans risque annuel (US T-bills)
     email_cooldown_seconds: int = 300  # P2-07: cooldown entre emails d'alerte
@@ -93,10 +93,11 @@ class Config:
     volume_filter_enabled: bool = False  # A-1: filtre volume (désactivé: bench négatif)
     volume_sma_period: int = 20        # A-1: période SMA pour filtre volume
     breakeven_enabled: bool = True     # B-3: break-even stop
-    breakeven_trigger_pct: float = 0.01   # B-3: seuil d'activation (1% → risk-free avant Partial-1 à 2%)
-    stop_loss_cooldown_candles: int = 12   # A-3: cooldown post-stop/breakeven (défaut: 12 candles)
+    breakeven_trigger_pct: float = 0.015  # B-3: seuil d'activation (R6-audit: 1%→1.5% — 1% trop proche du bruit ATR 1h)
+    stop_loss_cooldown_candles: int = 5    # A-3: cooldown post-stop/breakeven (R5-audit: 12→5 — 12h trop long, manque V-recovery)
     stop_loss_cooldown_candles_1d: int = 5   # A-3: override TF 1d — 5 jours (au lieu de 12j avec 12 candles × 86400s)
     mtf_filter_enabled: bool = True    # A-2: filtre multi-timeframe 4h (EMA fast > EMA slow sur 4h)
+    mtf_soft_factor: float = 0.5       # R-P2: soft MTF filter — facteur taille si trend 4h baissier (0.5 = demi-taille)
     mtf_ema_fast: int = 18             # A-2: période EMA rapide sur 4h
     mtf_ema_slow: int = 58             # A-2: période EMA lente sur 4h
     max_parallel_pairs: int = 5      # P2-09: cap parallélisation run_parallel_backtests
@@ -111,7 +112,7 @@ class Config:
     reconcile_min_qty: float = 0.01         # MI-05: quantité minimale pour réconciliation
     reconcile_min_notional: float = 5.0     # MI-05: valeur notionnelle minimale pour réconciliation
     # ST-P1-01: nombre max de positions longues simultanées (guard anti-corrélation)
-    max_concurrent_long: int = 4
+    max_concurrent_long: int = 6  # R7-audit: 4→6 (enforcement non implémenté — valeur cible)
     # TS-P2-01: circuit breaker — quarantaine API Binance après N échecs réseau consécutifs
     circuit_breaker_threshold: int = 10
     circuit_breaker_reset_seconds: int = 60
@@ -196,7 +197,7 @@ class Config:
             else os.path.join(_src_dir, _states_env))
         config_data['state_file'] = os.getenv('STATE_FILE', 'bot_state.json')  # C-17
         config_data['atr_period'] = int(os.getenv('ATR_PERIOD', '14'))
-        config_data['atr_multiplier'] = float(os.getenv('ATR_MULTIPLIER', '4.5'))  # C2
+        config_data['atr_multiplier'] = float(os.getenv('ATR_MULTIPLIER', '3.0'))  # C2 — réduit 4.5→3.0 (R4-audit)
         config_data['atr_stop_multiplier'] = float(os.getenv('ATR_STOP_MULTIPLIER', '3.0'))
         config_data['risk_per_trade'] = float(os.getenv('RISK_PER_TRADE', '0.055'))  # B-2
         config_data['smtp_server'] = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -215,12 +216,12 @@ class Config:
         config_data['oos_win_rate_min'] = float(
             os.getenv('OOS_WIN_RATE_MIN', '30.0'))  # P1-THRESH
         config_data['oos_decay_min'] = float(
-            os.getenv('OOS_DECAY_MIN', '0.40'))        # anti-overfit (relevé 0.05→0.20→0.40)
+            os.getenv('OOS_DECAY_MIN', '0.20'))        # anti-overfit (abaissé 0.40→0.20 — R1-audit)
         config_data['oos_strict_mode'] = (
             os.getenv('OOS_STRICT_MODE', 'true').lower()
             in ('true', '1', 'yes'))  # C1: blocage strict par défaut (désactiver via OOS_STRICT_MODE=false)
         config_data['oos_min_trades'] = int(
-            os.getenv('OOS_MIN_TRADES', '15'))          # min trades OOS (relevé 10→15)
+            os.getenv('OOS_MIN_TRADES', '8'))           # min trades OOS (abaissé 15→8 — R2-audit)
         config_data['schedule_interval_minutes'] = int(
             os.getenv('SCHEDULE_INTERVAL_MINUTES', '2'))  # P2-02
         config_data['risk_free_rate'] = float(
@@ -244,9 +245,9 @@ class Config:
             os.getenv('BREAKEVEN_ENABLED', 'true').lower()
             in ('true', '1', 'yes'))  # B-3
         config_data['breakeven_trigger_pct'] = float(
-            os.getenv('BREAKEVEN_TRIGGER_PCT', '0.01'))  # B-3
+            os.getenv('BREAKEVEN_TRIGGER_PCT', '0.015'))  # B-3 — relevé 0.01→0.015 (R6-audit)
         config_data['stop_loss_cooldown_candles'] = int(
-            os.getenv('STOP_LOSS_COOLDOWN_CANDLES', '12'))  # A-3
+            os.getenv('STOP_LOSS_COOLDOWN_CANDLES', '5'))   # A-3 — abaissé 12→5 (R5-audit)
         config_data['mtf_filter_enabled'] = (
             os.getenv('MTF_FILTER_ENABLED', 'true').lower()
             in ('true', '1', 'yes'))  # A-2
@@ -262,7 +263,7 @@ class Config:
         config_data['max_drawdown_pct'] = float(
             os.getenv('MAX_DRAWDOWN_PCT', '0.15'))  # EM-P2-05
         config_data['max_concurrent_long'] = int(
-            os.getenv('MAX_CONCURRENT_LONG', '4'))  # ST-P1-01
+            os.getenv('MAX_CONCURRENT_LONG', '6'))  # ST-P1-01 — relevé 4→6 (R7-audit)
         config_data['circuit_breaker_threshold'] = int(
             os.getenv('CIRCUIT_BREAKER_THRESHOLD', '10'))  # TS-P2-01
         config_data['circuit_breaker_reset_seconds'] = int(
@@ -331,8 +332,8 @@ class Config:
         # C-15: Warn when config values diverge from Cython default parameter values.
         # backtest_engine_standard.pyx uses runtime params (not compile-time DEFs) —
         # these defaults are overridden by config values at call site.
-        # Reference values updated: atr_multiplier 8.0→4.5 (C2 fix).
-        cython_atr_multiplier = 4.5
+        # Reference values updated: atr_multiplier 8.0→4.5 (C2 fix) → 3.0 (R4-audit).
+        cython_atr_multiplier = 3.0
         cython_atr_stop_multiplier = 3.0
         if abs(self.atr_multiplier - cython_atr_multiplier) > 1e-9:
             logger.warning(

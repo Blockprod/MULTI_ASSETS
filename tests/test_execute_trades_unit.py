@@ -231,7 +231,7 @@ class TestBuyFlow:
         monkeypatch.setattr(ms, 'generate_sell_condition_checker',
                            lambda bp: lambda *a: (False, None))
 
-        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p: usdc)
+        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p, *_: usdc)
         monkeypatch.setattr(ms, 'get_sniper_entry_price', lambda p, price: price)
         monkeypatch.setattr(ms, 'check_if_order_executed', lambda orders, side: False)
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
@@ -395,7 +395,7 @@ class TestBuyGuards:
         monkeypatch.setattr(ms, 'generate_buy_condition_checker',
                            lambda bp: lambda row, usdc_bal: (True, 'EMA_CROSS'))
         monkeypatch.setattr(ms, 'check_if_order_executed', lambda orders, side: side == 'BUY')
-        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p: 1000.0)
+        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p, *_: 1000.0)
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
         monkeypatch.setattr(ms, 'generate_sell_condition_checker',
                            lambda bp: lambda *a: (False, None))
@@ -433,7 +433,7 @@ class TestBuyGuards:
         monkeypatch.setattr(ms, 'generate_buy_condition_checker',
                            lambda bp: lambda row, usdc_bal: (True, 'EMA_CROSS'))
         monkeypatch.setattr(ms, 'check_if_order_executed', lambda orders, side: False)
-        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p: 1000.0)
+        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p, *_: 1000.0)
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
         monkeypatch.setattr(ms, 'generate_sell_condition_checker',
                            lambda bp: lambda *a: (False, None))
@@ -468,7 +468,7 @@ class TestBuyGuards:
         monkeypatch.setattr(ms, 'generate_buy_condition_checker',
                            lambda bp: lambda row, usdc_bal: (True, 'EMA_CROSS'))
         monkeypatch.setattr(ms, 'check_if_order_executed', lambda orders, side: False)
-        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p: 0.0)
+        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p, *_: 0.0)
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
         monkeypatch.setattr(ms, 'generate_sell_condition_checker',
                            lambda bp: lambda *a: (False, None))
@@ -619,7 +619,7 @@ class TestSLRollback:
         monkeypatch.setattr(ms, 'generate_sell_condition_checker',
                            lambda bp: lambda *a: (False, None))
         monkeypatch.setattr(ms, 'check_if_order_executed', lambda orders, side: False)
-        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p: 1000.0)
+        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p, *_: 1000.0)
         monkeypatch.setattr(ms, 'get_sniper_entry_price', lambda p, price: price)
         monkeypatch.setattr(ms, 'can_execute_partial_safely', lambda **kw: True)
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
@@ -674,7 +674,7 @@ class TestSLRollback:
         monkeypatch.setattr(ms, 'generate_sell_condition_checker',
                            lambda bp: lambda *a: (False, None))
         monkeypatch.setattr(ms, 'check_if_order_executed', lambda orders, side: False)
-        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p: 1000.0)
+        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p, *_: 1000.0)
         monkeypatch.setattr(ms, 'get_sniper_entry_price', lambda p, price: price)
         monkeypatch.setattr(ms, 'can_execute_partial_safely', lambda **kw: True)
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
@@ -1095,7 +1095,7 @@ class TestDust:
         monkeypatch.setattr(ms, 'generate_buy_condition_checker',
                            lambda bp: lambda row, usdc_bal: (True, 'EMA_CROSS'))
         monkeypatch.setattr(ms, 'check_if_order_executed', lambda orders, side: False)
-        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p: 1000.0)
+        monkeypatch.setattr(ms, 'get_usdc_from_all_sells_since_last_buy', lambda p, *_: 1000.0)
         monkeypatch.setattr(ms, 'get_sniper_entry_price', lambda p, price: price)
         monkeypatch.setattr(ms, 'check_partial_exits_from_history', lambda p, ep: (False, False))
         monkeypatch.setattr(ms, 'can_execute_partial_safely', lambda **kw: True)

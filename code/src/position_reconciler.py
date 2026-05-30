@@ -294,6 +294,7 @@ def _handle_pair_discrepancy(status: _PairStatus, deps: _ReconcileDeps) -> None:
                     entry_scenario=None, entry_timeframe=None,
                     entry_ema1=None, entry_ema2=None,
                     sl_order_id=None, sl_exchange_placed=False,
+                    buy_timestamp=0.0,
                 )
                 # A-3: cooldown post-SL si configuré
                 _cd_candles_default = getattr(config, 'stop_loss_cooldown_candles', 0)
