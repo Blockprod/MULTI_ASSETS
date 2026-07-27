@@ -1,0 +1,317 @@
+"""
+WATCHDOG MODULE — Process monitor + heartbeat consumer for Trading Bot.
+
+Two-layer health detection:
+  1. Process-level: is the PID still alive?
+  2. Heartbeat-level: is the bot still looping? (heartbeat_kraken.json freshness)
+
+If the heartbeat goes stale (> HEARTBEAT_STALE_SECONDS), the watchdog
+considers the bot hung and restarts it, even if the OS process is alive.
+"""
+
+import sys
+import os
+# Ajout du dossier bin/ au sys.path pour les modules Cython
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'bin')))
+
+import json
+import time
+import shutil
+import subprocess
+import logging
+from logging.handlers import RotatingFileHandler
+from datetime import datetime, timezone
+
+# Configuration du logging
+_log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'logs', 'watchdog_kraken.log')
+os.makedirs(os.path.dirname(_log_file), exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - WATCHDOG - %(levelname)s - %(message)s',
+    handlers=[
+        RotatingFileHandler(_log_file, maxBytes=5*1024*1024, backupCount=3, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+import atexit
+def _close_logger_handlers():
+    for h in logger.handlers:
+        try:
+            h.flush()
+            h.close()
+        except Exception:
+            pass  # intentional: cannot log safely while closing log handlers
+atexit.register(_close_logger_handlers)
+
+# Tentative d'import email (optionnel — watchdog reste fonctionnel sans)
+def _send_email_alert(subject: str, body: str) -> bool:  # noqa: ARG001 — intentional no-op stub
+    return False
+
+_EMAIL_AVAILABLE = False
+try:
+    import sys as _sys
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from email_utils import send_email_alert as _real_send_email_alert
+    _send_email_alert = _real_send_email_alert
+    _EMAIL_AVAILABLE = True
+except Exception:
+    pass  # _EMAIL_AVAILABLE stays False, _send_email_alert stays no-op
+
+def _notify_watchdog_stopped(restart_count: int, reason: str) -> None:
+    """Envoie un email d'alerte quand le watchdog abandonne definitvement."""
+    if not _EMAIL_AVAILABLE:
+        logger.warning("[WATCHDOG] Email non disponible, alerte non envoyée.")
+        return
+    try:
+        subject = "[BOT CRITIQUE] Watchdog arrêté — intervention manuelle requise"
+        body = (
+            f"Le watchdog a cessé de redémarrer le bot de trading.\n\n"
+            f"Raison : {reason}\n"
+            f"Nombre de redémarrages effectués : {restart_count}\n"
+            f"Le bot EST ARRÊTÉ. Intervention manuelle requise.\n"
+        )
+        _send_email_alert(subject, body)
+        logger.info("[WATCHDOG] Email d'alerte critique envoyé.")
+    except Exception as e:
+        logger.error(f"[WATCHDOG] Echec envoi email d'alerte: {e}")
+
+def _notify_bot_restarted(restart_count: int, reason: str) -> None:
+    """Envoie un email d'information quand le bot est redémarré par le watchdog."""
+    if not _EMAIL_AVAILABLE:
+        return
+    try:
+        subject = f"[RESTART #{restart_count}] Bot redémarré — {reason}"
+        body = (
+            f"Le watchdog a redémarré le bot de trading.\n\n"
+            f"Raison         : {reason}\n"
+            f"Redémarrage n° : {restart_count}\n"
+            f"Horodatage     : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"Le bot est de nouveau actif.\n"
+        )
+        _send_email_alert(subject, body)
+        logger.info(f"[WATCHDOG] Email de redémarrage envoyé (raison: {reason}).")
+    except Exception as e:
+        logger.error(f"[WATCHDOG] Echec envoi email de redémarrage: {e}")
+
+
+# Heartbeat staleness threshold (seconds). If heartbeat_kraken.json is older than
+# this, the bot is considered hung even if the process is still running.
+HEARTBEAT_STALE_SECONDS = 600  # 10 minutes (main loop sleeps 120s)
+
+# Disk space monitoring
+DISK_MIN_FREE_MB = 500  # Alert when < 500 MB free on logs partition
+
+
+class TradingBotWatchdog:
+    def __init__(self, script_path=None, check_interval=60,
+                 heartbeat_path=None):
+        if script_path is None:
+            script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'KRAKEN_SYMBOLS.py'))
+        self.script_path = script_path
+        self.check_interval = check_interval
+        self.process = None
+        self.restart_count = 0
+        self.max_restarts_per_hour = 5
+        self.restart_times = []
+        # Default heartbeat path: states/heartbeat_kraken.json relative to script dir
+        if heartbeat_path is None:
+            script_dir = os.path.dirname(os.path.abspath(self.script_path))
+            self.heartbeat_path = os.path.join(script_dir, "states", "heartbeat_kraken.json")
+        else:
+            self.heartbeat_path = heartbeat_path
+        self.reconcile_marker_path = os.path.join(
+            os.path.dirname(os.path.abspath(self.heartbeat_path)),
+            "reconcile_required.json",
+        )
+
+    def write_reconcile_required_marker(self, reason: str) -> None:
+        """Force the next bot boot to reconcile exchange state before buys."""
+        try:
+            os.makedirs(os.path.dirname(self.reconcile_marker_path), exist_ok=True)
+            payload = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "reason": reason,
+                "source": "watchdog",
+                "restart_count": self.restart_count,
+            }
+            with open(self.reconcile_marker_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            logger.warning(
+                "[WATCHDOG] Marker reconcile_required ecrit: %s",
+                self.reconcile_marker_path,
+            )
+        except Exception as e:
+            logger.error("[WATCHDOG] Impossible d'ecrire le marker reconcile_required: %s", e)
+
+    def is_process_running(self):
+        """Vérifie si le processus du bot est en cours d'exécution."""
+        if self.process is None:
+            return False
+        return self.process.poll() is None
+
+    def is_heartbeat_fresh(self) -> bool:
+        """Check if the heartbeat file exists and is recent enough.
+
+        Returns True if:
+          - The file exists AND was written less than HEARTBEAT_STALE_SECONDS ago.
+          - OR the file does not exist (benefit of the doubt during startup).
+        Returns False if the file exists but is stale.
+        """
+        if not os.path.exists(self.heartbeat_path):
+            return True
+        try:
+            with open(self.heartbeat_path, "r") as f:
+                data = json.load(f)
+            ts_str = data.get("timestamp", "")
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - ts).total_seconds()
+            if age > HEARTBEAT_STALE_SECONDS:
+                logger.warning(f"Heartbeat stale: {age:.0f}s old (limit {HEARTBEAT_STALE_SECONDS}s)")
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Error reading heartbeat: {e}")
+            return True  # Don't restart on read errors
+
+    def start_bot(self):
+        """Démarre le bot de trading."""
+        try:
+            logger.info("Démarrage du bot de trading...")
+            self.process = subprocess.Popen(
+                [sys.executable, self.script_path],
+                cwd=os.path.dirname(os.path.abspath(self.script_path))
+            )
+            logger.info(f"Bot démarré avec PID: {self.process.pid}")
+            return True
+        except Exception as e:
+            logger.error(f"Erreur lors du démarrage du bot: {e}")
+            return False
+
+    def stop_bot(self):
+        """Arrête le bot de trading."""
+        if self.process:
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=30)
+                logger.info("Bot arrêté proprement")
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                logger.warning("Bot forcé à s'arrêter")
+            except Exception as e:
+                logger.error(f"Erreur lors de l'arrêt: {e}")
+
+    def should_restart(self):
+        """Vérifie si on peut redémarrer (limite de redémarrages)."""
+        now = datetime.now()
+        # CORRECTIF: utiliser .total_seconds() et non .seconds
+        # (.seconds ne retourne que le composant 0-59, pas la durée totale)
+        self.restart_times = [t for t in self.restart_times
+                              if (now - t).total_seconds() < 3600]
+        if len(self.restart_times) >= self.max_restarts_per_hour:
+            logger.error("Trop de redémarrages en 1 heure. Arrêt du watchdog.")
+            return False
+        return True
+
+    def restart_bot(self, reason: str = "unknown"):
+        """Redémarre le bot avec backoff exponentiel entre les tentatives."""
+        if not self.should_restart():
+            _notify_watchdog_stopped(
+                self.restart_count,
+                f"Limite de {self.max_restarts_per_hour} redémarrages/heure atteinte (dernière raison: {reason})"
+            )
+            return False
+
+        # Backoff exponentiel: 5s, 10s, 20s, 40s, 80s (max 300s)
+        backoff_delay = min(5 * (2 ** len(self.restart_times)), 300)
+        logger.warning(f"Redémarrage du bot dans {backoff_delay}s (raison: {reason}, tentative #{len(self.restart_times) + 1})...")
+        self.write_reconcile_required_marker(reason)
+        self.stop_bot()
+        time.sleep(backoff_delay)
+
+        if self.start_bot():
+            self.restart_count += 1
+            self.restart_times.append(datetime.now())
+            logger.info(f"Bot redémarré (#{self.restart_count})")
+            _notify_bot_restarted(self.restart_count, reason)
+            return True
+        return False
+
+    def check_disk_space(self) -> None:
+        """Check free disk space on the logs partition. Log CRITICAL + email if below threshold."""
+        logs_dir = os.path.join(
+            os.path.dirname(os.path.abspath(self.script_path)), '..', 'logs'
+        )
+        try:
+            usage = shutil.disk_usage(logs_dir)
+            free_mb = usage.free / (1024 * 1024)
+            if free_mb < DISK_MIN_FREE_MB:
+                msg = (
+                    f"Espace disque critique: {free_mb:.0f} MB libres "
+                    f"(seuil: {DISK_MIN_FREE_MB} MB)"
+                )
+                logger.critical("[WATCHDOG] %s", msg)
+                _send_email_alert(
+                    subject=f"[CRITIQUE] Espace disque insuffisant \u2014 {free_mb:.0f} MB libres",
+                    body=(
+                        f"{msg}\n\n"
+                        f"R\u00e9pertoire logs: {logs_dir}\n"
+                        f"Action requise: lib\u00e9rer de l'espace disque."
+                    ),
+                )
+        except Exception as e:
+            logger.error("[WATCHDOG] Impossible de v\u00e9rifier l'espace disque: %s", e)
+
+    def run(self):
+        """Boucle principale du watchdog."""
+        logger.info("Watchdog démarré")
+
+        if not self.start_bot():
+            logger.error("Impossible de démarrer le bot initialement")
+            return
+
+        try:
+            while True:
+                time.sleep(self.check_interval)
+
+                self.check_disk_space()
+
+                if not self.is_process_running():
+                    rc = self.process.returncode if self.process is not None else None
+                    if rc == 0:
+                        # Arrêt volontaire (SIGINT / sys.exit(0)) — ne pas relancer.
+                        logger.info(
+                            "[WATCHDOG] Bot terminé proprement (returncode=0) — "
+                            "pas de redémarrage automatique."
+                        )
+                        _notify_watchdog_stopped(
+                            self.restart_count,
+                            "Arrêt volontaire du bot (returncode=0)"
+                        )
+                        break
+                    logger.warning("Bot arrêté détecté (process dead, returncode=%s)", rc)
+                    if not self.restart_bot(reason=f"process_dead (rc={rc})"):
+                        logger.error("Impossible de redémarrer. Arrêt du watchdog.")
+                        _notify_watchdog_stopped(self.restart_count, f"Echec du redémarrage après process_dead (rc={rc})")
+                        break
+                elif not self.is_heartbeat_fresh():
+                    logger.warning("Bot bloqué détecté (heartbeat stale)")
+                    if not self.restart_bot(reason="heartbeat_stale"):
+                        logger.error("Impossible de redémarrer. Arrêt du watchdog.")
+                        _notify_watchdog_stopped(self.restart_count, "Echec du redémarrage après heartbeat_stale")
+                        break
+                else:
+                    logger.debug("Bot fonctionne normalement")
+
+        except KeyboardInterrupt:
+            logger.info("Arrêt du watchdog demandé")
+            self.stop_bot()
+        except Exception as e:
+            logger.error(f"Erreur watchdog: {e}")
+            self.stop_bot()
+
+
+if __name__ == "__main__":
+    watchdog = TradingBotWatchdog()
+    watchdog.run()

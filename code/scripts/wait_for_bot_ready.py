@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import time
@@ -112,21 +113,24 @@ def wait_for_bot_ready(
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = [] if argv is None else list(argv)
-    timeout_seconds = DEFAULT_TIMEOUT_SECONDS
-    if args:
-        try:
-            timeout_seconds = float(args[0])
-        except ValueError:
-            print(f"[!] Invalid timeout: {args[0]}")
-            return 2
+    parser = argparse.ArgumentParser(description="Wait for a bot heartbeat to become fresh.")
+    parser.add_argument("timeout", nargs="?", type=float, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument("--lock", type=Path, default=DEFAULT_LOCK_PATH)
+    parser.add_argument("--heartbeat", type=Path, default=DEFAULT_HEARTBEAT_PATH)
+    parser.add_argument("--max-age", type=float, default=DEFAULT_MAX_HEARTBEAT_AGE_SECONDS)
+    args = parser.parse_args(None if argv is None else list(argv))
 
-    ok, message = wait_for_bot_ready(timeout_seconds=timeout_seconds)
+    ok, message = wait_for_bot_ready(
+        lock_path=args.lock,
+        heartbeat_path=args.heartbeat,
+        timeout_seconds=args.timeout,
+        max_heartbeat_age_seconds=args.max_age,
+    )
     if ok:
         print(f"[OK] {message}")
         return 0
 
-    print(f"[!] Bot not ready after {timeout_seconds:.0f}s: {message}")
+    print(f"[!] Bot not ready after {args.timeout:.0f}s: {message}")
     return 1
 
 
