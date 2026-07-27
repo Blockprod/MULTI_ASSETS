@@ -9,6 +9,7 @@ If the heartbeat goes stale (> HEARTBEAT_STALE_SECONDS), the watchdog
 considers the bot hung and restarts it, even if the OS process is alive.
 """
 
+import atexit
 import sys
 import os
 # Ajout du dossier bin/ au sys.path pour les modules Cython
@@ -35,7 +36,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-import atexit
 def _close_logger_handlers():
     for h in logger.handlers:
         try:

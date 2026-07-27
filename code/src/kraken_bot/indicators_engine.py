@@ -25,6 +25,7 @@ import logging
 import os
 import sys
 import threading
+import types as _ind_types
 from collections import OrderedDict
 from typing import Any, Callable, Optional, Tuple, cast
 
@@ -58,7 +59,6 @@ _BIN_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '
 if _BIN_DIR not in sys.path:
     sys.path.insert(0, _BIN_DIR)
 
-import types as _ind_types
 _cython_indicators: Optional[_ind_types.ModuleType] = None
 try:
     import indicators as _cython_indicators  # noqa: F811
