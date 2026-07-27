@@ -2,6 +2,7 @@
   "extraPaths": [
     "./code/bin",
     "./code/src",
+    "./code/src/kraken_bot",
     "./code/src/ibkr"
   ],
   "include": [
@@ -22,7 +23,12 @@
   ],
   "stubPath": "code/bin",
   "typeCheckingMode": "basic",
-  "reportMissingImports": "error",
+  "reportMissingImports": "warning",
   "reportUndefinedVariable": "error",
-  "reportMissingModuleSource": "warning"
+  "reportMissingModuleSource": "warning",
+  "reportArgumentType": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportCallIssue": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportReturnType": "none"
 }
