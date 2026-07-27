@@ -1,20 +1,55 @@
 from __future__ import annotations
 
 import base64
+import sys
 import threading
 import time
-from types import SimpleNamespace
 from decimal import Decimal
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import pytest
 
-import exchange_client as ec
-from broker_models import BrokerConfig
-from exceptions import ExchangePermissionError, OrderError
-from kraken_client import KrakenSpotClient
+
+def _load_kraken_modules() -> tuple[ModuleType, Any, type[Exception], type[Exception], Any]:
+    kraken_dir = Path(__file__).resolve().parents[1] / "code" / "src" / "kraken_bot"
+    module_names = ("broker_models", "exceptions", "exchange_client", "kraken_client")
+    original_path = list(sys.path)
+    original_modules = {
+        name: sys.modules[name]
+        for name in module_names
+        if name in sys.modules
+    }
+    try:
+        sys.path.insert(0, str(kraken_dir))
+        for name in module_names:
+            sys.modules.pop(name, None)
+
+        import exchange_client as loaded_ec
+        from broker_models import BrokerConfig as loaded_broker_config
+        from exceptions import ExchangePermissionError as loaded_permission_error
+        from exceptions import OrderError as loaded_order_error
+        from kraken_client import KrakenSpotClient as loaded_kraken_client
+
+        return (
+            loaded_ec,
+            loaded_broker_config,
+            loaded_permission_error,
+            loaded_order_error,
+            loaded_kraken_client,
+        )
+    finally:
+        sys.path[:] = original_path
+        for name in module_names:
+            sys.modules.pop(name, None)
+        sys.modules.update(original_modules)
 
 
-def _client(requests_params: dict[str, object] | None = None) -> KrakenSpotClient:
+ec, BrokerConfig, ExchangePermissionError, OrderError, KrakenSpotClient = _load_kraken_modules()
+
+
+def _client(requests_params: dict[str, object] | None = None) -> Any:
     secret = base64.b64encode(b"test-secret").decode("ascii")
     return KrakenSpotClient(
         BrokerConfig(
@@ -777,7 +812,12 @@ def test_exchange_helpers_delegate_to_kraken(monkeypatch: pytest.MonkeyPatch) ->
             return {"orderId": "SL1", "status": "NEW"}
 
     fake = FakeKraken()
-    monkeypatch.setattr(ec, "_config", SimpleNamespace(bot_mode="LIVE", recv_window=60000))
+    monkeypatch.setattr(
+        ec,
+        "_config",
+        SimpleNamespace(bot_mode="LIVE", recv_window=60000),
+        raising=False,
+    )
 
     buy = ec.safe_market_buy(fake, "XRPUSDC", quoteOrderQty=100.0)
     sell = ec.safe_market_sell(fake, "XRPUSDC", quantity="1")

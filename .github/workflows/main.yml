@@ -39,6 +39,10 @@ jobs:
         env:
           BINANCE_API_KEY: ci_dummy_key
           BINANCE_SECRET_KEY: ci_dummy_secret
+          KRAKEN_API_KEY: ci_dummy_key
+          KRAKEN_SECRET_KEY: ci_dummy_secret
+          KRAKEN_API_URL: https://api.kraken.test
+          KRAKEN_WS_URL: wss://ws-auth.kraken.test/v2
           SENDER_EMAIL: ci@example.com
           RECEIVER_EMAIL: ci@example.com
           GOOGLE_MAIL_PASSWORD: ci_dummy_pwd

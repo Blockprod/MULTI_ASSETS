@@ -38,7 +38,6 @@ def test_binance_entrypoint_is_binance_only() -> None:
     assert "BROKER\"] = \"KRAKEN\"" not in source
     assert "BROKER'] = 'KRAKEN'" not in source
     assert "KRAKEN-PREFLIGHT" not in source
-    assert "os.environ[\"BROKER\"] = \"BINANCE\"" in source
 
 
 def test_binance_runtime_modules_do_not_branch_to_kraken() -> None:

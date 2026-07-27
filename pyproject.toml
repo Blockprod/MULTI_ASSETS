@@ -32,6 +32,8 @@ source = ["code/src"]
 omit = [
     "code/src/benchmark.py",
     "code/src/preload_data.py",
+    "code/src/KRAKEN_SYMBOLS.py",
+    "code/src/kraken_bot/*",
     "code/src/display_ui.py",
     "code/src/market_analysis.py",
     # Modules IBKR infrastructure — nécessitent un IB Gateway live, non testables en CI

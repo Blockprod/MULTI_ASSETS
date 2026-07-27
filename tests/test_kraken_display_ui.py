@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from io import StringIO
 from pathlib import Path
@@ -14,6 +15,11 @@ KRAKEN_SRC = ROOT / "code" / "src" / "kraken_bot"
 
 
 def _load_kraken_display_ui() -> ModuleType:
+    os.environ.setdefault("KRAKEN_API_KEY", "ci_dummy_key")
+    os.environ.setdefault("KRAKEN_SECRET_KEY", "ci_dummy_secret")
+    os.environ.setdefault("KRAKEN_API_URL", "https://api.kraken.test")
+    os.environ.setdefault("KRAKEN_WS_URL", "wss://ws-auth.kraken.test/v2")
+
     saved_path = list(sys.path)
     saved_modules: dict[str, ModuleType] = {}
     for name in ("bot_config", "exchange_client"):

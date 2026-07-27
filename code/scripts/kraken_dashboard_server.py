@@ -22,14 +22,30 @@ _SRC_DIR = os.path.join(_BASE_DIR, "code", "src")
 _KRAKEN_BOT_DIR = os.path.join(_SRC_DIR, "kraken_bot")
 
 _ORIGINAL_SYS_PATH = list(sys.path)
-for _path in (_SCRIPTS_DIR, _SRC_DIR, _KRAKEN_BOT_DIR):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
+_KRAKEN_LOCAL_MODULES = {
+    "broker_models",
+    "exceptions",
+    "kraken_client",
+}
+_ORIGINAL_MODULES = {
+    _name: sys.modules[_name]
+    for _name in _KRAKEN_LOCAL_MODULES
+    if _name in sys.modules
+}
+try:
+    for _path in (_SCRIPTS_DIR, _SRC_DIR, _KRAKEN_BOT_DIR):
+        if _path not in sys.path:
+            sys.path.insert(0, _path)
+    for _name in _KRAKEN_LOCAL_MODULES:
+        sys.modules.pop(_name, None)
 
-from broker_models import BrokerConfig  # noqa: E402
-from kraken_client import KrakenSpotClient  # noqa: E402
-
-sys.path[:] = _ORIGINAL_SYS_PATH
+    from broker_models import BrokerConfig  # noqa: E402
+    from kraken_client import KrakenSpotClient  # noqa: E402
+finally:
+    sys.path[:] = _ORIGINAL_SYS_PATH
+    for _name in _KRAKEN_LOCAL_MODULES:
+        sys.modules.pop(_name, None)
+    sys.modules.update(_ORIGINAL_MODULES)
 
 PORT = int(os.environ.get("KRAKEN_DASHBOARD_PORT", "8084"))
 LOGS_DIR = os.path.join(_SRC_DIR, "logs")

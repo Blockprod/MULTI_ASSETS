@@ -8,7 +8,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Dict, List, Protocol
 
-from exceptions import BalanceUnavailableError, OrderError
+from exceptions import BalanceUnavailableError, CircuitOpenError as CircuitOpenError, OrderError
 
 
 class ExchangePort(Protocol):
